@@ -13,6 +13,10 @@ make stop       # Kill servers on 8000/5173
 make restart    # Stop + start dev mode
 make status     # Check if servers are running
 make logs       # Tail backend + frontend logs
+make lint       # Python (ruff) + TypeScript (tsc + eslint) linting
+make fmt        # Auto-format Python and TypeScript
+make test       # Run Playwright tests (requires make dev running)
+make db-upgrade # Run Alembic database migrations
 ```
 
 Dev logs: `/tmp/dashboard-backend.log`, `/tmp/dashboard-frontend.log`
@@ -63,18 +67,24 @@ Secrets are stored in `config.json` with 0600 permissions. Environment variables
 │   │   │   ├── dashboard.py     # GET /api/dashboard — aggregated overview
 │   │   │   ├── employees.py     # Employee list and detail
 │   │   │   ├── notes.py         # CRUD /api/notes — todos with @mentions
+│   │   │   ├── issues.py        # CRUD /api/issues — local issue tracking
 │   │   │   ├── sync.py          # POST /api/sync — trigger data sync
 │   │   │   ├── auth.py          # Auth status, OAuth flows, secrets, connectors
 │   │   │   ├── profile.py       # GET/PATCH /api/profile, setup status
 │   │   │   ├── priorities.py    # GET /api/priorities — AI morning briefing
+│   │   │   ├── search.py        # GET /api/search — global full-text search
+│   │   │   ├── meetings.py      # GET /api/meetings — meeting notes
 │   │   │   ├── gmail.py         # Gmail search and threads
 │   │   │   ├── calendar_api.py  # Calendar search
 │   │   │   ├── slack_api.py     # Slack search, channels, messaging
 │   │   │   ├── notion_api.py    # Notion search and pages
 │   │   │   ├── github_api.py    # GitHub PRs and issues
-│   │   │   ├── ramp_api.py      # Ramp expenses
+│   │   │   ├── ramp_api.py      # Ramp transactions, bills, vendors
+│   │   │   ├── projects_api.py  # Ramp project/budget tracking
 │   │   │   ├── news.py          # GET /api/news — paginated news feed
-│   │   │   └── claude.py        # WS /api/ws/claude — Claude Code PTY
+│   │   │   ├── claude.py        # WS /api/ws/claude — Claude Code PTY
+│   │   │   ├── claude_sessions.py # Claude Code session management
+│   │   │   └── personas.py      # Claude Code persona management
 │   │   └── connectors/          # External service integrations (plugin architecture)
 │   │       ├── registry.py      # Connector registry + metadata
 │   │       ├── _registrations.py # All connector definitions
@@ -84,9 +94,11 @@ Secrets are stored in `config.json` with 0600 permissions. Environment variables
 │   │       ├── slack.py         # DMs + mentions
 │   │       ├── notion.py        # Recently edited pages
 │   │       ├── github.py        # PR and issue sync
-│   │       ├── ramp.py          # Expense sync
+│   │       ├── ramp.py          # Transaction, bill, and vendor sync
 │   │       ├── granola.py       # Local Granola cache parsing
-│   │       ├── markdown.py      # teams/ directory → employees + meetings
+│   │       ├── markdown.py      # teams/ directory → employees + meetings (legacy)
+│   │       ├── drive.py         # Google Drive (placeholder)
+│   │       ├── sheets.py        # Google Sheets (placeholder)
 │   │       └── news.py          # URL extraction + Google News RSS
 │   ├── frontend/
 │   │   ├── src/
@@ -99,21 +111,32 @@ Secrets are stored in `config.json` with 0600 permissions. Environment variables
 │   │   │   │   └── errorLog.ts  # In-memory error queue
 │   │   │   ├── pages/
 │   │   │   │   ├── DashboardPage.tsx  # Home: priorities, calendar, email, Slack
+│   │   │   │   ├── PrioritiesPage.tsx # Detailed AI priority rankings
 │   │   │   │   ├── SetupPage.tsx      # First-run onboarding wizard
 │   │   │   │   ├── SettingsPage.tsx   # Profile, connectors, sync controls
 │   │   │   │   ├── NotePage.tsx       # Notes with @mention autocomplete
+│   │   │   │   ├── ThoughtsPage.tsx   # Notes prefixed with [t]
+│   │   │   │   ├── IssuesPage.tsx     # Local issue tracking
 │   │   │   │   ├── EmployeePage.tsx   # Person detail
 │   │   │   │   ├── OrgTreePage.tsx    # Team org chart
-│   │   │   │   └── ClaudePage.tsx     # Embedded Claude Code terminal
+│   │   │   │   ├── MeetingsPage.tsx   # Calendar + Granola meeting history
+│   │   │   │   ├── EmailPage.tsx      # Gmail inbox with search
+│   │   │   │   ├── SlackPage.tsx      # Slack messages and channels
+│   │   │   │   ├── NotionPage.tsx     # Notion pages
+│   │   │   │   ├── GitHubPage.tsx     # Pull requests and issues
+│   │   │   │   ├── RampPage.tsx       # Transactions, bills, projects
+│   │   │   │   ├── NewsPage.tsx       # Aggregated news feed
+│   │   │   │   ├── ClaudePage.tsx     # Embedded Claude Code terminal
+│   │   │   │   ├── PersonasPage.tsx   # Claude persona/session management
+│   │   │   │   └── HelpPage.tsx       # Keyboard shortcuts reference
 │   │   │   ├── components/
 │   │   │   │   ├── layout/Sidebar.tsx # Navigation, team list
 │   │   │   │   └── shared/           # TimeAgo, MarkdownRenderer
 │   │   │   └── styles/tufte.css      # All styling (Tufte-inspired)
 │   │   ├── package.json
 │   │   └── vite.config.ts            # Dev proxy to backend
+│   ├── test/                          # Playwright end-to-end tests
 │   └── database/                      # Legacy DB location (auto-detected)
-├── teams/                             # Direct reports (markdown)
-├── executives/                        # Exec team (markdown)
 ├── Makefile                           # Dev workflow
 └── README.md
 ```
@@ -123,10 +146,12 @@ Secrets are stored in `config.json` with 0600 permissions. Environment variables
 | Route | Page | Purpose |
 |-------|------|---------|
 | `/` | DashboardPage | AI morning priorities, calendar, email, Slack, Notion, news |
+| `/priorities` | PrioritiesPage | Detailed AI priority rankings view |
 | `/setup` | SetupPage | First-run onboarding wizard |
 | `/settings` | SettingsPage | Profile, connectors, sync controls |
 | `/notes` | NotePage | Notes CRUD with @mention autocomplete and employee linking |
 | `/thoughts` | ThoughtsPage | Notes prefixed with `[t]` — separate view |
+| `/issues` | IssuesPage | Local issue tracking with priority and sizing |
 | `/news` | NewsPage | Infinite scroll news from Slack, email, Google News |
 | `/team` | OrgTreePage | Org chart: executives + direct reports tree |
 | `/employees/:id` | EmployeePage | Person detail: next meeting, 1:1 topics, notes, history |
@@ -134,23 +159,36 @@ Secrets are stored in `config.json` with 0600 permissions. Environment variables
 | `/slack` | SlackPage | Slack messages and channels |
 | `/notion` | NotionPage | Notion pages |
 | `/github` | GitHubPage | Pull requests and issues |
-| `/ramp` | RampPage | Expense tracking |
+| `/ramp` | RampPage | Transactions, bills, and project tracking |
 | `/meetings` | MeetingsPage | Calendar + Granola meeting history |
 | `/claude` | ClaudePage | Embedded Claude Code terminal via WebSocket |
+| `/personas` | PersonasPage | Claude Code persona and session management |
+| `/help` | HelpPage | Keyboard shortcuts reference |
 
 ## Database Tables
 
-`employees`, `notes`, `calendar_events`, `emails`, `slack_messages`, `notion_pages`, `granola_meetings`, `meeting_files`, `news_items`, `sync_state`, `dismissed_priorities`
+Core: `employees`, `notes`, `note_employees`, `one_on_one_notes`, `calendar_events`, `emails`, `slack_messages`, `notion_pages`, `granola_meetings`, `meeting_files`, `news_items`, `sync_state`, `dismissed_priorities`, `dismissed_dashboard_items`
+
+Issues & projects: `issues`, `issue_employees`, `issue_meetings`, `projects`
+
+GitHub: `github_pull_requests`
+
+Ramp: `ramp_transactions`, `ramp_bills`, `ramp_vendors`
+
+Claude: `personas`, `claude_sessions`, `claude_session_notes`
+
+Caching: `cached_priorities`, `cached_ramp_priorities`, `cached_slack_priorities`, `cached_notion_priorities`, `cached_email_priorities`, `cached_news_priorities`
+
+Full-text search (FTS): `fts_employees`, `fts_notes`, `fts_granola`, `fts_meeting_files`, `fts_one_on_one`, `fts_issues`, `fts_emails`
 
 Schema is in `app/backend/database.py`. Migrations managed by Alembic in `app/backend/alembic/`.
 
 ## Data Sync
 
-Sync is triggered on startup (markdown + Granola only) or manually via UI/API. Only enabled connectors are synced.
+Sync is triggered on startup (Granola only) or manually via UI/API. Only enabled connectors are synced.
 
 | Source | Connector | Auth |
 |--------|-----------|------|
-| Team markdown | `connectors/markdown.py` | Filesystem |
 | Granola | `connectors/granola.py` | Local cache file |
 | Gmail | `connectors/gmail.py` | Google OAuth |
 | Calendar | `connectors/calendar_sync.py` | Google OAuth |
@@ -159,6 +197,8 @@ Sync is triggered on startup (markdown + Granola only) or manually via UI/API. O
 | GitHub | `connectors/github.py` | `gh` CLI |
 | Ramp | `connectors/ramp.py` | Client credentials |
 | News | `connectors/news.py` | None (URL extraction + RSS) |
+
+Legacy: `connectors/markdown.py` can sync team data from `teams/` and `executives/` directories if they exist, but this is no longer the primary team data source.
 
 Employee matching (`utils/employee_matching.py`) maps emails/names to employee IDs.
 
@@ -176,14 +216,14 @@ Users can enter secrets directly in the Settings page UI.
 
 ## Key Conventions
 
-- **No test suite** — no pytest/jest/vitest configured
+- **Tests**: Playwright end-to-end tests in `app/test/` — run with `make test` (requires `make dev` running)
 - **No CSS framework** — all styles in `tufte.css`
 - **All API calls** go through React Query hooks in `api/hooks.ts`
 - **Notes linking**: `@Name` autocomplete, `[1]` prefix forces 1:1, `[t]` prefix marks as thought
-- **Team data** is markdown-driven from `teams/` and `executives/` directories
 - **Local only** — runs on macOS, no cloud deployment, no CI/CD, no Docker
 - **Plugin connectors** — each service self-registers in `connectors/_registrations.py`
 - **Dynamic AI prompts** — `app_config.get_prompt_context()` personalizes all AI calls based on profile
+- **Full-text search** — SQLite FTS indexes across employees, notes, meetings, emails, and issues
 
 ## Dashboard Interaction Guide
 
@@ -272,6 +312,40 @@ curl -s -X POST http://localhost:8000/api/auth/test/{service}
 curl -s http://localhost:8000/api/priorities | python3 -m json.tool
 ```
 
+#### Issues
+```bash
+curl -s http://localhost:8000/api/issues | python3 -m json.tool
+
+curl -s -X POST http://localhost:8000/api/issues \
+  -H "Content-Type: application/json" \
+  -d '{"title": "Fix onboarding flow", "priority": "high", "size": "medium"}'
+
+curl -s -X PATCH http://localhost:8000/api/issues/{issue_id} \
+  -H "Content-Type: application/json" \
+  -d '{"status": "done"}'
+```
+
+#### Search (Global Full-Text)
+```bash
+curl -s "http://localhost:8000/api/search?q=quarterly+review" | python3 -m json.tool
+```
+
+#### Meetings
+```bash
+curl -s http://localhost:8000/api/meetings | python3 -m json.tool
+```
+
+#### Projects (Ramp Budget Tracking)
+```bash
+curl -s http://localhost:8000/api/projects | python3 -m json.tool
+```
+
+#### Claude Sessions & Personas
+```bash
+curl -s http://localhost:8000/api/claude-sessions | python3 -m json.tool
+curl -s http://localhost:8000/api/personas | python3 -m json.tool
+```
+
 #### News
 ```bash
 curl -s "http://localhost:8000/api/news?offset=0&limit=20" | python3 -m json.tool
@@ -317,18 +391,25 @@ The database is at `~/.personal-dashboard/dashboard.db` (or the configured locat
 |-------|-------------|
 | `employees` | id, name, title, reports_to, depth, is_executive |
 | `notes` | id, text, priority, status (open/done), employee_id, is_one_on_one, created_at, due_date |
+| `issues` | id, title, description, priority, size, status, created_at |
 | `calendar_events` | id, summary, start_time, end_time, attendees_json, organizer_email |
 | `emails` | id, thread_id, subject, snippet, from_name, from_email, date, is_unread |
 | `slack_messages` | id, channel_name, channel_type, user_name, text, ts, permalink, is_mention |
 | `notion_pages` | id, title, url, last_edited_time, last_edited_by |
+| `github_pull_requests` | id, number, title, state, author, repo |
 | `granola_meetings` | id, title, created_at, attendees_json, panel_summary_plain, transcript_text |
 | `meeting_files` | id, employee_id, filename, meeting_date, title, summary, action_items_json |
+| `ramp_transactions` | id, amount, merchant_name, card_holder, date |
+| `ramp_bills` | id, vendor_name, amount, due_date, status |
+| `projects` | id, name, budget, spend |
 | `news_items` | id, title, url, source, domain, snippet, found_at |
+| `personas` | id, name, description, system_prompt |
+| `claude_sessions` | id, persona_id, title, created_at |
 | `sync_state` | source, last_sync_at, last_sync_status, last_error, items_synced |
 
 ### Synthesis Patterns
 
-1. **Prep for a 1:1**: `GET /api/employees/{id}` + `GET /api/gmail/search?q=from:{email}` + `GET /api/slack/search?q=from:@{name}` + read `teams/{person}/1-1.md`
+1. **Prep for a 1:1**: `GET /api/employees/{id}` + `GET /api/gmail/search?q=from:{email}` + `GET /api/slack/search?q=from:@{name}`
 2. **Morning briefing**: `GET /api/priorities` + `GET /api/calendar/search` (today) + `GET /api/gmail/search?q=is:unread`
 3. **Person context**: `GET /api/employees/{id}` + Gmail/Slack/Calendar search for that person
 4. **Team status**: SQLite `notes` grouped by employee + upcoming 1:1s + action items

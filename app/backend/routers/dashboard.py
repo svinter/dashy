@@ -118,6 +118,18 @@ def get_dashboard(days: int = Query(7, ge=1, le=90)):
 
         notes_open = db.execute("SELECT COUNT(*) as count FROM notes WHERE status = 'open'").fetchone()["count"]
 
+        drive_recent = [
+            dict(r)
+            for r in db.execute(
+                "SELECT id, name, mime_type, web_view_link, modified_time, "
+                "modified_by_name, owner_name, shared "
+                "FROM drive_files "
+                "WHERE modified_time >= datetime('now', ?) AND trashed = 0 "
+                "ORDER BY modified_time DESC LIMIT 10",
+                (cutoff,),
+            ).fetchall()
+        ]
+
         sync_status = {row["source"]: dict(row) for row in db.execute("SELECT * FROM sync_state").fetchall()}
 
     return {
@@ -127,6 +139,7 @@ def get_dashboard(days: int = Query(7, ge=1, le=90)):
         "meetings_upcoming": meetings_upcoming,
         "notion_recent": notion_recent,
         "github_review_requests": github_review_requests,
+        "drive_recent": drive_recent,
         "notes_open_count": notes_open,
         "sync_status": sync_status,
         "days": days,

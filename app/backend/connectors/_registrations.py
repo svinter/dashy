@@ -25,6 +25,25 @@ register(
     )
 )
 
+# --- Google Drive (Drive + Sheets + Docs) ---
+register(
+    ConnectorInfo(
+        id="google_drive",
+        name="Google Drive",
+        description="Drive files, Google Sheets, and Google Docs",
+        category="oauth",
+        secret_keys=[],
+        help_steps=[
+            "Connect Google (Gmail/Calendar) first — same OAuth token",
+            "Enable this connector to sync recent Drive activity",
+        ],
+        sync_sources=["drive", "sheets", "docs"],
+        default_enabled=False,
+        sync_fn=None,  # Has separate drive/sheets/docs sync fns
+        check_fn="routers.auth._check_google",
+    )
+)
+
 # --- Slack ---
 register(
     ConnectorInfo(

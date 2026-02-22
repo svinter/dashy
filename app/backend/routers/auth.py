@@ -198,6 +198,7 @@ def _get_sync_states() -> dict:
 # Map auth service names to their sync_state source names
 _AUTH_TO_SYNC = {
     "google": ["gmail", "calendar"],
+    "google_drive": ["drive", "sheets", "docs"],
     "slack": ["slack"],
     "notion": ["notion"],
     "granola": ["granola"],
@@ -213,6 +214,7 @@ def auth_status():
 
     services = {
         "google": _check_google(),
+        "google_drive": _check_google(),
         "slack": _check_slack(),
         "notion": _check_notion(),
         "granola": _check_granola(),
@@ -266,6 +268,7 @@ def test_connection(service: str):
     """Test a specific service connection and return detailed status."""
     checkers = {
         "google": _check_google,
+        "google_drive": _check_google,
         "slack": _check_slack,
         "notion": _check_notion,
         "granola": _check_granola,

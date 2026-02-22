@@ -6,12 +6,14 @@ A local-first personal dashboard that centralizes your email, calendar, Slack, N
 
 - **AI Priorities**: Morning briefings powered by Gemini, pulling from your email, Slack, calendar, and notes
 - **Team Management**: Org chart, 1:1 topic tracking, per-person context pages, meeting history
-- **Notes**: Quick-capture with `@mention` autocomplete, employee linking, and keyboard shortcuts
+- **Notes & Issues**: Quick-capture notes with `@mention` autocomplete, plus local issue tracking with priorities and sizing
 - **Unified Inbox**: Gmail, Slack, Notion, and GitHub activity in one view
 - **News Feed**: Aggregated from your Slack channels, email, and Google News RSS
 - **Meetings**: Calendar integration plus Granola transcript sync
-- **Embedded Claude Code**: Full Claude Code CLI terminal inside the dashboard
+- **Embedded Claude Code**: Full Claude Code CLI terminal with persona and session management
+- **Global Search**: `Cmd+K` command palette to search across all data sources
 - **Plugin Connectors**: Enable/disable services as needed — Google, Slack, Notion, GitHub, Ramp, Granola, and more
+- **Keyboard-Driven**: Vim-style navigation, chord shortcuts, and a full shortcut help overlay
 
 ## Quick Start
 
@@ -67,12 +69,12 @@ Secrets are stored in `config.json` with restricted file permissions. Environmen
 
 | Connector | Type | What It Syncs |
 |-----------|------|---------------|
-| Google | OAuth | Gmail, Calendar, Drive |
+| Google | OAuth | Gmail, Calendar, Drive, Sheets |
 | Slack | API Token | DMs, mentions, channel search |
 | Notion | API Token | Recently edited pages |
 | GitHub | CLI (`gh`) | Pull requests, issues, code search |
 | Granola | Local file | Meeting transcripts and notes |
-| Ramp | Client credentials | Expenses, vendors, bills |
+| Ramp | Client credentials | Transactions, bills, vendors |
 | News | None | URL extraction from Slack/email + Google News RSS |
 | Gemini AI | API Key | Powers AI priority rankings |
 
@@ -83,8 +85,10 @@ Each connector includes setup instructions in the app. Enable/disable them in Se
 | Route | Page | Purpose |
 |-------|------|---------|
 | `/` | Dashboard | AI priorities, calendar, email, Slack, Notion, news |
+| `/priorities` | Priorities | Detailed AI priority rankings view |
 | `/notes` | Notes | Task CRUD with @mention autocomplete |
 | `/thoughts` | Thoughts | Personal notes prefixed with `[t]` |
+| `/issues` | Issues | Local issue tracking with priority and sizing |
 | `/team` | Org Chart | Hierarchical team view |
 | `/employees/:id` | Employee | Person detail: meetings, 1:1 topics, notes |
 | `/meetings` | Meetings | Calendar + Granola meeting history |
@@ -92,27 +96,13 @@ Each connector includes setup instructions in the app. Enable/disable them in Se
 | `/slack` | Slack | Message history, channels, DMs |
 | `/notion` | Notion | Recently edited pages |
 | `/github` | GitHub | Pull requests and issues |
-| `/ramp` | Ramp | Expense tracking |
+| `/ramp` | Ramp | Transactions, bills, and project tracking |
 | `/news` | News | Infinite scroll aggregated news |
 | `/claude` | Claude Code | Embedded CLI terminal |
+| `/personas` | Personas | Claude Code persona and session management |
+| `/help` | Help | Keyboard shortcuts reference |
 | `/settings` | Settings | Profile, connectors, sync controls |
 | `/setup` | Setup | First-run onboarding wizard |
-
-## Team Data
-
-Employee profiles and meeting notes are stored as markdown:
-
-```
-teams/{person}/
-  role.md               # Title, responsibilities, goals
-  1-1.md                # Running 1:1 topics
-  meetings/             # Meeting note files
-    2024-01-15-topic.md
-
-executives/{person}/    # Executive team (same structure)
-```
-
-The markdown connector reads these on sync and populates the database.
 
 ## Tech Stack
 
@@ -140,6 +130,12 @@ The markdown connector reads these on sync and populates the database.
 | `make restart` | Stop + start dev mode |
 | `make status` | Check if servers are running |
 | `make logs` | Tail backend + frontend logs |
+| `make lint` | Run Python (ruff) and TypeScript (tsc + eslint) linting |
+| `make fmt` | Auto-format Python and TypeScript |
+| `make test` | Run Playwright tests (requires `make dev` running) |
+| `make db-upgrade` | Run Alembic database migrations |
+| `make db-downgrade` | Roll back last migration |
+| `make db-revision` | Create a new migration |
 
 ## Development
 
@@ -160,19 +156,27 @@ The frontend dev server proxies API requests to `localhost:8000`.
 
 - **Local-only** — runs entirely on your machine, no cloud
 - **Single user** — no auth layer, trusted local environment
-- **Sync-on-demand** — data syncs manually or via the Sync button
+- **Sync-on-demand** — data syncs manually or via the Sync button; Granola syncs on startup
 - **Plugin connectors** — each service self-registers with metadata
-- **Markdown-driven** — team data lives in git-trackable markdown files
+- **Full-text search** — SQLite FTS indexes across employees, notes, meetings, emails, and issues
 
 ## Keyboard Shortcuts
 
 Press `?` in the app to see all shortcuts. Highlights:
 
-- `Cmd+K` — Search across everything
+- `Cmd+K` — Search / command palette
 - `c` — Quick-capture a note
 - `s` — Trigger sync
+- `r` — Refresh page data
+- `u` — Undo last action
 - `j/k` — Navigate lists
-- `r` — Refresh data
+- `g d` — Go to Dashboard (chord: `g` then a letter)
+- `g n` — Go to Notes
+- `g i` — Go to Issues
+- `g m` — Go to Meetings
+- `g c` — Go to Claude
+
+Full navigation chords: `g d` (dashboard), `g n` (notes), `g t` (thoughts), `g i` (issues), `g m` (meetings), `g w` (news), `g p` (team), `g h` (github), `g c` (claude), `g x` (ramp), `g s` (settings).
 
 ## API
 

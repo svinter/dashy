@@ -15,7 +15,8 @@ router = APIRouter(prefix="/api/sync", tags=["sync"])
 
 _sync_lock = threading.Lock()
 _sync_running = False
-_sync_current_source: str | None = None
+_sync_active_sources: set[str] = set()
+_sync_cancel = threading.Event()
 
 
 def _update_sync_state(source: str, status: str, error: str | None, items: int):
@@ -217,6 +218,42 @@ def sync_news():
         _update_sync_state("news", "error", traceback.format_exc(), 0)
 
 
+def sync_drive():
+    try:
+        from connectors.drive import sync_drive_files
+
+        count = sync_drive_files()
+        _update_sync_state("drive", "success", None, count)
+    except ImportError:
+        _update_sync_state("drive", "error", "Drive connector not available", 0)
+    except Exception:
+        _update_sync_state("drive", "error", traceback.format_exc(), 0)
+
+
+def sync_sheets():
+    try:
+        from connectors.sheets import sync_sheets_data
+
+        count = sync_sheets_data()
+        _update_sync_state("sheets", "success", None, count)
+    except ImportError:
+        _update_sync_state("sheets", "error", "Sheets connector not available", 0)
+    except Exception:
+        _update_sync_state("sheets", "error", traceback.format_exc(), 0)
+
+
+def sync_docs():
+    try:
+        from connectors.docs import sync_docs_data
+
+        count = sync_docs_data()
+        _update_sync_state("docs", "success", None, count)
+    except ImportError:
+        _update_sync_state("docs", "error", "Docs connector not available", 0)
+    except Exception:
+        _update_sync_state("docs", "error", traceback.format_exc(), 0)
+
+
 def _is_enabled(connector_id: str) -> bool:
     """Check if a connector is enabled in the registry."""
     try:
@@ -227,62 +264,88 @@ def _is_enabled(connector_id: str) -> bool:
         return True  # Default to enabled if registry not initialized
 
 
+def _tracked(source_key: str, fn, *args, **kwargs):
+    """Wrapper that tracks individual source as active while it runs."""
+    _sync_active_sources.add(source_key)
+    try:
+        fn(*args, **kwargs)
+    finally:
+        _sync_active_sources.discard(source_key)
+
+
+def _run_group(fns: list[tuple[str, callable]], max_workers: int = 3):
+    """Run a list of (source_key, fn) pairs in parallel with tracking."""
+    if not fns:
+        return
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futs = [pool.submit(_tracked, key, fn) for key, fn in fns]
+        for f in as_completed(futs):
+            try:
+                f.result()
+            except Exception:
+                pass
+
+
 def _run_full_sync():
-    global _sync_running, _sync_current_source
+    global _sync_running
+    _sync_cancel.clear()
+    _sync_active_sources.clear()
     try:
         # Group 1: Local sources — fast, no network, run in parallel
-        _sync_current_source = "markdown"
-        local_fns = [sync_meeting_files]
+        local_fns: list[tuple[str, callable]] = [("markdown", sync_meeting_files)]
         if _is_enabled("granola"):
-            local_fns.append(sync_granola)
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            futs = [pool.submit(fn) for fn in local_fns]
-            for f in as_completed(futs):
-                try:
-                    f.result()
-                except Exception:
-                    pass
+            local_fns.append(("granola", sync_granola))
+        _run_group(local_fns, max_workers=2)
+
+        if _sync_cancel.is_set():
+            return
 
         # Group 2: External APIs — independent of each other, run in parallel
-        _sync_current_source = "external"
-        external = []
+        external: list[tuple[str, callable]] = []
         if _is_enabled("google"):
-            external.extend([sync_gmail, sync_calendar])
+            external.extend([("gmail", sync_gmail), ("calendar", sync_calendar)])
         if _is_enabled("slack"):
-            external.append(sync_slack)
+            external.append(("slack", sync_slack))
         if _is_enabled("notion"):
-            external.append(sync_notion)
+            external.append(("notion", sync_notion))
         if _is_enabled("github"):
-            external.append(sync_github)
+            external.append(("github", sync_github))
         if _is_enabled("ramp"):
-            external.extend([sync_ramp, sync_ramp_vendors])
+            external.extend([("ramp", sync_ramp), ("ramp_vendors", sync_ramp_vendors)])
+        if _is_enabled("google_drive"):
+            external.append(("drive", sync_drive))
+        _run_group(external)
 
-        if external:
-            with ThreadPoolExecutor(max_workers=3) as pool:
-                futs = [pool.submit(fn) for fn in external]
-                for f in as_completed(futs):
-                    try:
-                        f.result()
-                    except Exception:
-                        pass
+        if _sync_cancel.is_set():
+            return
+
+        # Group 2.5: Sheets & Docs — depend on drive_files being populated
+        if _is_enabled("google_drive"):
+            _run_group([("sheets", sync_sheets), ("docs", sync_docs)], max_workers=2)
+
+        if _sync_cancel.is_set():
+            return
 
         # Group 3: Bills — depends on vendors being synced first
         if _is_enabled("ramp"):
-            _sync_current_source = "ramp_bills"
-            sync_ramp_bills()
+            _tracked("ramp_bills", sync_ramp_bills)
+
+        if _sync_cancel.is_set():
+            return
 
         # Group 4: News — reads from already-synced slack/email rows, must run last
         if _is_enabled("news"):
-            _sync_current_source = "news"
-            sync_news()
+            _tracked("news", sync_news)
 
-        _sync_current_source = None
+        if _sync_cancel.is_set():
+            return
+
         # Rebuild FTS indexes after all data is refreshed
         from database import rebuild_fts
 
         rebuild_fts()
     finally:
-        _sync_current_source = None
+        _sync_active_sources.clear()
         _sync_running = False
 
 
@@ -295,6 +358,16 @@ def trigger_sync(background_tasks: BackgroundTasks):
         _sync_running = True
     background_tasks.add_task(_run_full_sync)
     return {"status": "started"}
+
+
+@router.post("/cancel")
+def cancel_sync():
+    global _sync_running
+    with _sync_lock:
+        if not _sync_running:
+            return {"status": "not_running"}
+        _sync_cancel.set()
+    return {"status": "cancelling"}
 
 
 @router.post("/{source}")
@@ -314,6 +387,9 @@ def trigger_source_sync(source: str, background_tasks: BackgroundTasks, org_only
         "news": sync_news,
         "ramp_vendors": sync_ramp_vendors,
         "ramp_bills": sync_ramp_bills,
+        "drive": sync_drive,
+        "sheets": sync_sheets,
+        "docs": sync_docs,
     }
     fn = sync_map.get(source)
     if not fn:
@@ -324,11 +400,11 @@ def trigger_source_sync(source: str, background_tasks: BackgroundTasks, org_only
 
 @router.get("/status")
 def get_sync_status():
-    global _sync_running, _sync_current_source
+    global _sync_running
     with get_db_connection(readonly=True) as db:
         rows = db.execute("SELECT * FROM sync_state").fetchall()
     return {
         "running": _sync_running,
-        "current_source": _sync_current_source,
+        "active_sources": sorted(_sync_active_sources),
         "sources": {row["source"]: dict(row) for row in rows},
     }

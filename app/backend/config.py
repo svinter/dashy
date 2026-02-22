@@ -46,6 +46,11 @@ SLACK_MESSAGE_LIMIT = 100
 
 GITHUB_PR_SYNC_LIMIT = 50
 
+DRIVE_SYNC_LIMIT = 100
+DRIVE_SYNC_DAYS = 90
+SHEETS_SYNC_LIMIT = 50
+DOCS_SYNC_LIMIT = 50
+
 
 def get_github_repo() -> str:
     """Get the GitHub repo from user config, with env var fallback."""

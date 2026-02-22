@@ -525,14 +525,12 @@ export function EmployeePage() {
         >
           1:1 Notes
         </button>
-        {(emp.direct_reports?.length > 0 || true) && (
-          <button
-            className={`tab ${activeTab === 'team' ? 'active' : ''}`}
-            onClick={() => setActiveTab('team')}
-          >
-            Team{emp.direct_reports?.length > 0 && ` (${emp.direct_reports.length})`}
-          </button>
-        )}
+        <button
+          className={`tab ${activeTab === 'team' ? 'active' : ''}`}
+          onClick={() => setActiveTab('team')}
+        >
+          Team{emp.direct_reports?.length > 0 && ` (${emp.direct_reports.length})`}
+        </button>
         {emp.role_content && (
           <button
             className={`tab ${activeTab === 'role' ? 'active' : ''}`}

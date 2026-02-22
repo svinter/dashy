@@ -1,0 +1,544 @@
+import { useState, useCallback } from 'react';
+import { Link } from 'react-router-dom';
+import {
+  usePrioritizedDrive,
+  useRefreshPrioritizedDrive,
+  useDismissPrioritizedItem,
+  useCreateIssue,
+  useDocs,
+  useSheets,
+  useSheetValues,
+} from '../api/hooks';
+import type { GoogleSheet } from '../api/types';
+import { TimeAgo } from '../components/shared/TimeAgo';
+import { useFocusNavigation } from '../hooks/useFocusNavigation';
+import { KeyboardHints } from '../components/shared/KeyboardHints';
+
+const TABS = ['Files', 'Docs', 'Sheets'] as const;
+type Tab = (typeof TABS)[number];
+
+const DAY_OPTIONS = [7, 30, 90] as const;
+const SCORE_OPTIONS = [0, 3, 5, 6, 7, 8] as const;
+const DEFAULT_MIN_SCORE = 5;
+
+function mimeLabel(mime: string): string {
+  if (mime.includes('document')) return 'Doc';
+  if (mime.includes('spreadsheet')) return 'Sheet';
+  if (mime.includes('presentation')) return 'Slides';
+  if (mime.includes('pdf')) return 'PDF';
+  if (mime.includes('folder')) return 'Folder';
+  if (mime.includes('image')) return 'Image';
+  if (mime.includes('video')) return 'Video';
+  if (mime.includes('audio')) return 'Audio';
+  return 'File';
+}
+
+function scoreBadge(score: number) {
+  const cls =
+    score >= 8
+      ? 'priority-urgency-high'
+      : score >= 5
+        ? 'priority-urgency-medium'
+        : 'priority-urgency-low';
+  return <span className={`priority-score-badge ${cls}`}>{score}</span>;
+}
+
+// --- Files Tab ---
+
+function FilesTab() {
+  const [days, setDays] = useState(7);
+  const [minScore, setMinScore] = useState(DEFAULT_MIN_SCORE);
+  const { data, isLoading } = usePrioritizedDrive(days);
+  const refresh = useRefreshPrioritizedDrive(days);
+  const dismiss = useDismissPrioritizedItem();
+  const createIssue = useCreateIssue();
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+
+  const toggleExpand = useCallback((id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const allItems = data?.items ?? [];
+  const items = minScore > 0 ? allItems.filter((f) => f.priority_score >= minScore) : allItems;
+  const hiddenCount = allItems.length - items.length;
+
+  const { containerRef } = useFocusNavigation({
+    selector: '.dashboard-item-row',
+    onDismiss: (i) => {
+      if (items[i]) dismiss.mutate({ source: 'drive', item_id: items[i].id });
+    },
+    onOpen: (i) => {
+      if (items[i]?.web_view_link) window.open(items[i].web_view_link, '_blank');
+    },
+    onCreateIssue: (i) => {
+      if (items[i]) createIssue.mutate({ title: items[i].name });
+    },
+    onExpand: (i) => {
+      if (items[i]) toggleExpand(items[i].id);
+    },
+    onToggleFilter: () => setMinScore((prev) => (prev === 0 ? DEFAULT_MIN_SCORE : 0)),
+  });
+
+  return (
+    <>
+      <div className="priorities-header" style={{ marginBottom: 'var(--space-sm)' }}>
+        <span className="day-filter">
+          {DAY_OPTIONS.map((d) => (
+            <button
+              key={d}
+              className={`day-filter-btn${days === d ? ' day-filter-active' : ''}`}
+              onClick={() => setDays(d)}
+            >
+              {d}d
+            </button>
+          ))}
+        </span>
+        <span className="day-filter">
+          {SCORE_OPTIONS.map((s) => (
+            <button
+              key={s}
+              className={`day-filter-btn${minScore === s ? ' day-filter-active' : ''}`}
+              onClick={() => setMinScore(s)}
+              title={s === 0 ? 'Show all (f)' : `Hide scores below ${s} (f)`}
+            >
+              {s === 0 ? 'All' : `${s}+`}
+            </button>
+          ))}
+        </span>
+        <button
+          className="priorities-refresh-btn"
+          onClick={() => refresh.mutate()}
+          disabled={refresh.isPending}
+          title="Re-rank with Gemini"
+        >
+          {refresh.isPending ? 'Ranking...' : 'Refresh'}
+        </button>
+      </div>
+
+      {isLoading && <p className="empty-state">Loading prioritized files...</p>}
+      {data?.error && (
+        <p className="empty-state">
+          Google Drive is not connected. Set up Google Drive in <Link to="/settings">Settings</Link>{' '}
+          to see your files.
+        </p>
+      )}
+      {!isLoading && !data?.error && items.length === 0 && (
+        <p className="empty-state">
+          {hiddenCount > 0
+            ? `${hiddenCount} file${hiddenCount !== 1 ? 's' : ''} hidden below score ${minScore}`
+            : `No files in the last ${days} day${days > 1 ? 's' : ''}`}
+        </p>
+      )}
+
+      <div ref={containerRef}>
+        {items.map((file) => {
+          const isExpanded = expandedIds.has(file.id);
+          const hasPreview = !!file.content_preview || !!file.description;
+          return (
+            <div key={file.id} className="dashboard-item-row">
+              <div
+                className="dashboard-item dashboard-item-link"
+                style={{
+                  display: 'flex',
+                  gap: 'var(--space-sm)',
+                  alignItems: 'flex-start',
+                  cursor: 'pointer',
+                }}
+                onClick={() => window.open(file.web_view_link, '_blank')}
+              >
+                <div style={{ flexShrink: 0, paddingTop: '2px' }}>
+                  {scoreBadge(file.priority_score)}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="dashboard-item-title">
+                    <span
+                      className="priority-score-badge priority-urgency-low"
+                      style={{ fontSize: 'var(--text-xs)', marginRight: 4 }}
+                    >
+                      {mimeLabel(file.mime_type)}
+                    </span>
+                    {file.name}
+                  </div>
+                  <div className="dashboard-item-meta">
+                    {file.owner_name || 'Unknown'}
+                    {file.modified_by_name &&
+                      file.modified_by_name !== file.owner_name &&
+                      ` (edited by ${file.modified_by_name})`}
+                    {' '}&middot;{' '}
+                    <TimeAgo date={file.modified_time} />
+                    {file.shared && ' \u00B7 Shared'}
+                  </div>
+                  {isExpanded && hasPreview && (
+                    <div className="dashboard-item-expanded">
+                      {file.content_preview || file.description}
+                    </div>
+                  )}
+                  {file.priority_reason && (
+                    <div className="dashboard-item-meta" style={{ fontStyle: 'italic' }}>
+                      {file.priority_reason}
+                    </div>
+                  )}
+                </div>
+              </div>
+              {hasPreview && (
+                <button
+                  className="dashboard-expand-btn"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    toggleExpand(file.id);
+                  }}
+                  title={isExpanded ? 'Collapse (e)' : 'Expand (e)'}
+                >
+                  {isExpanded ? '\u25BE' : '\u25B8'}
+                </button>
+              )}
+              <button
+                className="dashboard-dismiss-btn"
+                onClick={() => dismiss.mutate({ source: 'drive', item_id: file.id })}
+                title="Mark as seen"
+              >
+                &times;
+              </button>
+            </div>
+          );
+        })}
+      </div>
+      {hiddenCount > 0 && items.length > 0 && (
+        <p className="empty-state" style={{ marginTop: 'var(--space-md)' }}>
+          {hiddenCount} lower-priority file{hiddenCount !== 1 ? 's' : ''} hidden
+          <button
+            className="day-filter-btn"
+            style={{ marginLeft: 'var(--space-sm)' }}
+            onClick={() => setMinScore(0)}
+          >
+            Show all
+          </button>
+        </p>
+      )}
+      {items.length > 0 && (
+        <KeyboardHints
+          hints={['j/k navigate', 'Enter open', 'e expand', 'd dismiss', 'i create issue', 'f filter']}
+        />
+      )}
+    </>
+  );
+}
+
+// --- Docs Tab ---
+
+function DocsTab() {
+  const [days, setDays] = useState(30);
+  const { data, isLoading } = useDocs(days);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+
+  const docs = data?.docs ?? [];
+
+  const toggleExpand = useCallback((id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const { containerRef } = useFocusNavigation({
+    selector: '.dashboard-item-row',
+    onOpen: (i) => {
+      if (docs[i]?.web_view_link) window.open(docs[i].web_view_link, '_blank');
+    },
+    onExpand: (i) => {
+      if (docs[i]) toggleExpand(docs[i].id);
+    },
+  });
+
+  return (
+    <>
+      <div className="priorities-header" style={{ marginBottom: 'var(--space-sm)' }}>
+        <span className="day-filter">
+          {([7, 30, 90] as const).map((d) => (
+            <button
+              key={d}
+              className={`day-filter-btn${days === d ? ' day-filter-active' : ''}`}
+              onClick={() => setDays(d)}
+            >
+              {d}d
+            </button>
+          ))}
+        </span>
+      </div>
+
+      {isLoading && <p className="empty-state">Loading docs...</p>}
+      {!isLoading && docs.length === 0 && (
+        <p className="empty-state">No Google Docs in the last {days} days</p>
+      )}
+
+      <div ref={containerRef}>
+        {docs.map((doc) => {
+          const isExpanded = expandedIds.has(doc.id);
+          const hasPreview = !!doc.content_preview;
+          return (
+            <div key={doc.id} className="dashboard-item-row">
+              <div
+                className="dashboard-item dashboard-item-link"
+                style={{
+                  display: 'flex',
+                  gap: 'var(--space-sm)',
+                  alignItems: 'flex-start',
+                  cursor: 'pointer',
+                }}
+                onClick={() => window.open(doc.web_view_link, '_blank')}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="dashboard-item-title">{doc.title}</div>
+                  <div className="dashboard-item-meta">
+                    {doc.owner_name || 'Unknown'}
+                    {' '}&middot;{' '}
+                    <TimeAgo date={doc.modified_time} />
+                    {doc.word_count != null && ` \u00B7 ${doc.word_count.toLocaleString()} words`}
+                  </div>
+                  {isExpanded && hasPreview && (
+                    <div className="dashboard-item-expanded">{doc.content_preview}</div>
+                  )}
+                </div>
+              </div>
+              {hasPreview && (
+                <button
+                  className="dashboard-expand-btn"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    toggleExpand(doc.id);
+                  }}
+                  title={isExpanded ? 'Collapse (e)' : 'Expand (e)'}
+                >
+                  {isExpanded ? '\u25BE' : '\u25B8'}
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {docs.length > 0 && (
+        <KeyboardHints hints={['j/k navigate', 'Enter open', 'e expand']} />
+      )}
+    </>
+  );
+}
+
+// --- Sheets Tab ---
+
+function SheetDetailModal({
+  sheet,
+  onClose,
+}: {
+  sheet: GoogleSheet;
+  onClose: () => void;
+}) {
+  const [selectedTab, setSelectedTab] = useState(sheet.sheet_tabs[0]?.title || '');
+  const { data: valuesData, isLoading } = useSheetValues(
+    sheet.id,
+    undefined,
+    selectedTab || undefined
+  );
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div
+        className="modal-content"
+        style={{ maxWidth: 800, maxHeight: '80vh', overflow: 'auto' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div>
+            <h2 style={{ margin: 0 }}>{sheet.title}</h2>
+            <div className="dashboard-item-meta" style={{ marginTop: 4 }}>
+              {sheet.owner_name || 'Unknown'}
+              {' '}&middot;{' '}
+              <TimeAgo date={sheet.modified_time} />
+              {sheet.sheet_tabs.length > 0 && ` \u00B7 ${sheet.sheet_tabs.length} tab${sheet.sheet_tabs.length !== 1 ? 's' : ''}`}
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 'var(--space-sm)' }}>
+            <a
+              href={sheet.web_view_link}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-link"
+            >
+              Open in Sheets
+            </a>
+            <button onClick={onClose} className="btn-link">
+              Close
+            </button>
+          </div>
+        </div>
+
+        {sheet.sheet_tabs.length > 1 && (
+          <div className="day-filter" style={{ marginTop: 'var(--space-md)' }}>
+            {sheet.sheet_tabs.map((t) => (
+              <button
+                key={t.title}
+                className={`day-filter-btn${selectedTab === t.title ? ' day-filter-active' : ''}`}
+                onClick={() => setSelectedTab(t.title)}
+              >
+                {t.title}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div style={{ marginTop: 'var(--space-md)' }}>
+          {isLoading && <p className="empty-state">Loading values...</p>}
+          {valuesData?.values && valuesData.values.length > 0 ? (
+            <div style={{ overflow: 'auto' }}>
+              <table>
+                <tbody>
+                  {valuesData.values.slice(0, 20).map((row, ri) => (
+                    <tr key={ri}>
+                      {row.map((cell, ci) => {
+                        const Tag = ri === 0 ? 'th' : 'td';
+                        return <Tag key={ci}>{cell ?? ''}</Tag>;
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {valuesData.values.length > 20 && (
+                <p className="empty-state">
+                  Showing first 20 of {valuesData.values.length} rows
+                </p>
+              )}
+            </div>
+          ) : (
+            !isLoading && <p className="empty-state">No data in this tab</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SheetsTab() {
+  const [days, setDays] = useState(30);
+  const { data, isLoading } = useSheets(days);
+  const [selectedSheet, setSelectedSheet] = useState<GoogleSheet | null>(null);
+
+  const sheets = data?.sheets ?? [];
+
+  const { containerRef } = useFocusNavigation({
+    selector: '.dashboard-item-row',
+    onOpen: (i) => {
+      if (sheets[i]) setSelectedSheet(sheets[i]);
+    },
+  });
+
+  return (
+    <>
+      <div className="priorities-header" style={{ marginBottom: 'var(--space-sm)' }}>
+        <span className="day-filter">
+          {([7, 30, 90] as const).map((d) => (
+            <button
+              key={d}
+              className={`day-filter-btn${days === d ? ' day-filter-active' : ''}`}
+              onClick={() => setDays(d)}
+            >
+              {d}d
+            </button>
+          ))}
+        </span>
+      </div>
+
+      {isLoading && <p className="empty-state">Loading sheets...</p>}
+      {!isLoading && sheets.length === 0 && (
+        <p className="empty-state">No Google Sheets in the last {days} days</p>
+      )}
+
+      <div ref={containerRef}>
+        {sheets.map((sheet) => {
+          const tabCount = sheet.sheet_tabs.length;
+          const totalRows = sheet.sheet_tabs.reduce((sum, t) => sum + t.row_count, 0);
+          return (
+            <div key={sheet.id} className="dashboard-item-row">
+              <div
+                className="dashboard-item dashboard-item-link"
+                style={{
+                  display: 'flex',
+                  gap: 'var(--space-sm)',
+                  alignItems: 'flex-start',
+                  cursor: 'pointer',
+                }}
+                onClick={() => setSelectedSheet(sheet)}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="dashboard-item-title">{sheet.title}</div>
+                  <div className="dashboard-item-meta">
+                    {sheet.owner_name || 'Unknown'}
+                    {' '}&middot;{' '}
+                    <TimeAgo date={sheet.modified_time} />
+                    {tabCount > 0 && ` \u00B7 ${tabCount} tab${tabCount !== 1 ? 's' : ''}`}
+                    {totalRows > 0 && ` \u00B7 ${totalRows.toLocaleString()} rows`}
+                  </div>
+                </div>
+              </div>
+              <a
+                href={sheet.web_view_link}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="dashboard-expand-btn"
+                title="Open in Sheets"
+                onClick={(e) => e.stopPropagation()}
+              >
+                &#x2197;
+              </a>
+            </div>
+          );
+        })}
+      </div>
+
+      {sheets.length > 0 && (
+        <KeyboardHints hints={['j/k navigate', 'Enter preview']} />
+      )}
+
+      {selectedSheet && (
+        <SheetDetailModal sheet={selectedSheet} onClose={() => setSelectedSheet(null)} />
+      )}
+    </>
+  );
+}
+
+// --- Main Page ---
+
+export function DrivePage() {
+  const [tab, setTab] = useState<Tab>('Files');
+
+  return (
+    <div>
+      <div className="priorities-header">
+        <h1>Drive</h1>
+        <div className="day-filter">
+          {TABS.map((t, i) => (
+            <button
+              key={t}
+              className={`day-filter-btn${tab === t ? ' day-filter-active' : ''}`}
+              onClick={() => setTab(t)}
+              title={`${t} (${i + 1})`}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {tab === 'Files' && <FilesTab />}
+      {tab === 'Docs' && <DocsTab />}
+      {tab === 'Sheets' && <SheetsTab />}
+    </div>
+  );
+}

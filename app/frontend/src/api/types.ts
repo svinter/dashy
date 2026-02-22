@@ -200,7 +200,7 @@ export interface GitHubCodeSearchResult {
 
 export interface SyncStatus {
   running: boolean;
-  current_source?: string | null;
+  active_sources: string[];
   sources: Record<
     string,
     {
@@ -230,6 +230,7 @@ export interface ServiceAuthStatus {
 
 export interface AuthStatus {
   google: ServiceAuthStatus;
+  google_drive: ServiceAuthStatus;
   slack: ServiceAuthStatus;
   notion: ServiceAuthStatus;
   granola: ServiceAuthStatus;
@@ -260,7 +261,7 @@ export interface NewsResponse {
 export interface PriorityItem {
   title: string;
   reason: string;
-  source: 'slack' | 'email' | 'calendar' | 'note';
+  source: 'slack' | 'email' | 'calendar' | 'note' | 'drive';
   urgency: 'high' | 'medium' | 'low';
 }
 
@@ -359,11 +360,22 @@ export interface SearchResults {
       description_snippet?: string;
       created_at: string;
     }[];
+    drive_files?: {
+      id: string;
+      name: string;
+      mime_type: string;
+      web_view_link: string;
+      modified_time: string;
+      owner_name: string | null;
+      name_hl?: string;
+      preview_snippet?: string;
+    }[];
     gmail?: SearchExternalResults;
     slack?: SearchExternalResults;
     calendar?: SearchExternalResults;
     notion?: SearchExternalResults;
     github?: SearchExternalResults;
+    drive?: SearchExternalResults;
   };
 }
 
@@ -402,8 +414,78 @@ export interface DashboardData {
   meetings_upcoming: CalendarEvent[];
   notion_recent: NotionPage[];
   github_review_requests: GitHubPullRequest[];
+  drive_recent?: DriveFile[];
   notes_open_count: number;
   sync_status: Record<string, unknown>;
+}
+
+// --- Drive / Sheets / Docs ---
+
+export interface DriveFile {
+  id: string;
+  name: string;
+  mime_type: string;
+  web_view_link: string;
+  icon_link: string | null;
+  created_time: string;
+  modified_time: string;
+  modified_by_name: string | null;
+  owner_name: string | null;
+  shared: boolean;
+  starred: boolean;
+  trashed: boolean;
+  parent_name: string | null;
+  size_bytes: number | null;
+  description: string | null;
+  content_preview: string | null;
+  thumbnail_link: string | null;
+}
+
+export interface PrioritizedDriveFile extends DriveFile {
+  priority_score: number;
+  priority_reason: string;
+}
+
+export interface PrioritizedDriveData {
+  items: PrioritizedDriveFile[];
+  error?: string;
+}
+
+export interface GoogleSheet {
+  id: string;
+  title: string;
+  web_view_link: string;
+  owner_name: string | null;
+  modified_time: string;
+  sheet_tabs: { title: string; row_count: number; col_count: number }[];
+  locale: string | null;
+  time_zone: string | null;
+}
+
+export interface GoogleSheetsResponse {
+  sheets: GoogleSheet[];
+  total: number;
+}
+
+export interface GoogleDoc {
+  id: string;
+  title: string;
+  web_view_link: string;
+  owner_name: string | null;
+  modified_time: string;
+  content_preview: string | null;
+  word_count: number | null;
+}
+
+export interface GoogleDocsResponse {
+  docs: GoogleDoc[];
+  total: number;
+}
+
+export interface SheetValuesResponse {
+  sheet_id: string;
+  range: string;
+  values: (string | number | null)[][];
 }
 
 export interface PrioritizedNewsItem {

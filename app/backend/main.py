@@ -31,6 +31,7 @@ from routers import (
     claude,
     claude_sessions,
     dashboard,
+    drive_api,
     employees,
     github_api,
     gmail,
@@ -45,6 +46,7 @@ from routers import (
     projects_api,
     ramp_api,
     search,
+    sheets_api,
     slack_api,
     sync,
 )
@@ -98,6 +100,8 @@ app.include_router(notion_api.router)
 app.include_router(github_api.router)
 app.include_router(ramp_api.router)
 app.include_router(projects_api.router)
+app.include_router(drive_api.router)
+app.include_router(sheets_api.router)
 app.include_router(search.router)
 app.include_router(meetings.router)
 app.include_router(issues.router)

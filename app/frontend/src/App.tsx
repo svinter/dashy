@@ -28,6 +28,7 @@ import { RampPage } from './pages/RampPage';
 import { HelpPage } from './pages/HelpPage';
 import { SetupPage } from './pages/SetupPage';
 import { PersonasPage } from './pages/PersonasPage';
+import { DrivePage } from './pages/DrivePage';
 import './styles/tufte.css';
 
 const queryClient = new QueryClient({
@@ -99,6 +100,7 @@ function AppContent() {
             <Route path="/email" element={<EmailPage />} />
             <Route path="/slack" element={<SlackPage />} />
             <Route path="/notion" element={<NotionPage />} />
+            <Route path="/drive" element={<DrivePage />} />
             <Route path="/ramp" element={<RampPage />} />
             <Route path="/ramp/bills" element={<RampPage />} />
             <Route path="/ramp/projects" element={<RampPage />} />

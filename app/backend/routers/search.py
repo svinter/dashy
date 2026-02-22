@@ -154,6 +154,26 @@ def _search_emails(db, fts_query: str, limit: int) -> list[dict]:
         return []
 
 
+def _search_drive_files(db, fts_query: str, limit: int) -> list[dict]:
+    try:
+        rows = db.execute(
+            """SELECT df.id, df.name, df.mime_type, df.web_view_link,
+                      df.modified_time, df.owner_name, df.content_preview,
+                      highlight(fts_drive_files, 0, '<mark>', '</mark>') as name_hl,
+                      snippet(fts_drive_files, 2, '<mark>', '</mark>', '...', 40) as preview_snippet,
+                      rank
+               FROM fts_drive_files
+               JOIN drive_files df ON df.rowid = fts_drive_files.rowid
+               WHERE fts_drive_files MATCH ?
+               ORDER BY rank
+               LIMIT ?""",
+            (fts_query, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
 def _search_one_on_one(db, fts_query: str, limit: int) -> list[dict]:
     try:
         rows = db.execute(
@@ -280,7 +300,29 @@ async def _search_external(q: str, limit: int) -> dict:
         except Exception as e:
             return {"items": [], "error": str(e)}
 
-    gmail, calendar, slack, notion, github = await asyncio.gather(_gmail(), _calendar(), _slack(), _notion(), _github())
+    async def _drive():
+        try:
+            from routers.drive_api import search_drive
+
+            result = await loop.run_in_executor(None, lambda: search_drive(q=q, max_results=limit))
+            return {
+                "items": [
+                    {
+                        "id": f["id"],
+                        "title": f.get("name", ""),
+                        "subtitle": f.get("owner_name", ""),
+                        "date": f.get("modified_time", ""),
+                        "url": f.get("web_view_link", ""),
+                    }
+                    for f in result.get("files", [])[:limit]
+                ]
+            }
+        except Exception as e:
+            return {"items": [], "error": str(e)}
+
+    gmail, calendar, slack, notion, github, drive = await asyncio.gather(
+        _gmail(), _calendar(), _slack(), _notion(), _github(), _drive()
+    )
 
     return {
         "gmail": gmail,
@@ -288,6 +330,7 @@ async def _search_external(q: str, limit: int) -> dict:
         "slack": slack,
         "notion": notion,
         "github": github,
+        "drive": drive,
     }
 
 
@@ -300,7 +343,7 @@ async def search(
 ):
     source_set = set(s.strip() for s in sources.split(","))
     if "all" in source_set:
-        source_set = {"employees", "notes", "meetings", "emails"}
+        source_set = {"employees", "notes", "meetings", "emails", "drive"}
 
     results = {}
 
@@ -321,6 +364,9 @@ async def search(
 
         if "emails" in source_set:
             results["emails"] = _search_emails(db, fts_query, limit)
+
+        if "drive" in source_set:
+            results["drive_files"] = _search_drive_files(db, fts_query, limit)
 
     if include_external:
         external = await _search_external(q, limit)

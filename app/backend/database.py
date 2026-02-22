@@ -137,6 +137,9 @@ FTS_TABLES = [
     "fts_one_on_one",
     "fts_issues",
     "fts_emails",
+    "fts_drive_files",
+    "fts_google_sheets",
+    "fts_google_docs",
 ]
 
 

@@ -1,0 +1,91 @@
+"""Google Docs connector — enriches synced Drive documents with content previews.
+
+Uses Drive API files().export() (drive.readonly scope) instead of Docs API,
+so no additional OAuth scope is needed.
+"""
+
+from googleapiclient.discovery import build
+
+from config import DOCS_SYNC_LIMIT
+from connectors.google_auth import get_google_credentials
+from database import batch_upsert, get_db_connection, get_write_db
+
+
+def sync_docs_data() -> int:
+    """Enrich Google Docs with content previews via Drive export.
+
+    Depends on drive.sync_drive_files() having already populated drive_files.
+    """
+    creds = get_google_credentials()
+    drive_service = build("drive", "v3", credentials=creds)
+
+    # Phase 1: Get Doc IDs from drive_files (already synced)
+    with get_db_connection(readonly=True) as db:
+        rows = db.execute(
+            "SELECT id, web_view_link, owner_email, owner_name, modified_time "
+            "FROM drive_files "
+            "WHERE mime_type = 'application/vnd.google-apps.document' "
+            "ORDER BY modified_time DESC LIMIT ?",
+            (DOCS_SYNC_LIMIT,),
+        ).fetchall()
+
+    if not rows:
+        return 0
+
+    drive_lookup = {r["id"]: dict(r) for r in rows}
+
+    # Phase 2: Export document content as plain text via Drive API
+    enriched = []
+    preview_updates = []
+    for did, df in drive_lookup.items():
+        try:
+            content = drive_service.files().export(fileId=did, mimeType="text/plain").execute()
+            if isinstance(content, bytes):
+                content = content.decode("utf-8", errors="replace")
+            content_preview = content[:1000].strip()
+            word_count = len(content_preview.split())
+
+            # Get title from Drive metadata
+            meta = drive_service.files().get(fileId=did, fields="name").execute()
+            title = meta.get("name", "Untitled")
+
+            enriched.append(
+                (
+                    did,
+                    title,
+                    df.get("web_view_link", ""),
+                    df.get("owner_email", ""),
+                    df.get("owner_name", ""),
+                    df.get("modified_time", ""),
+                    content_preview,
+                    word_count,
+                )
+            )
+
+            # Also update drive_files content_preview
+            preview_updates.append((content_preview[:500], did))
+        except Exception:
+            continue
+
+    # Phase 3: Batch upsert docs
+    with get_write_db() as db:
+        batch_upsert(
+            db,
+            """INSERT OR REPLACE INTO google_docs
+               (id, title, web_view_link, owner_email, owner_name,
+                modified_time, content_preview, word_count)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            enriched,
+        )
+
+    # Update drive_files content_preview for Docs
+    if preview_updates:
+        with get_write_db() as db:
+            for preview, did in preview_updates:
+                db.execute(
+                    "UPDATE drive_files SET content_preview = ? WHERE id = ?",
+                    (preview, did),
+                )
+            db.commit()
+
+    return len(enriched)

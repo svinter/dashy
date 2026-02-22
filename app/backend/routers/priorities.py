@@ -94,6 +94,16 @@ def _build_context(db) -> dict:
         ).fetchall()
     ]
 
+    drive_recent = [
+        dict(r)
+        for r in db.execute(
+            "SELECT name, mime_type, modified_time, modified_by_name, owner_name, shared "
+            "FROM drive_files "
+            "WHERE modified_time >= datetime('now', '-3 days') AND trashed = 0 "
+            "ORDER BY modified_time DESC LIMIT 15"
+        ).fetchall()
+    ]
+
     return {
         "calendar_today": calendar_today,
         "meetings_upcoming": meetings_upcoming,
@@ -101,6 +111,7 @@ def _build_context(db) -> dict:
         "slack_recent": slack_recent,
         "open_notes": open_notes,
         "ramp_bills_notable": ramp_bills_notable,
+        "drive_recent": drive_recent,
     }
 
 
@@ -108,13 +119,13 @@ def _build_system_prompt() -> str:
     ctx = get_prompt_context()
     return f"""\
 You are a morning briefing assistant {ctx}. Your job is to analyze \
-the user's Slack messages, emails, calendar, open notes, and Ramp bills and identify up to 25 important \
-items they should focus on today.
+the user's Slack messages, emails, calendar, open notes, Ramp bills, and recently modified Drive files \
+and identify up to 25 important items they should focus on today.
 
 For each item, provide:
 - A short title (max 10 words)
 - A one-sentence reason why it matters or what action to take
-- The source: "slack", "email", "calendar", "note", or "ramp"
+- The source: "slack", "email", "calendar", "note", "ramp", or "drive"
 - An urgency level: "high", "medium", or "low"
 
 Prioritize:
@@ -125,6 +136,7 @@ Prioritize:
 5. Open notes/tasks that are due or high priority
 6. Anything that looks time-sensitive or blocking someone
 7. Ramp bills that are overdue, pending approval, or unusually large (>$10k)
+8. Recently modified Drive documents shared with you or being actively collaborated on
 
 Ignore and never surface:
 - Marketing, promotional, or newsletter emails

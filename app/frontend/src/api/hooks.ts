@@ -29,6 +29,11 @@ import type {
   Project,
   ProjectsResponse,
   PrioritizedNewsData,
+  PrioritizedDriveData,
+  GoogleSheetsResponse,
+  GoogleDocsResponse,
+  GoogleSheet,
+  SheetValuesResponse,
   ClaudeSession,
   ClaudeSessionContent,
   Persona,
@@ -223,8 +228,23 @@ export function useDismissDashboardItem() {
 }
 
 export function useSync() {
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: () => api.post('/sync'),
+    onSuccess: () => {
+      // Immediately re-poll sync status so the overlay appears without waiting 3s
+      qc.invalidateQueries({ queryKey: ['sync-status'] });
+    },
+  });
+}
+
+export function useCancelSync() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post('/sync/cancel'),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['sync-status'] });
+    },
   });
 }
 
@@ -772,6 +792,64 @@ export function useDeleteProject() {
   });
 }
 
+// --- Drive / Sheets / Docs ---
+
+export function usePrioritizedDrive(days: number = 7) {
+  return useQuery({
+    queryKey: ['drive-prioritized', days],
+    queryFn: () => api.get<PrioritizedDriveData>(`/drive/prioritized?days=${days}`),
+    staleTime: 10 * 60 * 1000,
+  });
+}
+
+export function useRefreshPrioritizedDrive(days: number = 7) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.get<PrioritizedDriveData>(`/drive/prioritized?refresh=true&days=${days}`),
+    onSuccess: (data) => {
+      qc.setQueryData<PrioritizedDriveData>(['drive-prioritized', days], data);
+    },
+  });
+}
+
+export function useDocs(days: number = 30) {
+  return useQuery({
+    queryKey: ['docs', days],
+    queryFn: () => api.get<GoogleDocsResponse>(`/drive/docs?days=${days}`),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useSheets(days: number = 30) {
+  return useQuery({
+    queryKey: ['sheets', days],
+    queryFn: () => api.get<GoogleSheetsResponse>(`/sheets?days=${days}`),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useSheetDetail(id: string | null) {
+  return useQuery({
+    queryKey: ['sheet-detail', id],
+    queryFn: () => api.get<GoogleSheet>(`/sheets/${id}`),
+    enabled: !!id,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useSheetValues(id: string | null, range?: string, tab?: string) {
+  const params = new URLSearchParams();
+  if (range) params.set('range', range);
+  if (tab) params.set('tab', tab);
+  const qs = params.toString();
+  return useQuery({
+    queryKey: ['sheet-values', id, range, tab],
+    queryFn: () => api.get<SheetValuesResponse>(`/sheets/${id}/values${qs ? '?' + qs : ''}`),
+    enabled: !!id,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
 export function useEmailThread(threadId: string | null) {
   return useQuery({
     queryKey: ['email-thread', threadId],
@@ -792,6 +870,7 @@ export function useDismissPrioritizedItem() {
       qc.invalidateQueries({ queryKey: ['email-prioritized'] });
       qc.invalidateQueries({ queryKey: ['ramp-prioritized'] });
       qc.invalidateQueries({ queryKey: ['news-prioritized'] });
+      qc.invalidateQueries({ queryKey: ['drive-prioritized'] });
       qc.invalidateQueries({ queryKey: ['dashboard'] });
       pushUndo({
         label: `${source} item dismissed`,
@@ -801,6 +880,7 @@ export function useDismissPrioritizedItem() {
           qc.invalidateQueries({ queryKey: ['notion-prioritized'] });
           qc.invalidateQueries({ queryKey: ['email-prioritized'] });
           qc.invalidateQueries({ queryKey: ['ramp-prioritized'] });
+          qc.invalidateQueries({ queryKey: ['drive-prioritized'] });
           qc.invalidateQueries({ queryKey: ['dashboard'] });
         },
       });

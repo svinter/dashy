@@ -136,6 +136,7 @@ export function Sidebar() {
     gmail: 'google', calendar: 'google',
     slack: 'slack', notion: 'notion', github: 'github',
     granola: 'granola', ramp: 'ramp', ramp_vendors: 'ramp', ramp_bills: 'ramp',
+    drive: 'google_drive', sheets: 'google_drive', docs: 'google_drive',
     news: 'news',
   };
 
@@ -157,7 +158,7 @@ export function Sidebar() {
           {(active.has('google') || active.has('granola')) && <NavLink to="/meetings">Meetings</NavLink>}
         </nav>
 
-        {(active.has('google') || active.has('slack') || active.has('notion') || active.has('github') || active.has('ramp') || active.has('news')) && (
+        {(active.has('google') || active.has('slack') || active.has('notion') || active.has('github') || active.has('ramp') || active.has('news') || active.has('google_drive')) && (
           <>
             <div className="sidebar-section-label">sources</div>
             <nav>
@@ -166,6 +167,7 @@ export function Sidebar() {
               {active.has('github') && <NavLink to="/github">GitHub</NavLink>}
               {active.has('slack') && <NavLink to="/slack">Slack</NavLink>}
               {active.has('notion') && <NavLink to="/notion">Notion</NavLink>}
+              {active.has('google_drive') && <NavLink to="/drive">Drive</NavLink>}
               {active.has('ramp') && <>
                 <NavLink to="/ramp" end>Ramp</NavLink>
                 {onRampPage && <>
