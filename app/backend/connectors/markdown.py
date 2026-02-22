@@ -82,7 +82,7 @@ def parse_meeting_files(meetings_dir: Path, employee_id: str) -> list[dict]:
 
         meetings.append(
             {
-                "employee_id": employee_id,
+                "person_id": employee_id,
                 "filename": f.name,
                 "filepath": str(f),
                 "meeting_date": meeting_date,

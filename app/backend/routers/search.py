@@ -18,17 +18,18 @@ def _build_fts_query(q: str) -> str:
     return " AND ".join(f'"{w}"*' for w in words)
 
 
-def _search_employees(db, fts_query: str, raw_query: str, limit: int) -> list[dict]:
+def _search_people(db, fts_query: str, raw_query: str, limit: int) -> list[dict]:
     results = []
     try:
         rows = db.execute(
-            """SELECT e.id, e.name, e.title, e.email, e.group_name,
-                      highlight(fts_employees, 0, '<mark>', '</mark>') as name_hl,
-                      highlight(fts_employees, 1, '<mark>', '</mark>') as title_hl,
+            """SELECT p.id, p.name, p.title, p.email, p.group_name,
+                      p.is_coworker, p.company,
+                      highlight(fts_people, 0, '<mark>', '</mark>') as name_hl,
+                      highlight(fts_people, 1, '<mark>', '</mark>') as title_hl,
                       rank
-               FROM fts_employees
-               JOIN employees e ON e.rowid = fts_employees.rowid
-               WHERE fts_employees MATCH ?
+               FROM fts_people
+               JOIN people p ON p.rowid = fts_people.rowid
+               WHERE fts_people MATCH ?
                ORDER BY rank
                LIMIT ?""",
             (fts_query, limit),
@@ -41,8 +42,8 @@ def _search_employees(db, fts_query: str, raw_query: str, limit: int) -> list[di
     if not results and len(raw_query.strip()) <= 2:
         pattern = f"%{raw_query}%"
         rows = db.execute(
-            """SELECT id, name, title, email, group_name
-               FROM employees WHERE name LIKE ? OR title LIKE ?
+            """SELECT id, name, title, email, group_name, is_coworker, company
+               FROM people WHERE name LIKE ? OR title LIKE ?
                LIMIT ?""",
             (pattern, pattern, limit),
         ).fetchall()
@@ -54,14 +55,14 @@ def _search_employees(db, fts_query: str, raw_query: str, limit: int) -> list[di
 def _search_notes(db, fts_query: str, limit: int) -> list[dict]:
     try:
         rows = db.execute(
-            """SELECT n.id, n.text, n.status, n.employee_id, n.is_one_on_one,
+            """SELECT n.id, n.text, n.status, n.person_id, n.is_one_on_one,
                       n.created_at, n.due_date,
-                      e.name as employee_name,
+                      p.name as person_name,
                       highlight(fts_notes, 0, '<mark>', '</mark>') as text_hl,
                       rank
                FROM fts_notes
                JOIN notes n ON n.id = fts_notes.rowid
-               LEFT JOIN employees e ON n.employee_id = e.id
+               LEFT JOIN people p ON n.person_id = p.id
                WHERE fts_notes MATCH ?
                ORDER BY rank
                LIMIT ?""",
@@ -75,14 +76,14 @@ def _search_notes(db, fts_query: str, limit: int) -> list[dict]:
 def _search_granola(db, fts_query: str, limit: int) -> list[dict]:
     try:
         rows = db.execute(
-            """SELECT g.id, g.title, g.created_at, g.employee_id, g.granola_link,
-                      e.name as employee_name,
+            """SELECT g.id, g.title, g.created_at, g.person_id, g.granola_link,
+                      p.name as person_name,
                       highlight(fts_granola, 0, '<mark>', '</mark>') as title_hl,
                       snippet(fts_granola, 1, '<mark>', '</mark>', '...', 40) as summary_snippet,
                       rank
                FROM fts_granola
                JOIN granola_meetings g ON g.rowid = fts_granola.rowid
-               LEFT JOIN employees e ON g.employee_id = e.id
+               LEFT JOIN people p ON g.person_id = p.id
                WHERE fts_granola MATCH ? AND g.valid_meeting = 1
                ORDER BY rank
                LIMIT ?""",
@@ -96,14 +97,14 @@ def _search_granola(db, fts_query: str, limit: int) -> list[dict]:
 def _search_meeting_files(db, fts_query: str, limit: int) -> list[dict]:
     try:
         rows = db.execute(
-            """SELECT mf.id, mf.title, mf.meeting_date, mf.employee_id, mf.summary,
-                      e.name as employee_name,
+            """SELECT mf.id, mf.title, mf.meeting_date, mf.person_id, mf.summary,
+                      p.name as person_name,
                       highlight(fts_meeting_files, 0, '<mark>', '</mark>') as title_hl,
                       snippet(fts_meeting_files, 1, '<mark>', '</mark>', '...', 40) as summary_snippet,
                       rank
                FROM fts_meeting_files
                JOIN meeting_files mf ON mf.id = fts_meeting_files.rowid
-               LEFT JOIN employees e ON mf.employee_id = e.id
+               LEFT JOIN people p ON mf.person_id = p.id
                WHERE fts_meeting_files MATCH ?
                ORDER BY rank
                LIMIT ?""",
@@ -177,14 +178,14 @@ def _search_drive_files(db, fts_query: str, limit: int) -> list[dict]:
 def _search_one_on_one(db, fts_query: str, limit: int) -> list[dict]:
     try:
         rows = db.execute(
-            """SELECT oo.id, oo.title, oo.meeting_date, oo.employee_id,
-                      e.name as employee_name,
+            """SELECT oo.id, oo.title, oo.meeting_date, oo.person_id,
+                      p.name as person_name,
                       highlight(fts_one_on_one, 0, '<mark>', '</mark>') as title_hl,
                       snippet(fts_one_on_one, 1, '<mark>', '</mark>', '...', 40) as content_snippet,
                       rank
                FROM fts_one_on_one
                JOIN one_on_one_notes oo ON oo.id = fts_one_on_one.rowid
-               LEFT JOIN employees e ON oo.employee_id = e.id
+               LEFT JOIN people p ON oo.person_id = p.id
                WHERE fts_one_on_one MATCH ?
                ORDER BY rank
                LIMIT ?""",
@@ -337,21 +338,26 @@ async def _search_external(q: str, limit: int) -> dict:
 @router.get("")
 async def search(
     q: str = Query(..., min_length=1, description="Search query"),
-    sources: str = Query("all", description="Comma-separated: employees,notes,meetings,all"),
+    sources: str = Query("all", description="Comma-separated: people,notes,meetings,all"),
     include_external: bool = Query(False, description="Also search Gmail, Slack, Calendar, Notion"),
     limit: int = Query(10, ge=1, le=50, description="Max results per category"),
 ):
     source_set = set(s.strip() for s in sources.split(","))
     if "all" in source_set:
-        source_set = {"employees", "notes", "meetings", "emails", "drive"}
+        source_set = {"people", "notes", "meetings", "emails", "drive"}
+
+    # Backward compat: accept "employees" as alias for "people"
+    if "employees" in source_set:
+        source_set.discard("employees")
+        source_set.add("people")
 
     results = {}
 
     with get_db_connection(readonly=True) as db:
         fts_query = _build_fts_query(q)
 
-        if "employees" in source_set:
-            results["employees"] = _search_employees(db, fts_query, q, limit)
+        if "people" in source_set:
+            results["people"] = _search_people(db, fts_query, q, limit)
 
         if "notes" in source_set:
             results["notes"] = _search_notes(db, fts_query, limit)

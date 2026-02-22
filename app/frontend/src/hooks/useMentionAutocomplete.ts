@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useMemo } from 'react';
-import type { Employee } from '../api/types';
+import type { Person } from '../api/types';
 
-export function useMentionAutocomplete(employees: Employee[] | undefined) {
+export function useMentionAutocomplete(people: Person[] | undefined) {
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionStart, setMentionStart] = useState(-1);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -9,14 +9,14 @@ export function useMentionAutocomplete(employees: Employee[] | undefined) {
 
   const matches = useMemo(
     () =>
-      mentionQuery !== null && employees
-        ? employees.filter((e) =>
+      mentionQuery !== null && people
+        ? people.filter((e) =>
             mentionQuery === '' ||
             e.name.toLowerCase().includes(mentionQuery.toLowerCase()) ||
             e.name.toLowerCase().split(' ')[0].startsWith(mentionQuery.toLowerCase())
           )
         : [],
-    [mentionQuery, employees],
+    [mentionQuery, people],
   );
 
   const isOpen = mentionQuery !== null && matches.length > 0;
@@ -47,7 +47,7 @@ export function useMentionAutocomplete(employees: Employee[] | undefined) {
     setMentionStart(-1);
   }, []);
 
-  const selectEmployee = useCallback((text: string, emp: Employee): string => {
+  const selectPerson = useCallback((text: string, emp: Person): string => {
     const firstName = emp.name.split(' ')[0];
     const before = text.slice(0, mentionStart);
     const cursor = inputRef.current?.selectionStart ?? text.length;
@@ -70,12 +70,12 @@ export function useMentionAutocomplete(employees: Employee[] | undefined) {
       e.preventDefault();
       const emp = matches[selectedIndex];
       if (emp) {
-        setText(selectEmployee(text, emp));
+        setText(selectPerson(text, emp));
       }
     } else if (e.key === 'Escape') {
       dismiss();
     }
-  }, [isOpen, matches, selectedIndex, selectEmployee, dismiss]);
+  }, [isOpen, matches, selectedIndex, selectPerson, dismiss]);
 
   return {
     inputRef,
@@ -84,7 +84,7 @@ export function useMentionAutocomplete(employees: Employee[] | undefined) {
     selectedIndex,
     handleChange,
     handleKeyDown,
-    selectEmployee,
+    selectPerson,
     dismiss,
   };
 }

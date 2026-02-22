@@ -2,8 +2,11 @@ import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tansta
 import { api } from './client';
 import { pushUndo } from '../hooks/useUndo';
 import type {
-  Employee,
-  EmployeeDetail,
+  Person,
+  PersonDetail,
+  PersonLink,
+  PersonAttribute,
+  PersonConnection,
   Note,
   Issue,
   MeetingSearchResult,
@@ -43,36 +46,53 @@ import type {
   SecretsStatus,
 } from './types';
 
-export function useEmployees() {
+export function usePeople(filters?: { is_coworker?: boolean; group?: string }) {
+  const params = new URLSearchParams();
+  if (filters?.is_coworker !== undefined) params.set('is_coworker', filters.is_coworker ? '1' : '0');
+  if (filters?.group) params.set('group', filters.group);
+  const qs = params.toString();
   return useQuery({
-    queryKey: ['employees'],
-    queryFn: () => api.get<Employee[]>('/employees'),
+    queryKey: ['people', filters],
+    queryFn: () => api.get<Person[]>(`/people${qs ? `?${qs}` : ''}`),
   });
 }
 
 export function useGroups() {
   return useQuery({
     queryKey: ['groups'],
-    queryFn: () => api.get<string[]>('/employees/groups'),
+    queryFn: () => api.get<string[]>('/people/groups'),
   });
 }
 
-export function useEmployee(id: string) {
+export function useRenameGroup() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ oldName, newName }: { oldName: string; newName: string }) =>
+      api.patch(`/people/groups/${encodeURIComponent(oldName)}`, { new_name: newName }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['people'] });
+      qc.invalidateQueries({ queryKey: ['groups'] });
+      qc.invalidateQueries({ queryKey: ['person'] });
+    },
+  });
+}
+
+export function usePerson(id: string) {
   return useQuery({
-    queryKey: ['employee', id],
-    queryFn: () => api.get<EmployeeDetail>(`/employees/${id}`),
+    queryKey: ['person', id],
+    queryFn: () => api.get<PersonDetail>(`/people/${id}`),
     enabled: !!id,
   });
 }
 
 export function useNotes(filters?: {
   status?: string;
-  employee_id?: string;
+  person_id?: string;
   is_one_on_one?: boolean;
 }) {
   const params = new URLSearchParams();
   if (filters?.status) params.set('status', filters.status);
-  if (filters?.employee_id) params.set('employee_id', filters.employee_id);
+  if (filters?.person_id) params.set('person_id', filters.person_id);
   if (filters?.is_one_on_one !== undefined)
     params.set('is_one_on_one', String(filters.is_one_on_one));
   const qs = params.toString();
@@ -88,15 +108,15 @@ export function useCreateNote() {
     mutationFn: (note: {
       text: string;
       priority?: number;
-      employee_id?: string;
-      employee_ids?: string[];
+      person_id?: string;
+      person_ids?: string[];
       is_one_on_one?: boolean;
       due_date?: string;
     }) => api.post<Note>('/notes', note),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['notes'] });
       qc.invalidateQueries({ queryKey: ['dashboard'] });
-      qc.invalidateQueries({ queryKey: ['employee'] });
+      qc.invalidateQueries({ queryKey: ['person'] });
       qc.invalidateQueries({ queryKey: ['search'] });
     },
   });
@@ -109,7 +129,7 @@ export function useUpdateNote() {
       api.patch<Note>(`/notes/${id}`, update),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['notes'] });
-      qc.invalidateQueries({ queryKey: ['employee'] });
+      qc.invalidateQueries({ queryKey: ['person'] });
     },
   });
 }
@@ -186,7 +206,6 @@ export function useDismissDashboardItem() {
       api.post('/dashboard/dismiss', body),
     onMutate: async ({ source, item_id }) => {
       await qc.cancelQueries({ queryKey: ['dashboard'] });
-      // Update all dashboard query cache entries (any days value)
       const allQueries = qc.getQueriesData<DashboardData>({ queryKey: ['dashboard'] });
       const snapshots: [readonly unknown[], DashboardData][] = [];
       for (const [key, data] of allQueries) {
@@ -232,7 +251,6 @@ export function useSync() {
   return useMutation({
     mutationFn: () => api.post('/sync'),
     onSuccess: () => {
-      // Immediately re-poll sync status so the overlay appears without waiting 3s
       qc.invalidateQueries({ queryKey: ['sync-status'] });
     },
   });
@@ -292,13 +310,13 @@ export function useTestConnection() {
 
 export function useIssues(filters?: {
   status?: string;
-  employee_id?: string;
+  person_id?: string;
   priority?: number;
   tshirt_size?: string;
 }) {
   const params = new URLSearchParams();
   if (filters?.status) params.set('status', filters.status);
-  if (filters?.employee_id) params.set('employee_id', filters.employee_id);
+  if (filters?.person_id) params.set('person_id', filters.person_id);
   if (filters?.priority !== undefined) params.set('priority', String(filters.priority));
   if (filters?.tshirt_size) params.set('tshirt_size', filters.tshirt_size);
   const qs = params.toString();
@@ -316,13 +334,13 @@ export function useCreateIssue() {
       description?: string;
       priority?: number;
       tshirt_size?: string;
-      employee_ids?: string[];
+      person_ids?: string[];
       meeting_ids?: { ref_type: string; ref_id: string }[];
     }) => api.post<Issue>('/issues', issue),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['issues'] });
       qc.invalidateQueries({ queryKey: ['dashboard'] });
-      qc.invalidateQueries({ queryKey: ['employee'] });
+      qc.invalidateQueries({ queryKey: ['person'] });
       qc.invalidateQueries({ queryKey: ['search'] });
     },
   });
@@ -335,12 +353,12 @@ export function useUpdateIssue() {
       id,
       ...update
     }: { id: number } & Partial<Issue> & {
-      employee_ids?: string[];
+      person_ids?: string[];
       meeting_ids?: { ref_type: string; ref_id: string }[];
     }) => api.patch<Issue>(`/issues/${id}`, update),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['issues'] });
-      qc.invalidateQueries({ queryKey: ['employee'] });
+      qc.invalidateQueries({ queryKey: ['person'] });
     },
   });
 }
@@ -352,7 +370,7 @@ export function useDeleteIssue() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['issues'] });
       qc.invalidateQueries({ queryKey: ['dashboard'] });
-      qc.invalidateQueries({ queryKey: ['employee'] });
+      qc.invalidateQueries({ queryKey: ['person'] });
       qc.invalidateQueries({ queryKey: ['search'] });
     },
   });
@@ -367,29 +385,34 @@ export function useSearchMeetings(query: string) {
   });
 }
 
-// --- Employee CRUD ---
+// --- Person CRUD ---
 
-export function useCreateEmployee() {
+export function useCreatePerson() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (emp: {
+    mutationFn: (person: {
       name: string;
       title?: string;
       reports_to?: string | null;
       group_name?: string;
       email?: string;
-    }) => api.post<Employee>('/employees', emp),
+      is_coworker?: boolean;
+      company?: string;
+      phone?: string;
+      bio?: string;
+      linkedin_url?: string;
+    }) => api.post<Person>('/people', person),
     onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: ['employees'] });
+      qc.invalidateQueries({ queryKey: ['people'] });
       qc.invalidateQueries({ queryKey: ['groups'] });
       if (variables.reports_to) {
-        qc.invalidateQueries({ queryKey: ['employee', variables.reports_to] });
+        qc.invalidateQueries({ queryKey: ['person', variables.reports_to] });
       }
     },
   });
 }
 
-export function useUpdateEmployee() {
+export function useUpdatePerson() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({
@@ -403,22 +426,150 @@ export function useUpdateEmployee() {
       group_name?: string;
       email?: string;
       role_content?: string;
-    }) => api.patch<Employee>(`/employees/${id}`, update),
+      is_coworker?: boolean;
+      company?: string;
+      phone?: string;
+      bio?: string;
+      linkedin_url?: string;
+    }) => api.patch<Person>(`/people/${id}`, update),
     onSuccess: (_data, vars) => {
-      qc.invalidateQueries({ queryKey: ['employees'] });
-      qc.invalidateQueries({ queryKey: ['employee', vars.id] });
+      qc.invalidateQueries({ queryKey: ['people'] });
+      qc.invalidateQueries({ queryKey: ['person', vars.id] });
       qc.invalidateQueries({ queryKey: ['groups'] });
     },
   });
 }
 
-export function useDeleteEmployee() {
+export function useDeletePerson() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => api.delete(`/employees/${id}`),
+    mutationFn: (id: string) => api.delete(`/people/${id}`),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['employees'] });
+      qc.invalidateQueries({ queryKey: ['people'] });
       qc.invalidateQueries({ queryKey: ['groups'] });
+    },
+  });
+}
+
+// Backward compat aliases
+export const useEmployees = usePeople;
+export const useEmployee = usePerson;
+export const useCreateEmployee = useCreatePerson;
+export const useUpdateEmployee = useUpdatePerson;
+export const useDeleteEmployee = useDeletePerson;
+
+// --- Person Links ---
+
+export function usePersonLinks(personId: string) {
+  return useQuery({
+    queryKey: ['person-links', personId],
+    queryFn: () => api.get<PersonLink[]>(`/people/${personId}/links`),
+    enabled: !!personId,
+  });
+}
+
+export function useCreatePersonLink() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ personId, ...link }: { personId: string; link_type: string; url: string; label?: string }) =>
+      api.post<PersonLink>(`/people/${personId}/links`, link),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['person-links', vars.personId] });
+      qc.invalidateQueries({ queryKey: ['person', vars.personId] });
+    },
+  });
+}
+
+export function useDeletePersonLink() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ personId, linkId }: { personId: string; linkId: number }) =>
+      api.delete(`/people/${personId}/links/${linkId}`),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['person-links', vars.personId] });
+      qc.invalidateQueries({ queryKey: ['person', vars.personId] });
+    },
+  });
+}
+
+// --- Person Attributes ---
+
+export function usePersonAttributes(personId: string) {
+  return useQuery({
+    queryKey: ['person-attributes', personId],
+    queryFn: () => api.get<PersonAttribute[]>(`/people/${personId}/attributes`),
+    enabled: !!personId,
+  });
+}
+
+export function useCreatePersonAttribute() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ personId, ...attr }: { personId: string; key: string; value: string }) =>
+      api.post<PersonAttribute>(`/people/${personId}/attributes`, attr),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['person-attributes', vars.personId] });
+      qc.invalidateQueries({ queryKey: ['person', vars.personId] });
+    },
+  });
+}
+
+export function useUpdatePersonAttribute() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ personId, attrId, ...update }: { personId: string; attrId: number; key?: string; value?: string }) =>
+      api.patch<PersonAttribute>(`/people/${personId}/attributes/${attrId}`, update),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['person-attributes', vars.personId] });
+      qc.invalidateQueries({ queryKey: ['person', vars.personId] });
+    },
+  });
+}
+
+export function useDeletePersonAttribute() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ personId, attrId }: { personId: string; attrId: number }) =>
+      api.delete(`/people/${personId}/attributes/${attrId}`),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['person-attributes', vars.personId] });
+      qc.invalidateQueries({ queryKey: ['person', vars.personId] });
+    },
+  });
+}
+
+// --- Person Connections ---
+
+export function usePersonConnections(personId: string) {
+  return useQuery({
+    queryKey: ['person-connections', personId],
+    queryFn: () => api.get<PersonConnection[]>(`/people/${personId}/connections`),
+    enabled: !!personId,
+  });
+}
+
+export function useCreatePersonConnection() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ personId, ...conn }: { personId: string; person_id: string; relationship?: string; notes?: string }) =>
+      api.post<PersonConnection>(`/people/${personId}/connections`, conn),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['person-connections', vars.personId] });
+      qc.invalidateQueries({ queryKey: ['person', vars.personId] });
+      qc.invalidateQueries({ queryKey: ['person-connections', vars.person_id] });
+      qc.invalidateQueries({ queryKey: ['person', vars.person_id] });
+    },
+  });
+}
+
+export function useDeletePersonConnection() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ personId, connectionId }: { personId: string; connectionId: number }) =>
+      api.delete(`/people/${personId}/connections/${connectionId}`),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['person-connections', vars.personId] });
+      qc.invalidateQueries({ queryKey: ['person', vars.personId] });
     },
   });
 }
@@ -429,16 +580,16 @@ export function useCreateOneOnOneNote() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({
-      employeeId,
+      personId,
       ...note
     }: {
-      employeeId: string;
+      personId: string;
       meeting_date: string;
       title?: string;
       content: string;
-    }) => api.post<OneOnOneNote>(`/employees/${employeeId}/one-on-one-notes`, note),
+    }) => api.post<OneOnOneNote>(`/people/${personId}/one-on-one-notes`, note),
     onSuccess: (_data, vars) => {
-      qc.invalidateQueries({ queryKey: ['employee', vars.employeeId] });
+      qc.invalidateQueries({ queryKey: ['person', vars.personId] });
     },
   });
 }
@@ -447,18 +598,18 @@ export function useUpdateOneOnOneNote() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({
-      employeeId,
+      personId,
       id,
       ...update
     }: {
-      employeeId: string;
+      personId: string;
       id: number;
       meeting_date?: string;
       title?: string;
       content?: string;
-    }) => api.patch<OneOnOneNote>(`/employees/${employeeId}/one-on-one-notes/${id}`, update),
+    }) => api.patch<OneOnOneNote>(`/people/${personId}/one-on-one-notes/${id}`, update),
     onSuccess: (_data, vars) => {
-      qc.invalidateQueries({ queryKey: ['employee', vars.employeeId] });
+      qc.invalidateQueries({ queryKey: ['person', vars.personId] });
     },
   });
 }
@@ -466,10 +617,10 @@ export function useUpdateOneOnOneNote() {
 export function useDeleteOneOnOneNote() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ employeeId, id }: { employeeId: string; id: number }) =>
-      api.delete(`/employees/${employeeId}/one-on-one-notes/${id}`),
+    mutationFn: ({ personId, id }: { personId: string; id: number }) =>
+      api.delete(`/people/${personId}/one-on-one-notes/${id}`),
     onSuccess: (_data, vars) => {
-      qc.invalidateQueries({ queryKey: ['employee', vars.employeeId] });
+      qc.invalidateQueries({ queryKey: ['person', vars.personId] });
     },
   });
 }
@@ -993,6 +1144,12 @@ export function useResetData() {
   return useMutation({
     mutationFn: () => api.post('/profile/reset', {}),
     onSuccess: () => qc.clear(),
+  });
+}
+
+export function useBackupDatabase() {
+  return useMutation({
+    mutationFn: () => api.post<{ backup_path: string; size_bytes: number }>('/profile/backup', {}),
   });
 }
 

@@ -8,14 +8,14 @@ from database import get_db_connection, get_write_db, rebuild_fts_table
 from models import NoteCreate, NoteUpdate
 from utils.safe_sql import safe_update_query
 
-NOTE_ALLOWED_COLUMNS = {"text", "priority", "status", "employee_id", "is_one_on_one", "due_date"}
+NOTE_ALLOWED_COLUMNS = {"text", "priority", "status", "person_id", "is_one_on_one", "due_date"}
 
 router = APIRouter(prefix="/api/notes", tags=["notes"])
 
 
 def _resolve_mentions(text: str, db) -> list[str]:
-    """Find all @mentioned employees in text. Returns list of employee IDs."""
-    rows = db.execute("SELECT id, name FROM employees").fetchall()
+    """Find all @mentioned people in text. Returns list of person IDs."""
+    rows = db.execute("SELECT id, name FROM people").fetchall()
     # Find all @mentions (e.g. @Alice, @Bob Smith)
     mentions = re.findall(r"@(\w+(?:\s+\w+)?)", text)
     matched_ids = []
@@ -46,16 +46,16 @@ def _resolve_one_on_one(note: NoteCreate, db) -> NoteCreate:
         return note
     text = note.text[3:].lstrip()
     # Resolve all @mentions in the text
-    employee_ids = _resolve_mentions(text, db)
+    person_ids = _resolve_mentions(text, db)
     updates = {"text": text}
-    if employee_ids:
-        updates["employee_id"] = employee_ids[0]
-        updates["employee_ids"] = employee_ids
+    if person_ids:
+        updates["person_id"] = person_ids[0]
+        updates["person_ids"] = person_ids
         updates["is_one_on_one"] = True
-    elif not note.employee_ids:
+    elif not note.person_ids:
         # Fall back to fuzzy matching on first words (legacy behavior)
         text_for_match = re.sub(r"^@", "", text)
-        rows = db.execute("SELECT id, name FROM employees").fetchall()
+        rows = db.execute("SELECT id, name FROM people").fetchall()
         for row in rows:
             name = row["name"]
             first = name.split()[0].lower()
@@ -65,42 +65,46 @@ def _resolve_one_on_one(note: NoteCreate, db) -> NoteCreate:
             first_match = first in lower_text.split()[:3]
             last_match = last and last in lower_text.split()[:3]
             if name_match or first_match or last_match:
-                updates["employee_id"] = row["id"]
-                updates["employee_ids"] = [row["id"]]
+                updates["person_id"] = row["id"]
+                updates["person_ids"] = [row["id"]]
                 updates["is_one_on_one"] = True
                 break
     return note.model_copy(update=updates)
 
 
-def _get_note_employees(db, note_id: int) -> list[dict]:
-    """Get all employees linked to a note via junction table."""
+def _get_note_people(db, note_id: int) -> list[dict]:
+    """Get all people linked to a note via junction table."""
     rows = db.execute(
-        "SELECT e.id, e.name FROM note_employees ne JOIN employees e ON ne.employee_id = e.id WHERE ne.note_id = ?",
+        "SELECT p.id, p.name FROM note_people np JOIN people p ON np.person_id = p.id WHERE np.note_id = ?",
         (note_id,),
     ).fetchall()
     return [{"id": r["id"], "name": r["name"]} for r in rows]
 
 
-def _set_note_employees(db, note_id: int, employee_ids: list[str]):
-    """Replace all employee links for a note."""
-    db.execute("DELETE FROM note_employees WHERE note_id = ?", (note_id,))
-    for eid in employee_ids:
+def _set_note_people(db, note_id: int, person_ids: list[str]):
+    """Replace all person links for a note."""
+    db.execute("DELETE FROM note_people WHERE note_id = ?", (note_id,))
+    for pid in person_ids:
         db.execute(
-            "INSERT OR IGNORE INTO note_employees (note_id, employee_id) VALUES (?, ?)",
-            (note_id, eid),
+            "INSERT OR IGNORE INTO note_people (note_id, person_id) VALUES (?, ?)",
+            (note_id, pid),
         )
 
 
 def _note_to_dict(db, row) -> dict:
-    """Convert a note row to dict with employees array."""
+    """Convert a note row to dict with people array."""
     note = dict(row)
-    employees = _get_note_employees(db, note["id"])
-    note["employees"] = employees
-    # Backward compat: populate employee_id/employee_name from first linked employee
-    if employees:
-        note["employee_id"] = employees[0]["id"]
-        note["employee_name"] = employees[0]["name"]
+    people = _get_note_people(db, note["id"])
+    note["people"] = people
+    # Backward compat keys
+    note["employees"] = people
+    if people:
+        note["person_id"] = people[0]["id"]
+        note["person_name"] = people[0]["name"]
+        note["employee_id"] = people[0]["id"]
+        note["employee_name"] = people[0]["name"]
     else:
+        note.setdefault("person_name", None)
         note.setdefault("employee_name", None)
     return note
 
@@ -108,16 +112,18 @@ def _note_to_dict(db, row) -> dict:
 @router.get("")
 def list_notes(
     status: Optional[str] = Query(None),
-    employee_id: Optional[str] = Query(None),
+    person_id: Optional[str] = Query(None, alias="person_id"),
+    employee_id: Optional[str] = Query(None, alias="employee_id"),
     is_one_on_one: Optional[bool] = Query(None),
 ):
+    # Support both person_id and employee_id as query params for compat
+    pid = person_id or employee_id
     with get_db_connection(readonly=True) as db:
-        if employee_id:
-            # Filter via junction table
+        if pid:
             query = (
-                "SELECT DISTINCT t.* FROM notes t JOIN note_employees ne ON t.id = ne.note_id WHERE ne.employee_id = ?"
+                "SELECT DISTINCT t.* FROM notes t JOIN note_people np ON t.id = np.note_id WHERE np.person_id = ?"
             )
-            params: list = [employee_id]
+            params: list = [pid]
         else:
             query = "SELECT t.* FROM notes t WHERE 1=1"
             params = []
@@ -163,17 +169,17 @@ def create_note(note: NoteCreate):
         from models import IssueCreate
         from routers.issues import create_issue as _create_issue
 
-        employee_ids = note.employee_ids or []
-        if not employee_ids:
+        person_ids = note.person_ids or []
+        if not person_ids:
             with get_db_connection(readonly=True) as db:
                 detected = _resolve_mentions(parsed["title"], db)
             if detected:
-                employee_ids = detected
+                person_ids = detected
         issue = IssueCreate(
             title=parsed["title"],
             priority=parsed["priority"],
             tshirt_size=parsed["tshirt_size"],
-            employee_ids=employee_ids or None,
+            person_ids=person_ids or None,
         )
         result = _create_issue(issue)
         result["_type"] = "issue"
@@ -182,29 +188,27 @@ def create_note(note: NoteCreate):
     with get_write_db() as db:
         note = _resolve_one_on_one(note, db)
 
-        # Resolve employee_ids: explicit list > @mention detection > single employee_id
-        employee_ids = note.employee_ids or []
-        if not employee_ids and not note.text.startswith("[1]"):
-            # Try to detect @mentions from the text
+        # Resolve person_ids: explicit list > @mention detection > single person_id
+        person_ids = note.person_ids or []
+        if not person_ids and not note.text.startswith("[1]"):
             detected = _resolve_mentions(note.text, db)
             if detected:
-                employee_ids = detected
-        if not employee_ids and note.employee_id:
-            employee_ids = [note.employee_id]
+                person_ids = detected
+        if not person_ids and note.person_id:
+            person_ids = [note.person_id]
 
-        primary_id = employee_ids[0] if employee_ids else note.employee_id
+        primary_id = person_ids[0] if person_ids else note.person_id
 
         cursor = db.execute(
-            "INSERT INTO notes (text, priority, employee_id, is_one_on_one, due_date) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO notes (text, priority, person_id, is_one_on_one, due_date) VALUES (?, ?, ?, ?, ?)",
             (note.text, note.priority, primary_id, int(note.is_one_on_one), note.due_date),
         )
         note_id = cursor.lastrowid
 
-        # Insert junction table rows
-        for eid in employee_ids:
+        for pid in person_ids:
             db.execute(
-                "INSERT OR IGNORE INTO note_employees (note_id, employee_id) VALUES (?, ?)",
-                (note_id, eid),
+                "INSERT OR IGNORE INTO note_people (note_id, person_id) VALUES (?, ?)",
+                (note_id, pid),
             )
 
         db.commit()
@@ -221,12 +225,11 @@ def update_note(note_id: int, update: NoteUpdate):
         if not existing:
             raise HTTPException(status_code=404, detail="Note not found")
 
-        # Handle employee_ids update via junction table
-        new_employee_ids = update.employee_ids
+        new_person_ids = update.person_ids
 
         update_fields = {}
         for field, value in update.model_dump(exclude_unset=True).items():
-            if field == "employee_ids":
+            if field == "person_ids":
                 continue  # Handled separately via junction table
             if field == "is_one_on_one" and value is not None:
                 value = int(value)
@@ -248,12 +251,10 @@ def update_note(note_id: int, update: NoteUpdate):
             params.append(note_id)
             db.execute(f"UPDATE notes SET {set_clause} WHERE id = ?", params)
 
-        # Update junction table if employee_ids provided
-        if new_employee_ids is not None:
-            _set_note_employees(db, note_id, new_employee_ids)
-            # Also update primary employee_id for backward compat
-            primary = new_employee_ids[0] if new_employee_ids else None
-            db.execute("UPDATE notes SET employee_id = ? WHERE id = ?", (primary, note_id))
+        if new_person_ids is not None:
+            _set_note_people(db, note_id, new_person_ids)
+            primary = new_person_ids[0] if new_person_ids else None
+            db.execute("UPDATE notes SET person_id = ? WHERE id = ?", (primary, note_id))
 
         db.commit()
 
@@ -266,7 +267,6 @@ def update_note(note_id: int, update: NoteUpdate):
 @router.delete("/{note_id}")
 def delete_note(note_id: int):
     with get_write_db() as db:
-        # Junction table rows cleaned up by ON DELETE CASCADE
         db.execute("DELETE FROM notes WHERE id = ?", (note_id,))
         db.commit()
     rebuild_fts_table("fts_notes")

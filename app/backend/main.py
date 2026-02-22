@@ -32,7 +32,6 @@ from routers import (
     claude_sessions,
     dashboard,
     drive_api,
-    employees,
     github_api,
     gmail,
     issues,
@@ -40,6 +39,7 @@ from routers import (
     news,
     notes,
     notion_api,
+    people,
     personas,
     priorities,
     profile,
@@ -51,7 +51,7 @@ from routers import (
     sync,
 )
 from routers.sync import sync_granola, sync_meeting_files
-from utils.employee_matching import rebuild_from_db
+from utils.person_matching import rebuild_from_db
 
 app = FastAPI(title="Personal Dashboard")
 
@@ -84,7 +84,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 app.add_middleware(SecurityHeadersMiddleware)
 
 # API routes (must be registered before the SPA catch-all)
-app.include_router(employees.router)
+app.include_router(people.router)
 app.include_router(notes.router)
 app.include_router(dashboard.router)
 app.include_router(sync.router)

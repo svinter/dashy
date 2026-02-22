@@ -177,9 +177,9 @@ export function DashboardPage() {
         <div className="dashboard-empty-state">
           <h2>Welcome to Personal Dashboard</h2>
           <p>
-            Connect your services to see your calendar, email, Slack, and
-            more right here. Head to <Link to="/settings">Settings</Link> to
-            get started.
+            Your personal command center &mdash; email, calendar, Slack, people,
+            and notes in one quiet place. Head to <Link to="/settings">Settings</Link> to
+            connect your services.
           </p>
           <Link to="/settings" className="btn-primary" style={{ display: 'inline-block', textDecoration: 'none' }}>
             Connect Services

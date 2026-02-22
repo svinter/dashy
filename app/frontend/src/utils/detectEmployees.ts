@@ -1,10 +1,11 @@
-import type { Employee } from '../api/types';
+import type { Person } from '../api/types';
 
+// Detect @mentions and natural language references to people in text
 export function detectEmployees(
   text: string,
-  employees: Employee[]
-): { employees: Employee[]; isOneOnOne: boolean } {
-  const matched: Employee[] = [];
+  employees: Person[]
+): { employees: Person[]; isOneOnOne: boolean } {
+  const matched: Person[] = [];
   const seen = new Set<string>();
 
   // Find all explicit @mentions (global search)

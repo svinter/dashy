@@ -11,7 +11,7 @@ import { SyncProgressOverlay } from './components/SyncProgressOverlay';
 import { useSync, useSetupStatus } from './api/hooks';
 import { DashboardPage } from './pages/DashboardPage';
 import { NotePage } from './pages/NotePage';
-import { EmployeePage } from './pages/EmployeePage';
+import { PersonPage } from './pages/PersonPage';
 import { OrgTreePage } from './pages/OrgTreePage';
 import { NewsPage } from './pages/NewsPage';
 import { SettingsPage } from './pages/SettingsPage';
@@ -29,6 +29,7 @@ import { HelpPage } from './pages/HelpPage';
 import { SetupPage } from './pages/SetupPage';
 import { PersonasPage } from './pages/PersonasPage';
 import { DrivePage } from './pages/DrivePage';
+import { PeoplePage } from './pages/PeoplePage';
 import './styles/tufte.css';
 
 const queryClient = new QueryClient({
@@ -95,7 +96,9 @@ function AppContent() {
             <Route path="/meetings" element={<MeetingsPage />} />
             <Route path="/news" element={<NewsPage />} />
             <Route path="/team" element={<OrgTreePage />} />
-            <Route path="/employees/:id" element={<EmployeePage />} />
+            <Route path="/people" element={<PeoplePage />} />
+            <Route path="/people/:id" element={<PersonPage />} />
+            <Route path="/employees/:id" element={<PersonPage />} /> {/* backward compat redirect */}
             <Route path="/github" element={<GitHubPage />} />
             <Route path="/email" element={<EmailPage />} />
             <Route path="/slack" element={<SlackPage />} />

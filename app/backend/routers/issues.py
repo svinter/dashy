@@ -17,8 +17,8 @@ VALID_STATUSES = {"open", "in_progress", "done"}
 
 
 def _resolve_mentions(text: str, db) -> list[str]:
-    """Find all @mentioned employees in text. Returns list of employee IDs."""
-    rows = db.execute("SELECT id, name FROM employees").fetchall()
+    """Find all @mentioned people in text. Returns list of person IDs."""
+    rows = db.execute("SELECT id, name FROM people").fetchall()
     mentions = re.findall(r"@(\w+(?:\s+\w+)?)", text)
     matched_ids = []
     seen = set()
@@ -42,20 +42,20 @@ def _resolve_mentions(text: str, db) -> list[str]:
     return matched_ids
 
 
-def _get_issue_employees(db, issue_id: int) -> list[dict]:
+def _get_issue_people(db, issue_id: int) -> list[dict]:
     rows = db.execute(
-        "SELECT e.id, e.name FROM issue_employees ie JOIN employees e ON ie.employee_id = e.id WHERE ie.issue_id = ?",
+        "SELECT p.id, p.name FROM issue_people ip JOIN people p ON ip.person_id = p.id WHERE ip.issue_id = ?",
         (issue_id,),
     ).fetchall()
     return [{"id": r["id"], "name": r["name"]} for r in rows]
 
 
-def _set_issue_employees(db, issue_id: int, employee_ids: list[str]):
-    db.execute("DELETE FROM issue_employees WHERE issue_id = ?", (issue_id,))
-    for eid in employee_ids:
+def _set_issue_people(db, issue_id: int, person_ids: list[str]):
+    db.execute("DELETE FROM issue_people WHERE issue_id = ?", (issue_id,))
+    for pid in person_ids:
         db.execute(
-            "INSERT OR IGNORE INTO issue_employees (issue_id, employee_id) VALUES (?, ?)",
-            (issue_id, eid),
+            "INSERT OR IGNORE INTO issue_people (issue_id, person_id) VALUES (?, ?)",
+            (issue_id, pid),
         )
 
 
@@ -105,7 +105,9 @@ def _set_issue_meetings(db, issue_id: int, meeting_ids: list[dict]):
 
 def _issue_to_dict(db, row) -> dict:
     issue = dict(row)
-    issue["employees"] = _get_issue_employees(db, issue["id"])
+    people = _get_issue_people(db, issue["id"])
+    issue["people"] = people
+    issue["employees"] = people  # backward compat
     issue["meetings"] = _get_issue_meetings(db, issue["id"])
     return issue
 
@@ -113,18 +115,20 @@ def _issue_to_dict(db, row) -> dict:
 @router.get("")
 def list_issues(
     status: Optional[str] = Query(None),
-    employee_id: Optional[str] = Query(None),
+    person_id: Optional[str] = Query(None, alias="person_id"),
+    employee_id: Optional[str] = Query(None, alias="employee_id"),
     priority: Optional[int] = Query(None),
     tshirt_size: Optional[str] = Query(None),
 ):
+    pid = person_id or employee_id
     with get_db_connection(readonly=True) as db:
-        if employee_id:
+        if pid:
             query = (
                 "SELECT DISTINCT i.* FROM issues i"
-                " JOIN issue_employees ie ON i.id = ie.issue_id"
-                " WHERE ie.employee_id = ?"
+                " JOIN issue_people ip ON i.id = ip.issue_id"
+                " WHERE ip.person_id = ?"
             )
-            params: list = [employee_id]
+            params: list = [pid]
         else:
             query = "SELECT i.* FROM issues i WHERE 1=1"
             params = []
@@ -157,12 +161,11 @@ def create_issue(issue: IssueCreate):
     priority = max(0, min(3, issue.priority))
 
     with get_write_db() as db:
-        # Resolve @mentions from title
-        employee_ids = issue.employee_ids or []
-        if not employee_ids:
+        person_ids = issue.person_ids or []
+        if not person_ids:
             detected = _resolve_mentions(issue.title, db)
             if detected:
-                employee_ids = detected
+                person_ids = detected
 
         cursor = db.execute(
             "INSERT INTO issues (title, description, priority, tshirt_size, status) VALUES (?, ?, ?, ?, ?)",
@@ -170,10 +173,10 @@ def create_issue(issue: IssueCreate):
         )
         issue_id = cursor.lastrowid
 
-        for eid in employee_ids:
+        for pid in person_ids:
             db.execute(
-                "INSERT OR IGNORE INTO issue_employees (issue_id, employee_id) VALUES (?, ?)",
-                (issue_id, eid),
+                "INSERT OR IGNORE INTO issue_people (issue_id, person_id) VALUES (?, ?)",
+                (issue_id, pid),
             )
 
         if issue.meeting_ids:
@@ -203,7 +206,6 @@ def search_meetings(
     results = []
 
     with get_db_connection(readonly=True) as db:
-        # Search calendar events
         cal_rows = db.execute(
             "SELECT id, summary, start_time FROM calendar_events WHERE summary LIKE ? ORDER BY start_time DESC LIMIT ?",
             (pattern, limit),
@@ -218,7 +220,6 @@ def search_meetings(
                 }
             )
 
-        # Search granola meetings
         gran_rows = db.execute(
             "SELECT id, title, created_at FROM granola_meetings "
             "WHERE title LIKE ? AND valid_meeting = 1 ORDER BY created_at DESC LIMIT ?",
@@ -254,12 +255,12 @@ def update_issue(issue_id: int, update: IssueUpdate):
         if not existing:
             raise HTTPException(status_code=404, detail="Issue not found")
 
-        new_employee_ids = update.employee_ids
+        new_person_ids = update.person_ids
         new_meeting_ids = update.meeting_ids
 
         update_fields = {}
         for field, value in update.model_dump(exclude_unset=True).items():
-            if field in ("employee_ids", "meeting_ids"):
+            if field in ("person_ids", "meeting_ids"):
                 continue
             if field == "tshirt_size" and value is not None:
                 value = value.lower()
@@ -287,8 +288,8 @@ def update_issue(issue_id: int, update: IssueUpdate):
         params.append(issue_id)
         db.execute(f"UPDATE issues SET {set_clause} WHERE id = ?", params)
 
-        if new_employee_ids is not None:
-            _set_issue_employees(db, issue_id, new_employee_ids)
+        if new_person_ids is not None:
+            _set_issue_people(db, issue_id, new_person_ids)
 
         if new_meeting_ids is not None:
             _set_issue_meetings(db, issue_id, new_meeting_ids)

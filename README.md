@@ -5,7 +5,7 @@ A local-first personal dashboard that centralizes your email, calendar, Slack, N
 ## Features
 
 - **AI Priorities**: Morning briefings powered by Gemini, pulling from your email, Slack, calendar, and notes
-- **Team Management**: Org chart, 1:1 topic tracking, per-person context pages, meeting history
+- **People & Contacts**: Unified people directory for coworkers and external contacts — org chart, 1:1 topic tracking, per-person context pages, social links, custom attributes, and relationship connections
 - **Notes & Issues**: Quick-capture notes with `@mention` autocomplete, plus local issue tracking with priorities and sizing
 - **Unified Inbox**: Gmail, Slack, Notion, and GitHub activity in one view
 - **News Feed**: Aggregated from your Slack channels, email, and Google News RSS
@@ -90,7 +90,8 @@ Each connector includes setup instructions in the app. Enable/disable them in Se
 | `/thoughts` | Thoughts | Personal notes prefixed with `[t]` |
 | `/issues` | Issues | Local issue tracking with priority and sizing |
 | `/team` | Org Chart | Hierarchical team view |
-| `/employees/:id` | Employee | Person detail: meetings, 1:1 topics, notes |
+| `/people` | People | Directory of coworkers and contacts with grouping |
+| `/people/:id` | Person | Person detail: meetings, 1:1 topics, notes, links, connections |
 | `/meetings` | Meetings | Calendar + Granola meeting history |
 | `/email` | Email | Gmail search and thread reading |
 | `/slack` | Slack | Message history, channels, DMs |
@@ -158,7 +159,8 @@ The frontend dev server proxies API requests to `localhost:8000`.
 - **Single user** — no auth layer, trusted local environment
 - **Sync-on-demand** — data syncs manually or via the Sync button; Granola syncs on startup
 - **Plugin connectors** — each service self-registers with metadata
-- **Full-text search** — SQLite FTS indexes across employees, notes, meetings, emails, and issues
+- **Full-text search** — SQLite FTS indexes across people, notes, meetings, emails, and issues
+- **People management** — coworkers vs. contacts, with social links, custom attributes, and relationship tracking
 
 ## Keyboard Shortcuts
 
@@ -176,7 +178,7 @@ Press `?` in the app to see all shortcuts. Highlights:
 - `g m` — Go to Meetings
 - `g c` — Go to Claude
 
-Full navigation chords: `g d` (dashboard), `g n` (notes), `g t` (thoughts), `g i` (issues), `g m` (meetings), `g w` (news), `g p` (team), `g h` (github), `g c` (claude), `g x` (ramp), `g s` (settings).
+Full navigation chords: `g d` (dashboard), `g n` (notes), `g t` (thoughts), `g i` (issues), `g m` (meetings), `g w` (news), `g p` (people), `g o` (team/org), `g h` (github), `g c` (claude), `g x` (ramp), `g s` (settings).
 
 ## API
 

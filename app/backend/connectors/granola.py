@@ -5,7 +5,7 @@ import json
 from config import GRANOLA_CACHE_PATH
 from connectors.prosemirror import pm_to_html, pm_to_text
 from database import batch_upsert, get_write_db
-from utils.employee_matching import match_attendees_to_employee
+from utils.person_matching import match_attendees_to_person
 
 
 def parse_granola_cache() -> list[dict]:
@@ -65,8 +65,8 @@ def parse_granola_cache() -> list[dict]:
         cal_event_id = cal_event.get("id", "")
         cal_event_summary = cal_event.get("summary", "")
 
-        # Match to employee
-        employee_id = match_attendees_to_employee(attendees)
+        # Match to person
+        person_id = match_attendees_to_person(attendees)
 
         # Build Granola link
         granola_link = f"https://notes.granola.ai/d/{doc_id}"
@@ -84,7 +84,7 @@ def parse_granola_cache() -> list[dict]:
                 "panel_summary_plain": panel_text,
                 "transcript_text": transcript_text[:10000] if transcript_text else "",
                 "granola_link": granola_link,
-                "employee_id": employee_id,
+                "person_id": person_id,
                 "valid_meeting": 1,
             }
         )
@@ -112,7 +112,7 @@ def sync_granola_meetings() -> int:
             m["panel_summary_plain"],
             m["transcript_text"],
             m["granola_link"],
-            m["employee_id"],
+            m["person_id"],
             m["valid_meeting"],
         )
         for m in meetings
@@ -124,7 +124,7 @@ def sync_granola_meetings() -> int:
             """INSERT OR REPLACE INTO granola_meetings
                (id, title, created_at, updated_at, calendar_event_id, calendar_event_summary,
                 attendees_json, panel_summary_html, panel_summary_plain, transcript_text,
-                granola_link, employee_id, valid_meeting)
+                granola_link, person_id, valid_meeting)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             rows,
         )

@@ -24,7 +24,7 @@ REPO_DIR = str(Path(__file__).resolve().parent.parent.parent.parent)
 
 
 def _build_system_prompt() -> str:
-    """Build the Claude Code system prompt dynamically from profile and employee DB."""
+    """Build the Claude Code system prompt dynamically from profile and people DB."""
     ctx = get_prompt_context()
 
     # Fetch team info from the database
@@ -32,7 +32,7 @@ def _build_system_prompt() -> str:
     try:
         with get_db_connection(readonly=True) as db:
             rows = db.execute(
-                "SELECT name, title, is_executive FROM employees ORDER BY is_executive DESC, name"
+                "SELECT name, title, is_executive FROM people ORDER BY is_executive DESC, name"
             ).fetchall()
 
         direct_reports = []

@@ -70,7 +70,7 @@ def _build_context(db) -> dict:
     open_notes = [
         dict(r)
         for r in db.execute(
-            "SELECT text, priority, employee_id, is_one_on_one, due_date "
+            "SELECT text, priority, person_id, is_one_on_one, due_date "
             "FROM notes WHERE status = 'open' ORDER BY priority DESC, created_at DESC LIMIT 15"
         ).fetchall()
     ]

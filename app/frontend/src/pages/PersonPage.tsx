@@ -1,19 +1,25 @@
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  useEmployee,
-  useEmployees,
+  usePerson,
+  usePeople,
   useUpdateNote,
   useCreateNote,
-  useUpdateEmployee,
-  useDeleteEmployee,
-  useCreateEmployee,
+  useUpdatePerson,
+  useDeletePerson,
+  useCreatePerson,
   useCreateOneOnOneNote,
   useUpdateOneOnOneNote,
   useDeleteOneOnOneNote,
   useGroups,
+  useCreatePersonLink,
+  useDeletePersonLink,
+  useCreatePersonAttribute,
+  useDeletePersonAttribute,
+  useCreatePersonConnection,
+  useDeletePersonConnection,
 } from '../api/hooks';
 import { MarkdownRenderer } from '../components/shared/MarkdownRenderer';
-import type { MeetingFile, GranolaMeeting, OneOnOneNote, Note } from '../api/types';
+import type { MeetingFile, GranolaMeeting, OneOnOneNote, Note, PersonLink, PersonAttribute, PersonConnection } from '../api/types';
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { sanitizeHtml } from '../utils/sanitize';
 
@@ -269,22 +275,28 @@ function MeetingModal({ meeting, linkedNotes, onClose }: {
   );
 }
 
-export function EmployeePage() {
+export function PersonPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { data: emp, isLoading } = useEmployee(id!);
-  const { data: allEmployees } = useEmployees();
+  const { data: person, isLoading } = usePerson(id!);
+  const { data: allPeople } = usePeople();
   const { data: groups } = useGroups();
   const updateNote = useUpdateNote();
   const createNote = useCreateNote();
-  const updateEmployee = useUpdateEmployee();
-  const deleteEmployee = useDeleteEmployee();
-  const createEmployee = useCreateEmployee();
+  const updatePerson = useUpdatePerson();
+  const deletePerson = useDeletePerson();
+  const createPerson = useCreatePerson();
   const createOneOnOneNote = useCreateOneOnOneNote();
   const updateOneOnOneNote = useUpdateOneOnOneNote();
   const deleteOneOnOneNote = useDeleteOneOnOneNote();
+  const createLink = useCreatePersonLink();
+  const deleteLink = useDeletePersonLink();
+  const createAttribute = useCreatePersonAttribute();
+  const deleteAttribute = useDeletePersonAttribute();
+  const createConnection = useCreatePersonConnection();
+  const deleteConnection = useDeletePersonConnection();
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'one-on-ones' | 'team' | 'role'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'one-on-ones' | 'team' | 'role' | 'connections'>('overview');
   const [expandedMeeting, setExpandedMeeting] = useState<string | null>(null);
   const [oneOnOneText, setOneOnOneText] = useState('');
   const [asyncText, setAsyncText] = useState('');
@@ -295,6 +307,27 @@ export function EmployeePage() {
   const [editTitle, setEditTitle] = useState('');
   const [editReportsTo, setEditReportsTo] = useState('');
   const [editGroup, setEditGroup] = useState('');
+  const [editCompany, setEditCompany] = useState('');
+  const [editPhone, setEditPhone] = useState('');
+  const [editBio, setEditBio] = useState('');
+  const [editLinkedin, setEditLinkedin] = useState('');
+  const [editIsCoworker, setEditIsCoworker] = useState(true);
+
+  // Add link form
+  const [showAddLink, setShowAddLink] = useState(false);
+  const [newLinkType, setNewLinkType] = useState('linkedin');
+  const [newLinkUrl, setNewLinkUrl] = useState('');
+  const [newLinkLabel, setNewLinkLabel] = useState('');
+
+  // Add attribute form
+  const [showAddAttr, setShowAddAttr] = useState(false);
+  const [newAttrKey, setNewAttrKey] = useState('');
+  const [newAttrValue, setNewAttrValue] = useState('');
+
+  // Add connection form
+  const [showAddConn, setShowAddConn] = useState(false);
+  const [newConnPersonId, setNewConnPersonId] = useState('');
+  const [newConnRelationship, setNewConnRelationship] = useState('');
 
   // Add report
   const [addingReport, setAddingReport] = useState(false);
@@ -318,11 +351,11 @@ export function EmployeePage() {
   const meetings = useMemo(
     () =>
       unifyMeetings(
-        emp?.meeting_files || [],
-        emp?.granola_meetings || [],
-        emp?.one_on_one_notes || []
+        person?.meeting_files || [],
+        person?.granola_meetings || [],
+        person?.one_on_one_notes || []
       ),
-    [emp?.meeting_files, emp?.granola_meetings, emp?.one_on_one_notes]
+    [person?.meeting_files, person?.granola_meetings, person?.one_on_one_notes]
   );
 
   // Deep-link: auto-open meeting modal from URL params (e.g. from search)
@@ -346,17 +379,17 @@ export function EmployeePage() {
   }, [searchParams, meetings, setSearchParams]);
 
   if (isLoading) return <p className="empty-state">Loading...</p>;
-  if (!emp) return <p className="empty-state">Employee not found.</p>;
+  if (!person) return <p className="empty-state">Person not found.</p>;
 
-  const oneOnOneNotes = emp.linked_notes?.filter((t) => t.is_one_on_one) ?? [];
-  const otherNotes = emp.linked_notes?.filter((t) => !t.is_one_on_one) ?? [];
+  const oneOnOneNotes = person.linked_notes?.filter((t) => t.is_one_on_one) ?? [];
+  const otherNotes = person.linked_notes?.filter((t) => !t.is_one_on_one) ?? [];
 
   const handleAddOneOnOne = (e: React.FormEvent) => {
     e.preventDefault();
     if (!oneOnOneText.trim()) return;
     createNote.mutate({
       text: oneOnOneText.trim(),
-      employee_id: emp.id,
+      person_id: person.id,
       is_one_on_one: true,
     });
     setOneOnOneText('');
@@ -367,34 +400,44 @@ export function EmployeePage() {
     if (!asyncText.trim()) return;
     createNote.mutate({
       text: asyncText.trim(),
-      employee_id: emp.id,
+      person_id: person.id,
       is_one_on_one: false,
     });
     setAsyncText('');
   };
 
   const startEditing = () => {
-    setEditName(emp.name);
-    setEditTitle(emp.title || '');
-    setEditReportsTo(emp.reports_to || '');
-    setEditGroup(emp.group_name || 'team');
+    setEditName(person.name);
+    setEditTitle(person.title || '');
+    setEditReportsTo(person.reports_to || '');
+    setEditGroup(person.group_name || 'team');
+    setEditCompany(person.company || '');
+    setEditPhone(person.phone || '');
+    setEditBio(person.bio || '');
+    setEditLinkedin(person.linkedin_url || '');
+    setEditIsCoworker(person.is_coworker ?? true);
     setEditing(true);
   };
 
   const saveEdits = () => {
-    updateEmployee.mutate({
-      id: emp.id,
+    updatePerson.mutate({
+      id: person.id,
       name: editName,
       title: editTitle || undefined,
       reports_to: editReportsTo || null,
       group_name: editGroup,
+      company: editCompany || undefined,
+      phone: editPhone || undefined,
+      bio: editBio || undefined,
+      linkedin_url: editLinkedin || undefined,
+      is_coworker: editIsCoworker,
     });
     setEditing(false);
   };
 
   const handleDelete = () => {
-    if (!confirm(`Delete ${emp.name}? This will unlink their notes and remove all meeting data.`)) return;
-    deleteEmployee.mutate(emp.id, {
+    if (!confirm(`Delete ${person.name}? This will unlink their notes and remove all meeting data.`)) return;
+    deletePerson.mutate(person.id, {
       onSuccess: () => navigate('/team'),
     });
   };
@@ -403,7 +446,7 @@ export function EmployeePage() {
     e.preventDefault();
     if (!newNoteDate) return;
     createOneOnOneNote.mutate({
-      employeeId: emp.id,
+      personId: person.id,
       meeting_date: newNoteDate,
       title: newNoteTitle || undefined,
       content: newNoteContent,
@@ -416,78 +459,149 @@ export function EmployeePage() {
 
   const handleSaveNoteEdit = (noteId: number) => {
     updateOneOnOneNote.mutate({
-      employeeId: emp.id,
+      personId: person.id,
       id: noteId,
       content: editNoteContent,
     });
     setEditingNoteId(null);
   };
 
-  const otherEmployees = allEmployees?.filter((e) => e.id !== emp.id) ?? [];
+  const otherPeople = allPeople?.filter((p) => p.id !== person.id) ?? [];
 
   return (
     <div>
       <div className="breadcrumb">
-        <Link to="/team">Team</Link>
-        {emp.reports_to && (
+        <Link to={person.is_coworker ? '/team' : '/people'}>{person.is_coworker ? 'Team' : 'People'}</Link>
+        {person.reports_to && (
           <>
             {' / '}
-            <Link to={`/employees/${emp.reports_to}`}>
-              {emp.reports_to.replace(/_/g, ' ')}
+            <Link to={`/people/${person.reports_to}`}>
+              {person.reports_to.replace(/_/g, ' ')}
             </Link>
           </>
         )}
         {' / '}
-        {emp.name}
+        {person.name}
       </div>
 
       {/* Header */}
       {editing ? (
-        <div className="employee-edit-form">
-          <div style={{ display: 'flex', gap: 'var(--space-sm)', alignItems: 'baseline' }}>
-            <input
-              className="note-input"
-              value={editName}
-              onChange={(e) => setEditName(e.target.value)}
-              placeholder="Name"
-              style={{ fontSize: 'var(--text-xl)', fontWeight: 'bold' }}
-            />
+        <div className="person-edit-form">
+          {/* Type toggle */}
+          <div className="person-edit-type-row">
+            <button
+              className={`person-type-toggle ${editIsCoworker ? 'active' : ''}`}
+              onClick={() => setEditIsCoworker(true)}
+              type="button"
+            >
+              Coworker
+            </button>
+            <button
+              className={`person-type-toggle ${!editIsCoworker ? 'active' : ''}`}
+              onClick={() => setEditIsCoworker(false)}
+              type="button"
+            >
+              Contact
+            </button>
           </div>
+
+          {/* Name — full width, prominent */}
           <input
-            className="note-input"
-            value={editTitle}
-            onChange={(e) => setEditTitle(e.target.value)}
-            placeholder="Title"
+            className="note-input person-edit-name"
+            value={editName}
+            onChange={(e) => setEditName(e.target.value)}
+            placeholder="Full name"
+            autoFocus
           />
-          <div style={{ display: 'flex', gap: 'var(--space-md)', alignItems: 'center', marginTop: 'var(--space-xs)' }}>
-            <label style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)' }}>
-              Reports to:
-              <select
-                value={editReportsTo}
-                onChange={(e) => setEditReportsTo(e.target.value)}
-                style={{ marginLeft: 'var(--space-xs)' }}
-              >
-                <option value="">None</option>
-                {otherEmployees.map((e) => (
-                  <option key={e.id} value={e.id}>{e.name}</option>
-                ))}
-              </select>
+
+          {/* Two-column fields */}
+          <div className="person-edit-grid">
+            <label className="person-edit-field">
+              <span className="person-edit-label">Title</span>
+              <input
+                className="note-input"
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
+                placeholder="Job title"
+              />
             </label>
-            <label style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)' }}>
-              Group:
+            <label className="person-edit-field">
+              <span className="person-edit-label">Company</span>
+              <input
+                className="note-input"
+                value={editCompany}
+                onChange={(e) => setEditCompany(e.target.value)}
+                placeholder="Company name"
+              />
+            </label>
+            <label className="person-edit-field">
+              <span className="person-edit-label">Phone</span>
+              <input
+                className="note-input"
+                type="tel"
+                value={editPhone}
+                onChange={(e) => setEditPhone(e.target.value)}
+                placeholder="+1 (555) 000-0000"
+              />
+            </label>
+            <label className="person-edit-field">
+              <span className="person-edit-label">LinkedIn</span>
+              <input
+                className="note-input"
+                value={editLinkedin}
+                onChange={(e) => setEditLinkedin(e.target.value)}
+                placeholder="https://linkedin.com/in/..."
+              />
+            </label>
+          </div>
+
+          {/* Bio — full width */}
+          <label className="person-edit-field" style={{ marginTop: 'var(--space-sm)' }}>
+            <span className="person-edit-label">Bio</span>
+            <textarea
+              className="note-input"
+              value={editBio}
+              onChange={(e) => setEditBio(e.target.value)}
+              placeholder="How you know this person, background, context..."
+              rows={2}
+              style={{ resize: 'vertical' }}
+            />
+          </label>
+
+          {/* Org fields — contextual on coworker */}
+          <div className="person-edit-org-row">
+            <label className="person-edit-field" style={{ flex: 1 }}>
+              <span className="person-edit-label">Group</span>
               <input
                 list="edit-group-options"
+                className="note-input"
                 value={editGroup}
                 onChange={(e) => setEditGroup(e.target.value)}
-                placeholder="team"
-                style={{ marginLeft: 'var(--space-xs)', width: '120px' }}
+                placeholder={editIsCoworker ? 'team' : 'advisors, investors...'}
               />
               <datalist id="edit-group-options">
                 {(groups ?? ['team']).map(g => <option key={g} value={g} />)}
               </datalist>
             </label>
+            {editIsCoworker && (
+              <label className="person-edit-field" style={{ flex: 1 }}>
+                <span className="person-edit-label">Reports to</span>
+                <select
+                  className="note-input"
+                  value={editReportsTo}
+                  onChange={(e) => setEditReportsTo(e.target.value)}
+                >
+                  <option value="">No one</option>
+                  {otherPeople.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+              </label>
+            )}
           </div>
-          <div style={{ display: 'flex', gap: 'var(--space-sm)', marginTop: 'var(--space-sm)' }}>
+
+          {/* Actions */}
+          <div className="person-edit-actions">
             <button className="btn-primary" onClick={saveEdits}>Save</button>
             <button className="btn-secondary" onClick={() => setEditing(false)}>Cancel</button>
             <button className="btn-danger" onClick={handleDelete} style={{ marginLeft: 'auto' }}>Delete</button>
@@ -496,7 +610,10 @@ export function EmployeePage() {
       ) : (
         <div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-md)' }}>
-            <h1 style={{ marginBottom: 0 }}>{emp.name}</h1>
+            <h1 style={{ marginBottom: 0 }}>{person.name}</h1>
+            <span className="note-badge" style={{ fontSize: 'var(--text-xs)' }}>
+              {person.is_coworker ? 'coworker' : 'contact'}
+            </span>
             <button
               className="btn-link"
               onClick={startEditing}
@@ -505,9 +622,25 @@ export function EmployeePage() {
               edit
             </button>
           </div>
-          <p style={{ color: 'var(--color-text-muted)', marginTop: '4px' }}>
-            {emp.title}
+          <p style={{ color: 'var(--color-text-muted)', marginTop: '4px', marginBottom: 'var(--space-xs)' }}>
+            {[person.title, person.company].filter(Boolean).join(' \u2014 ')}
           </p>
+          {/* Contact info row */}
+          {(person.email || person.phone || person.linkedin_url) && (
+            <div style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)', display: 'flex', gap: 'var(--space-md)', flexWrap: 'wrap' }}>
+              {person.email && <span>{person.email}</span>}
+              {person.phone && <span>{person.phone}</span>}
+              {person.linkedin_url && (
+                <a href={person.linkedin_url} target="_blank" rel="noopener noreferrer">LinkedIn</a>
+              )}
+            </div>
+          )}
+          {/* Bio */}
+          {person.bio && (
+            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)', marginTop: 'var(--space-sm)', fontStyle: 'italic' }}>
+              {person.bio}
+            </p>
+          )}
         </div>
       )}
 
@@ -519,19 +652,23 @@ export function EmployeePage() {
         >
           Overview
         </button>
-        <button
-          className={`tab ${activeTab === 'one-on-ones' ? 'active' : ''}`}
-          onClick={() => setActiveTab('one-on-ones')}
-        >
-          1:1 Notes
-        </button>
-        <button
-          className={`tab ${activeTab === 'team' ? 'active' : ''}`}
-          onClick={() => setActiveTab('team')}
-        >
-          Team{emp.direct_reports?.length > 0 && ` (${emp.direct_reports.length})`}
-        </button>
-        {emp.role_content && (
+        {person.is_coworker && (
+          <button
+            className={`tab ${activeTab === 'one-on-ones' ? 'active' : ''}`}
+            onClick={() => setActiveTab('one-on-ones')}
+          >
+            1:1 Notes
+          </button>
+        )}
+        {person.is_coworker && (
+          <button
+            className={`tab ${activeTab === 'team' ? 'active' : ''}`}
+            onClick={() => setActiveTab('team')}
+          >
+            Team{person.direct_reports?.length > 0 && ` (${person.direct_reports.length})`}
+          </button>
+        )}
+        {person.role_content && person.is_coworker && (
           <button
             className={`tab ${activeTab === 'role' ? 'active' : ''}`}
             onClick={() => setActiveTab('role')}
@@ -539,6 +676,12 @@ export function EmployeePage() {
             Role
           </button>
         )}
+        <button
+          className={`tab ${activeTab === 'connections' ? 'active' : ''}`}
+          onClick={() => setActiveTab('connections')}
+        >
+          Connections{(person.connections?.length ?? 0) > 0 && ` (${person.connections.length})`}
+        </button>
       </div>
 
       {/* === OVERVIEW TAB === */}
@@ -548,19 +691,19 @@ export function EmployeePage() {
           <div className="employee-dashboard">
             <div className="emp-card">
               <div className="emp-card-label">next meeting</div>
-              {emp.next_meeting ? (
+              {person.next_meeting ? (
                 <div>
                   <div className="emp-card-value">
-                    {formatRelativeDate(emp.next_meeting.start_time)}
+                    {formatRelativeDate(person.next_meeting.start_time)}
                   </div>
                   <div className="emp-card-detail">
-                    {formatTime(emp.next_meeting.start_time)}
+                    {formatTime(person.next_meeting.start_time)}
                     {' \u2014 '}
-                    {emp.next_meeting.summary}
+                    {person.next_meeting.summary}
                   </div>
-                  {emp.next_meeting.html_link && (
+                  {person.next_meeting.html_link && (
                     <a
-                      href={emp.next_meeting.html_link}
+                      href={person.next_meeting.html_link}
                       target="_blank"
                       rel="noopener noreferrer"
                       style={{ fontSize: 'var(--text-xs)' }}
@@ -578,8 +721,8 @@ export function EmployeePage() {
 
             <div className="emp-card">
               <div className="emp-card-label">recent discussions</div>
-              {(emp.recent_meeting_summaries || []).length > 0 ? (
-                (emp.recent_meeting_summaries || []).map((m, i) => (
+              {(person.recent_meeting_summaries || []).length > 0 ? (
+                (person.recent_meeting_summaries || []).map((m, i) => (
                   <div key={i} className="emp-card-meeting">
                     <span className="emp-card-meeting-date">{formatDate(m.date)}</span>
                     {' '}
@@ -597,16 +740,24 @@ export function EmployeePage() {
 
             <div className="emp-card">
               <div className="emp-card-label">open items</div>
-              <div className="emp-card-stats">
-                <div>
-                  <span className="emp-card-stat-number">{oneOnOneNotes.length}</span>
-                  <span className="emp-card-stat-label">1:1 topics</span>
+              {(oneOnOneNotes.length > 0 || otherNotes.length > 0) ? (
+                <div className="emp-card-stats">
+                  {person.is_coworker && (
+                    <div>
+                      <span className="emp-card-stat-number">{oneOnOneNotes.length}</span>
+                      <span className="emp-card-stat-label">1:1 topics</span>
+                    </div>
+                  )}
+                  <div>
+                    <span className="emp-card-stat-number">{otherNotes.length}</span>
+                    <span className="emp-card-stat-label">notes</span>
+                  </div>
                 </div>
-                <div>
-                  <span className="emp-card-stat-number">{otherNotes.length}</span>
-                  <span className="emp-card-stat-label">notes</span>
+              ) : (
+                <div style={{ color: 'var(--color-text-light)', fontStyle: 'italic' }}>
+                  None yet
                 </div>
-              </div>
+              )}
             </div>
           </div>
 
@@ -645,10 +796,10 @@ export function EmployeePage() {
           </div>
 
           {/* Linked issues */}
-          {(emp.linked_issues?.length ?? 0) > 0 && (
+          {(person.linked_issues?.length ?? 0) > 0 && (
             <div className="employee-section">
               <h2>Issues</h2>
-              {emp.linked_issues.map((issue) => (
+              {person.linked_issues.map((issue) => (
                 <div key={issue.id} className={`issue-item priority-p${issue.priority}`}>
                   <span className={`issue-size-badge size-${issue.tshirt_size}`}>
                     {(issue.tshirt_size || 'm').toUpperCase()}
@@ -691,6 +842,148 @@ export function EmployeePage() {
               <p className="empty-state" style={{ padding: 'var(--space-sm) 0' }}>
                 No notes yet.
               </p>
+            )}
+          </div>
+
+          {/* Links */}
+          <div className="employee-section">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+              <h2>Links</h2>
+              <button className="btn-link" onClick={() => setShowAddLink(!showAddLink)}>
+                {showAddLink ? 'cancel' : '+ add link'}
+              </button>
+            </div>
+            {showAddLink && (
+              <form
+                className="one-on-one-form"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (!newLinkUrl.trim()) return;
+                  createLink.mutate(
+                    { personId: person.id, link_type: newLinkType, url: newLinkUrl.trim(), label: newLinkLabel.trim() || undefined },
+                    { onSuccess: () => { setNewLinkUrl(''); setNewLinkLabel(''); setShowAddLink(false); } }
+                  );
+                }}
+              >
+                <div style={{ display: 'flex', gap: 'var(--space-sm)', alignItems: 'end' }}>
+                  <select
+                    value={newLinkType}
+                    onChange={(e) => setNewLinkType(e.target.value)}
+                    style={{ width: 'auto' }}
+                  >
+                    <option value="linkedin">LinkedIn</option>
+                    <option value="twitter">Twitter / X</option>
+                    <option value="github">GitHub</option>
+                    <option value="website">Website</option>
+                    <option value="other">Other</option>
+                  </select>
+                  <input
+                    className="note-input"
+                    value={newLinkUrl}
+                    onChange={(e) => setNewLinkUrl(e.target.value)}
+                    placeholder="https://..."
+                    style={{ flex: 1 }}
+                    required
+                  />
+                  <input
+                    className="note-input"
+                    value={newLinkLabel}
+                    onChange={(e) => setNewLinkLabel(e.target.value)}
+                    placeholder="Label (optional)"
+                    style={{ width: '150px' }}
+                  />
+                  <button className="btn-primary" type="submit">Add</button>
+                </div>
+              </form>
+            )}
+            {(person.links?.length ?? 0) > 0 ? (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-sm)' }}>
+                {person.links.map((link: PersonLink) => (
+                  <span key={link.id} style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 'var(--space-xs)',
+                    padding: '2px var(--space-sm)', border: '1px solid var(--color-border)',
+                    fontSize: 'var(--text-sm)',
+                  }}>
+                    <a href={link.url} target="_blank" rel="noopener noreferrer">
+                      {link.label || link.link_type}
+                    </a>
+                    <button
+                      className="btn-link"
+                      style={{ color: 'var(--color-text-light)', fontSize: 'var(--text-xs)' }}
+                      onClick={() => deleteLink.mutate({ personId: person.id, linkId: link.id })}
+                    >
+                      &times;
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ) : (
+              !showAddLink && <p className="empty-state" style={{ padding: 'var(--space-sm) 0' }}>No links yet.</p>
+            )}
+          </div>
+
+          {/* Attributes */}
+          <div className="employee-section">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+              <h2>Attributes</h2>
+              <button className="btn-link" onClick={() => setShowAddAttr(!showAddAttr)}>
+                {showAddAttr ? 'cancel' : '+ add attribute'}
+              </button>
+            </div>
+            {showAddAttr && (
+              <form
+                className="one-on-one-form"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (!newAttrKey.trim() || !newAttrValue.trim()) return;
+                  createAttribute.mutate(
+                    { personId: person.id, key: newAttrKey.trim(), value: newAttrValue.trim() },
+                    { onSuccess: () => { setNewAttrKey(''); setNewAttrValue(''); setShowAddAttr(false); } }
+                  );
+                }}
+              >
+                <div style={{ display: 'flex', gap: 'var(--space-sm)', alignItems: 'end' }}>
+                  <input
+                    className="note-input"
+                    value={newAttrKey}
+                    onChange={(e) => setNewAttrKey(e.target.value)}
+                    placeholder="Key (e.g. Met at)"
+                    style={{ width: '200px' }}
+                    required
+                  />
+                  <input
+                    className="note-input"
+                    value={newAttrValue}
+                    onChange={(e) => setNewAttrValue(e.target.value)}
+                    placeholder="Value (e.g. SXSW 2025)"
+                    style={{ flex: 1 }}
+                    required
+                  />
+                  <button className="btn-primary" type="submit">Add</button>
+                </div>
+              </form>
+            )}
+            {(person.attributes?.length ?? 0) > 0 ? (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-sm)' }}>
+                {person.attributes.map((attr: PersonAttribute) => (
+                  <span key={attr.id} style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 'var(--space-xs)',
+                    padding: '2px var(--space-sm)', background: 'var(--color-bg-highlight, #fefaec)',
+                    border: '1px solid var(--color-border)', fontSize: 'var(--text-sm)',
+                  }}>
+                    <strong>{attr.key}:</strong> {attr.value}
+                    <button
+                      className="btn-link"
+                      style={{ color: 'var(--color-text-light)', fontSize: 'var(--text-xs)' }}
+                      onClick={() => deleteAttribute.mutate({ personId: person.id, attrId: attr.id })}
+                    >
+                      &times;
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ) : (
+              !showAddAttr && <p className="empty-state" style={{ padding: 'var(--space-sm) 0' }}>No attributes yet.</p>
             )}
           </div>
 
@@ -815,7 +1108,7 @@ export function EmployeePage() {
                             style={{ color: 'var(--color-text-light)' }}
                             onClick={() => {
                               if (confirm('Delete this note?')) {
-                                deleteOneOnOneNote.mutate({ employeeId: emp.id, id: m.manualNote!.id });
+                                deleteOneOnOneNote.mutate({ personId: person.id, id: m.manualNote!.id });
                               }
                             }}
                           >
@@ -887,7 +1180,7 @@ export function EmployeePage() {
       {activeTab === 'team' && (
         <div className="employee-section">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-            <h2>Reports to {emp.name}</h2>
+            <h2>Reports to {person.name}</h2>
             <button
               className="btn-link"
               onClick={() => setAddingReport(!addingReport)}
@@ -901,11 +1194,11 @@ export function EmployeePage() {
               onSubmit={(e) => {
                 e.preventDefault();
                 if (!newReportName.trim()) return;
-                createEmployee.mutate(
+                createPerson.mutate(
                   {
                     name: newReportName.trim(),
-                    group_name: emp.group_name || 'team',
-                    reports_to: emp.id,
+                    group_name: person.group_name || 'team',
+                    reports_to: person.id,
                   },
                   {
                     onSuccess: () => {
@@ -927,11 +1220,11 @@ export function EmployeePage() {
             </form>
           )}
 
-          {emp.direct_reports?.length > 0 ? (
+          {person.direct_reports?.length > 0 ? (
             <ul className="org-tree-list">
-              {emp.direct_reports.map((dr: { id: string; name: string; title?: string }) => (
+              {person.direct_reports.map((dr: { id: string; name: string; title?: string }) => (
                 <li key={dr.id} className="org-tree-item">
-                  <Link to={`/employees/${dr.id}`} className="org-tree-name">
+                  <Link to={`/people/${dr.id}`} className="org-tree-name">
                     {dr.name}
                   </Link>
                   {dr.title && <span className="org-tree-title">{dr.title}</span>}
@@ -939,16 +1232,101 @@ export function EmployeePage() {
               ))}
             </ul>
           ) : (
-            <p className="empty-state">No one reports to {emp.name} yet.</p>
+            <p className="empty-state">No one reports to {person.name} yet.</p>
           )}
         </div>
       )}
 
       {/* === ROLE TAB === */}
-      {activeTab === 'role' && emp.role_content && (
+      {activeTab === 'role' && person.role_content && (
         <div className="employee-section">
           <h2>Role</h2>
-          <MarkdownRenderer content={emp.role_content} />
+          <MarkdownRenderer content={person.role_content} />
+        </div>
+      )}
+
+      {/* === CONNECTIONS TAB === */}
+      {activeTab === 'connections' && (
+        <div className="employee-section">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+            <h2>Connections</h2>
+            <button className="btn-link" onClick={() => setShowAddConn(!showAddConn)}>
+              {showAddConn ? 'cancel' : '+ add connection'}
+            </button>
+          </div>
+
+          {showAddConn && (
+            <form
+              className="one-on-one-form"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (!newConnPersonId) return;
+                createConnection.mutate(
+                  { personId: person.id, person_id: newConnPersonId, relationship: newConnRelationship.trim() || undefined },
+                  { onSuccess: () => { setNewConnPersonId(''); setNewConnRelationship(''); setShowAddConn(false); } }
+                );
+              }}
+            >
+              <div style={{ display: 'flex', gap: 'var(--space-sm)', alignItems: 'end' }}>
+                <select
+                  value={newConnPersonId}
+                  onChange={(e) => setNewConnPersonId(e.target.value)}
+                  required
+                  style={{ flex: 1 }}
+                >
+                  <option value="">Select a person...</option>
+                  {otherPeople
+                    .filter(p => !person.connections?.some((c: PersonConnection) => c.person_id === p.id))
+                    .map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}{p.company ? ` (${p.company})` : ''}
+                      </option>
+                    ))}
+                </select>
+                <input
+                  className="note-input"
+                  value={newConnRelationship}
+                  onChange={(e) => setNewConnRelationship(e.target.value)}
+                  placeholder="Relationship (e.g. introduced by)"
+                  style={{ flex: 1 }}
+                />
+                <button className="btn-primary" type="submit">Add</button>
+              </div>
+            </form>
+          )}
+
+          {(person.connections?.length ?? 0) > 0 ? (
+            person.connections.map((conn: PersonConnection) => (
+              <div key={conn.id} style={{
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                padding: 'var(--space-sm) 0', borderBottom: '1px solid var(--color-border)',
+              }}>
+                <div>
+                  <Link to={`/people/${conn.person_id}`} style={{ fontWeight: 500 }}>
+                    {conn.person_name}
+                  </Link>
+                  {conn.relationship && (
+                    <span style={{ color: 'var(--color-text-muted)', fontSize: 'var(--text-sm)', marginLeft: 'var(--space-sm)' }}>
+                      {conn.relationship}
+                    </span>
+                  )}
+                </div>
+                <button
+                  className="btn-link"
+                  style={{ color: 'var(--color-text-light)', fontSize: 'var(--text-xs)' }}
+                  onClick={() => {
+                    if (confirm(`Remove connection with ${conn.person_name}?`)) {
+                      deleteConnection.mutate({ personId: person.id, connectionId: conn.id });
+                    }
+                  }}
+                >
+                  remove
+                </button>
+              </div>
+            ))
+          ) : (
+            !showAddConn && <p className="empty-state">No connections yet.</p>
+          )}
         </div>
       )}
 
@@ -962,3 +1340,6 @@ export function EmployeePage() {
     </div>
   );
 }
+
+// Backward compat alias
+export { PersonPage as EmployeePage };

@@ -9,7 +9,7 @@ import {
   useCreateIssue,
   useUpdateIssue,
   useDeleteIssue,
-  useEmployees,
+  usePeople,
 } from '../api/hooks';
 import type { Note, Issue } from '../api/types';
 import { detectEmployees } from '../utils/detectEmployees';
@@ -91,18 +91,18 @@ function NoteItem({
           </div>
         )}
         <div className="note-meta">
-          {showEmployee && note.employees?.length > 0 && (
+          {showEmployee && note.people?.length > 0 && (
             <>
-              {note.employees.map((emp, i) => (
-                <span key={emp.id}>
+              {note.people.map((p, i) => (
+                <span key={p.id}>
                   {i > 0 && ', '}
-                  <a href={`/employees/${emp.id}`}>{emp.name}</a>
+                  <a href={`/people/${p.id}`}>{p.name}</a>
                 </span>
               ))}
             </>
           )}
-          {showEmployee && !note.employees?.length && note.employee_name && (
-            <a href={`/employees/${note.employee_id}`}>{note.employee_name}</a>
+          {showEmployee && !note.people?.length && note.person_name && (
+            <a href={`/people/${note.person_id}`}>{note.person_name}</a>
           )}
           {(note.is_one_on_one || isOneOnOnePrefix) && <span className="note-badge">1:1</span>}
         </div>
@@ -128,7 +128,7 @@ export function NotePage() {
   const [statusFilter, setStatusFilter] = useState<string>('open');
   const [searchParams, setSearchParams] = useSearchParams();
   const { data: notes, isLoading } = useNotes({ status: statusFilter || undefined });
-  const { data: employees } = useEmployees();
+  const { data: employees } = usePeople();
   const issueStatusFilter = statusFilter === 'done' ? 'done' : statusFilter === 'open' ? 'open' : undefined;
   const { data: issues } = useIssues({ status: issueStatusFilter });
   const createNote = useCreateNote();
@@ -204,7 +204,7 @@ export function NotePage() {
         title: parsed.title,
         priority: parsed.priority,
         tshirt_size: parsed.tshirtSize,
-        employee_ids: detected.employees.map((e) => e.id),
+        person_ids: detected.employees.map((e) => e.id),
       });
       setText('');
       return;
@@ -212,7 +212,7 @@ export function NotePage() {
 
     createNote.mutate({
       text: text.trim(),
-      employee_ids: detected.employees.map((e) => e.id),
+      person_ids: detected.employees.map((e) => e.id),
       is_one_on_one: detected.isOneOnOne,
     });
     setText('');
@@ -272,7 +272,7 @@ export function NotePage() {
         const note = allItems[i].item as Note;
         createIssue.mutate({
           title: note.text.slice(0, 120),
-          employee_ids: note.employees?.map((e) => e.id) || [],
+          person_ids: note.people?.map((p) => p.id) || [],
         });
       }
     },
@@ -301,7 +301,7 @@ export function NotePage() {
                   className={`mention-option ${i === mention.selectedIndex ? 'selected' : ''}`}
                   onMouseDown={(e) => {
                     e.preventDefault();
-                    const newText = mention.selectEmployee(text, emp);
+                    const newText = mention.selectPerson(text, emp);
                     setText(newText);
                     mention.handleChange(newText);
                     mention.inputRef.current?.focus();
@@ -413,10 +413,10 @@ export function NotePage() {
                   <Link to={`/issues?issueId=${issue.id}`}>{issue.title}</Link>
                 </div>
                 <div className="note-meta">
-                  {issue.employees.map((emp, i) => (
-                    <span key={emp.id}>
+                  {issue.people.map((p, i) => (
+                    <span key={p.id}>
                       {i > 0 && ', '}
-                      <Link to={`/employees/${emp.id}`}>{emp.name}</Link>
+                      <Link to={`/people/${p.id}`}>{p.name}</Link>
                     </span>
                   ))}
                   <span className="note-badge">issue</span>

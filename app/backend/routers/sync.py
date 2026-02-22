@@ -9,7 +9,7 @@ from fastapi import APIRouter, BackgroundTasks
 
 from connectors.markdown import parse_meeting_files
 from database import batch_upsert, get_db_connection, get_write_db
-from utils.employee_matching import rebuild_from_db
+from utils.person_matching import rebuild_from_db
 
 router = APIRouter(prefix="/api/sync", tags=["sync"])
 
@@ -35,11 +35,11 @@ def _update_sync_state(source: str, status: str, error: str | None, items: int):
 
 
 def sync_meeting_files():
-    """Refresh meeting_files table from disk for employees that have a dir_path."""
-    # Phase 1: Read employee list
+    """Refresh meeting_files table from disk for people that have a dir_path."""
+    # Phase 1: Read people list
     with get_db_connection(readonly=True) as db:
         emp_rows = db.execute(
-            "SELECT id, dir_path FROM employees WHERE dir_path IS NOT NULL AND dir_path != ''"
+            "SELECT id, dir_path FROM people WHERE dir_path IS NOT NULL AND dir_path != ''"
         ).fetchall()
 
     # Phase 2: Parse all meeting files from disk (no DB connection held)
@@ -50,7 +50,7 @@ def sync_meeting_files():
         for m in meetings:
             all_rows.append(
                 (
-                    m["employee_id"],
+                    m["person_id"],
                     m["filename"],
                     m["filepath"],
                     m["meeting_date"],
@@ -69,11 +69,11 @@ def sync_meeting_files():
             batch_upsert(
                 db,
                 """INSERT INTO meeting_files
-                   (employee_id, filename, filepath, meeting_date, title, summary,
+                   (person_id, filename, filepath, meeting_date, title, summary,
                     action_items_json, granola_link, content_markdown, last_modified)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(filepath) DO UPDATE SET
-                     employee_id=excluded.employee_id,
+                     person_id=excluded.person_id,
                      filename=excluded.filename,
                      meeting_date=excluded.meeting_date,
                      title=excluded.title,

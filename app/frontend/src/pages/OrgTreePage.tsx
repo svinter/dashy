@@ -1,14 +1,14 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useEmployees, useCreateEmployee, useGroups } from '../api/hooks';
-import type { Employee } from '../api/types';
+import { usePeople, useCreatePerson, useGroups } from '../api/hooks';
+import type { Person } from '../api/types';
 
-function buildTree(employees: Employee[]): (Employee & { children: Employee[] })[] {
-  const map = new Map<string, Employee & { children: Employee[] }>();
+function buildTree(employees: Person[]): (Person & { children: Person[] })[] {
+  const map = new Map<string, Person & { children: Person[] }>();
   for (const e of employees) {
     map.set(e.id, { ...e, children: [] });
   }
-  const roots: (Employee & { children: Employee[] })[] = [];
+  const roots: (Person & { children: Person[] })[] = [];
   for (const e of employees) {
     const node = map.get(e.id)!;
     if (e.reports_to && map.has(e.reports_to)) {
@@ -24,7 +24,7 @@ function TreeNode({
   node,
   depth = 0,
 }: {
-  node: Employee & { children: Employee[] };
+  node: Person & { children: Person[] };
   depth?: number;
 }) {
   return (
@@ -33,7 +33,7 @@ function TreeNode({
         className="org-tree-item"
         style={{ paddingLeft: `${depth * 24}px` }}
       >
-        <Link to={`/employees/${node.id}`} className="org-tree-name">
+        <Link to={`/people/${node.id}`} className="org-tree-name">
           {node.name}
         </Link>
         <span className="org-tree-title">{node.title}</span>
@@ -44,7 +44,7 @@ function TreeNode({
       {node.children.map((child) => (
         <TreeNode
           key={child.id}
-          node={child as Employee & { children: Employee[] }}
+          node={child as Person & { children: Person[] }}
           depth={depth + 1}
         />
       ))}
@@ -53,9 +53,9 @@ function TreeNode({
 }
 
 export function OrgTreePage() {
-  const { data: employees, isLoading } = useEmployees();
+  const { data: employees, isLoading } = usePeople();
   const { data: groups } = useGroups();
-  const createEmployee = useCreateEmployee();
+  const createPerson = useCreatePerson();
 
   const [showAddForm, setShowAddForm] = useState(false);
   const [newName, setNewName] = useState('');
@@ -67,7 +67,7 @@ export function OrgTreePage() {
 
   const all = employees ?? [];
   const groupList = groups ?? ['team'];
-  const employeesByGroup = new Map<string, Employee[]>();
+  const employeesByGroup = new Map<string, Person[]>();
   for (const group of groupList) {
     employeesByGroup.set(group, all.filter(e => e.group_name === group));
   }
@@ -75,7 +75,7 @@ export function OrgTreePage() {
   const handleAdd = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newName.trim()) return;
-    createEmployee.mutate(
+    createPerson.mutate(
       {
         name: newName.trim(),
         title: newTitle.trim() || undefined,

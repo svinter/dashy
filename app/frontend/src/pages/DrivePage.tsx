@@ -21,16 +21,87 @@ const DAY_OPTIONS = [7, 30, 90] as const;
 const SCORE_OPTIONS = [0, 3, 5, 6, 7, 8] as const;
 const DEFAULT_MIN_SCORE = 5;
 
-function mimeLabel(mime: string): string {
-  if (mime.includes('document')) return 'Doc';
-  if (mime.includes('spreadsheet')) return 'Sheet';
-  if (mime.includes('presentation')) return 'Slides';
-  if (mime.includes('pdf')) return 'PDF';
-  if (mime.includes('folder')) return 'Folder';
-  if (mime.includes('image')) return 'Image';
-  if (mime.includes('video')) return 'Video';
-  if (mime.includes('audio')) return 'Audio';
-  return 'File';
+// --- SVG icons for file types (16x16, Google-style colors) ---
+
+function DocIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0 }}>
+      <rect x="2" y="1" width="12" height="14" rx="1.5" fill="#4285F4" />
+      <rect x="4.5" y="4" width="7" height="1" rx=".5" fill="#fff" />
+      <rect x="4.5" y="6.5" width="7" height="1" rx=".5" fill="#fff" />
+      <rect x="4.5" y="9" width="5" height="1" rx=".5" fill="#fff" />
+    </svg>
+  );
+}
+
+function SheetIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0 }}>
+      <rect x="2" y="1" width="12" height="14" rx="1.5" fill="#0F9D58" />
+      <rect x="4" y="4" width="8" height="1" fill="#fff" />
+      <rect x="4" y="6" width="8" height="1" fill="#fff" />
+      <rect x="4" y="8" width="8" height="1" fill="#fff" />
+      <rect x="4" y="10" width="8" height="1" fill="#fff" />
+      <rect x="7.5" y="4" width="1" height="7" fill="#fff" opacity=".5" />
+    </svg>
+  );
+}
+
+function SlidesIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0 }}>
+      <rect x="2" y="1" width="12" height="14" rx="1.5" fill="#F4B400" />
+      <rect x="4" y="4" width="8" height="6" rx="1" fill="#fff" />
+    </svg>
+  );
+}
+
+function PdfIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0 }}>
+      <rect x="2" y="1" width="12" height="14" rx="1.5" fill="#DB4437" />
+      <text x="8" y="10.5" textAnchor="middle" fill="#fff" fontSize="6" fontWeight="bold" fontFamily="sans-serif">
+        PDF
+      </text>
+    </svg>
+  );
+}
+
+function FolderIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0 }}>
+      <path d="M2 4.5A1.5 1.5 0 013.5 3H6l1.5 1.5h5A1.5 1.5 0 0114 6v6a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 12V4.5z" fill="#5F6368" />
+    </svg>
+  );
+}
+
+function ImageIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0 }}>
+      <rect x="2" y="2" width="12" height="12" rx="1.5" fill="#5F6368" />
+      <circle cx="5.5" cy="5.5" r="1.5" fill="#fff" />
+      <path d="M2 11l3-3 2 2 3-4 4 5H2z" fill="#fff" opacity=".8" />
+    </svg>
+  );
+}
+
+function FileIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0 }}>
+      <path d="M3.5 1A1.5 1.5 0 002 2.5v11A1.5 1.5 0 003.5 15h9a1.5 1.5 0 001.5-1.5V5.5L10 1H3.5z" fill="#5F6368" />
+      <path d="M10 1v3.5a1 1 0 001 1H14" fill="#9AA0A6" />
+    </svg>
+  );
+}
+
+function MimeIcon({ mime }: { mime: string }) {
+  if (mime.includes('document')) return <DocIcon />;
+  if (mime.includes('spreadsheet')) return <SheetIcon />;
+  if (mime.includes('presentation')) return <SlidesIcon />;
+  if (mime.includes('pdf')) return <PdfIcon />;
+  if (mime.includes('folder')) return <FolderIcon />;
+  if (mime.includes('image')) return <ImageIcon />;
+  return <FileIcon />;
 }
 
 function scoreBadge(score: number) {
@@ -151,17 +222,12 @@ function FilesTab() {
                 }}
                 onClick={() => window.open(file.web_view_link, '_blank')}
               >
-                <div style={{ flexShrink: 0, paddingTop: '2px' }}>
+                <div style={{ flexShrink: 0, paddingTop: '2px', display: 'flex', gap: 6, alignItems: 'center' }}>
                   {scoreBadge(file.priority_score)}
+                  <MimeIcon mime={file.mime_type} />
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div className="dashboard-item-title">
-                    <span
-                      className="priority-score-badge priority-urgency-low"
-                      style={{ fontSize: 'var(--text-xs)', marginRight: 4 }}
-                    >
-                      {mimeLabel(file.mime_type)}
-                    </span>
                     {file.name}
                   </div>
                   <div className="dashboard-item-meta">
@@ -295,6 +361,9 @@ function DocsTab() {
                 }}
                 onClick={() => window.open(doc.web_view_link, '_blank')}
               >
+                <div style={{ flexShrink: 0, paddingTop: '2px' }}>
+                  <DocIcon />
+                </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div className="dashboard-item-title">{doc.title}</div>
                   <div className="dashboard-item-meta">
@@ -476,6 +545,9 @@ function SheetsTab() {
                 }}
                 onClick={() => setSelectedSheet(sheet)}
               >
+                <div style={{ flexShrink: 0, paddingTop: '2px' }}>
+                  <SheetIcon />
+                </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div className="dashboard-item-title">{sheet.title}</div>
                   <div className="dashboard-item-meta">

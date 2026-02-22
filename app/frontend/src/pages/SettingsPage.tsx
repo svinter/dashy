@@ -6,6 +6,7 @@ import {
   useGoogleRevoke,
   useTestConnection,
   useSync,
+  useSyncStatus,
   useProfile,
   useUpdateProfile,
   useConnectors,
@@ -14,6 +15,7 @@ import {
   useUpdateSecret,
   useSetupStatus,
   useResetData,
+  useBackupDatabase,
 } from '../api/hooks';
 import type { ServiceAuthStatus, SyncSourceInfo, ConnectorInfo, UserProfile } from '../api/types';
 
@@ -427,6 +429,111 @@ function ResetSection() {
   );
 }
 
+function DataSection({ setupStatus }: { setupStatus: { data_dir: string; database_path: string } }) {
+  const backup = useBackupDatabase();
+  const [backupResult, setBackupResult] = useState<string | null>(null);
+
+  const handleBackup = () => {
+    setBackupResult(null);
+    backup.mutate(undefined, {
+      onSuccess: (data) => {
+        const sizeMb = (data.size_bytes / (1024 * 1024)).toFixed(1);
+        setBackupResult(`Saved to ${data.backup_path} (${sizeMb} MB)`);
+      },
+      onError: () => setBackupResult('Backup failed'),
+    });
+  };
+
+  return (
+    <div style={{ marginTop: 'var(--space-lg)', fontSize: 'var(--text-sm)', color: 'var(--color-text-light)' }}>
+      <h2>Data</h2>
+      <div>Data directory: <code>{setupStatus.data_dir}</code></div>
+      <div>Database: <code>{setupStatus.database_path}</code></div>
+      <div style={{ marginTop: 'var(--space-sm)' }}>
+        <button
+          className="btn-secondary"
+          onClick={handleBackup}
+          disabled={backup.isPending}
+        >
+          {backup.isPending ? 'Backing up...' : 'Backup Database'}
+        </button>
+        {backupResult && (
+          <div style={{ marginTop: 'var(--space-xs)', fontSize: 'var(--text-xs)' }}>
+            {backupResult}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SyncStatusSummary() {
+  const { data: syncStatus } = useSyncStatus();
+  const { data: connectors } = useConnectors();
+  const { data: authStatus } = useAuthStatus();
+
+  const enabled = new Set(connectors?.filter(c => c.enabled).map(c => c.id));
+  const noAuthCheck = new Set(['news', 'gemini']);
+  const active = new Set(
+    [...enabled].filter(id => {
+      if (noAuthCheck.has(id)) return true;
+      const status = authStatus?.[id as keyof typeof authStatus];
+      if (!status) return true;
+      return status.connected;
+    })
+  );
+
+  const syncSourceToConnector: Record<string, string> = {
+    gmail: 'google', calendar: 'google',
+    slack: 'slack', notion: 'notion', github: 'github',
+    granola: 'granola', ramp: 'ramp', ramp_vendors: 'ramp', ramp_bills: 'ramp',
+    drive: 'google_drive', sheets: 'google_drive', docs: 'google_drive',
+    news: 'news',
+  };
+
+  const sources = syncStatus?.sources;
+  if (!sources || Object.keys(sources).length === 0) return null;
+
+  const entries = Object.entries(sources).filter(([source]) => {
+    const connectorId = syncSourceToConnector[source] ?? source;
+    return active.has(connectorId);
+  });
+
+  if (entries.length === 0) return null;
+
+  const successCount = entries.filter(([, info]) => info.last_sync_status === 'success').length;
+  const errorCount = entries.filter(([, info]) => info.last_sync_status === 'error').length;
+
+  const lastSyncedAt = entries
+    .map(([, info]) => info.last_sync_at)
+    .filter(Boolean)
+    .reduce((a, b) => (a > b ? a : b), '');
+
+  return (
+    <div className="sync-status" style={{ marginBottom: 'var(--space-md)' }}>
+      {entries.map(([source, info]) => (
+        <div key={source} className="sync-source">
+          <span>{source}</span>
+          {syncStatus?.running ? (
+            <svg className="sync-icon syncing" width="10" height="10" viewBox="0 0 14 14" style={{ display: 'inline-block' }}>
+              <circle cx="7" cy="7" r="5.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeDasharray="20 14" />
+            </svg>
+          ) : (
+            <span className={info.last_sync_status === 'success' ? 'status-ok' : 'status-error'}>
+              {info.last_sync_status === 'success' ? '\u2713' : '\u2717'}
+            </span>
+          )}
+        </div>
+      ))}
+      <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)', marginTop: 'var(--space-xs)' }}>
+        {successCount}/{entries.length} synced
+        {errorCount > 0 && <span className="status-error"> · {errorCount} error{errorCount > 1 ? 's' : ''}</span>}
+        {lastSyncedAt && <span> · last {new Date(lastSyncedAt).toLocaleString()}</span>}
+      </div>
+    </div>
+  );
+}
+
 export function SettingsPage() {
   const { data: authData, isLoading: authLoading, refetch } = useAuthStatus();
   const { data: connectors, isLoading: connectorsLoading } = useConnectors();
@@ -447,6 +554,8 @@ export function SettingsPage() {
       <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--text-sm)' }}>
         Enable connectors and configure credentials. Toggle services on/off as needed.
       </p>
+
+      <SyncStatusSummary />
 
       <div className="auth-grid">
         {(connectors ?? []).map((connector) => (
@@ -478,11 +587,7 @@ export function SettingsPage() {
       </div>
 
       {setupStatus && (
-        <div style={{ marginTop: 'var(--space-lg)', fontSize: 'var(--text-sm)', color: 'var(--color-text-light)' }}>
-          <h2>Data</h2>
-          <div>Data directory: <code>{setupStatus.data_dir}</code></div>
-          <div>Database: <code>{setupStatus.database_path}</code></div>
-        </div>
+        <DataSection setupStatus={setupStatus} />
       )}
 
       <ResetSection />

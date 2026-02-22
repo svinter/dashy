@@ -85,8 +85,8 @@ function ThoughtItem({
           </div>
         )}
         <div className="note-meta">
-          {note.employee_name && (
-            <a href={`/employees/${note.employee_id}`}>{note.employee_name}</a>
+          {note.person_name && (
+            <a href={`/people/${note.person_id}`}>{note.person_name}</a>
           )}
           <span style={{ color: 'var(--color-text-light)', fontSize: 'var(--text-xs)' }}>
             {new Date(note.created_at).toLocaleDateString()}
@@ -151,7 +151,7 @@ export function ThoughtsPage() {
       const strippedText = thought.text.replace(/^\[[tT]\]\s*/, '');
       createIssue.mutate({
         title: strippedText,
-        employee_ids: thought.employee_id ? [thought.employee_id] : undefined,
+        person_ids: thought.person_id ? [thought.person_id] : undefined,
       });
     }
   };

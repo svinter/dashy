@@ -1,4 +1,4 @@
-export interface Employee {
+export interface Person {
   id: string;
   name: string;
   title: string;
@@ -9,11 +9,45 @@ export interface Employee {
   group_name: string;
   email?: string;
   dir_path?: string;
+  is_coworker: boolean;
+  company?: string;
+  phone?: string;
+  bio?: string;
+  linkedin_url?: string;
+  source?: string;
+}
+
+// Backward compat alias
+export type Employee = Person;
+
+export interface PersonLink {
+  id: number;
+  person_id: string;
+  link_type: string;
+  url: string;
+  label: string | null;
+  created_at: string;
+}
+
+export interface PersonAttribute {
+  id: number;
+  person_id: string;
+  key: string;
+  value: string;
+}
+
+export interface PersonConnection {
+  id: number;
+  person_id: string;
+  person_name: string;
+  relationship: string | null;
+  notes: string | null;
+  created_at: string;
 }
 
 export interface OneOnOneNote {
   id: number;
-  employee_id: string;
+  person_id: string;
   meeting_date: string;
   title: string | null;
   content: string;
@@ -21,7 +55,7 @@ export interface OneOnOneNote {
   updated_at: string;
 }
 
-export interface EmployeeDetail extends Employee {
+export interface PersonDetail extends Person {
   role_content: string;
   direct_reports: { id: string; name: string; title: string }[];
   meeting_files: MeetingFile[];
@@ -29,6 +63,9 @@ export interface EmployeeDetail extends Employee {
   linked_notes: Note[];
   one_on_one_notes: OneOnOneNote[];
   linked_issues: Issue[];
+  links: PersonLink[];
+  attributes: PersonAttribute[];
+  connections: PersonConnection[];
   next_meeting: {
     summary: string;
     start_time: string;
@@ -43,14 +80,21 @@ export interface EmployeeDetail extends Employee {
   }[];
 }
 
+// Backward compat alias
+export type EmployeeDetail = PersonDetail;
+
 export interface Note {
   id: number;
   text: string;
   priority: number;
   status: 'open' | 'done' | 'archived';
-  employee_id: string | null;
-  employee_name: string | null;
-  employees: { id: string; name: string }[];
+  person_id: string | null;
+  person_name: string | null;
+  people: { id: string; name: string }[];
+  // backward compat
+  employee_id?: string | null;
+  employee_name?: string | null;
+  employees?: { id: string; name: string }[];
   is_one_on_one: boolean;
   created_at: string;
   completed_at: string | null;
@@ -65,7 +109,9 @@ export interface Issue {
   priority: number;
   status: 'open' | 'in_progress' | 'done';
   tshirt_size: 's' | 'm' | 'l' | 'xl';
-  employees: { id: string; name: string }[];
+  people: { id: string; name: string }[];
+  // backward compat
+  employees?: { id: string; name: string }[];
   meetings: { ref_type: 'calendar' | 'granola'; ref_id: string; summary: string; start_time: string | null }[];
   created_at: string;
   updated_at: string;
@@ -134,12 +180,12 @@ export interface GranolaMeeting {
   panel_summary_plain?: string;
   transcript_text?: string;
   granola_link?: string;
-  employee_id?: string;
+  person_id?: string;
 }
 
 export interface MeetingFile {
   id: number;
-  employee_id: string;
+  person_id: string;
   filename: string;
   filepath: string;
   meeting_date: string;
@@ -290,12 +336,14 @@ export interface SearchExternalResults {
 export interface SearchResults {
   query: string;
   results: {
-    employees?: {
+    people?: {
       id: string;
       name: string;
       title: string;
       email?: string;
       group_name: string;
+      is_coworker?: boolean;
+      company?: string;
       name_hl?: string;
       title_hl?: string;
     }[];
@@ -303,8 +351,8 @@ export interface SearchResults {
       id: number;
       text: string;
       status: string;
-      employee_id: string | null;
-      employee_name: string | null;
+      person_id: string | null;
+      person_name: string | null;
       is_one_on_one: boolean;
       text_hl?: string;
       created_at: string;
@@ -313,8 +361,8 @@ export interface SearchResults {
       id: string;
       title: string;
       created_at: string;
-      employee_id: string | null;
-      employee_name: string | null;
+      person_id: string | null;
+      person_name: string | null;
       granola_link: string | null;
       title_hl?: string;
       summary_snippet?: string;
@@ -323,8 +371,8 @@ export interface SearchResults {
       id: number;
       title: string;
       meeting_date: string;
-      employee_id: string;
-      employee_name: string | null;
+      person_id: string;
+      person_name: string | null;
       title_hl?: string;
       summary_snippet?: string;
     }[];
@@ -332,8 +380,8 @@ export interface SearchResults {
       id: number;
       title: string | null;
       meeting_date: string;
-      employee_id: string;
-      employee_name: string | null;
+      person_id: string;
+      person_name: string | null;
       title_hl?: string;
       content_snippet?: string;
     }[];

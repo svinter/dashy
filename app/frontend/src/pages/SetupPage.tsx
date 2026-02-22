@@ -26,7 +26,7 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
       </p>
       <ul className="setup-features">
         <li>AI-powered morning priorities from your email, Slack, and calendar</li>
-        <li>Team management with 1:1 prep, meeting notes, and context</li>
+        <li>People directory for coworkers and contacts &mdash; 1:1 prep, meeting notes, and relationship tracking</li>
         <li>Quick capture notes with @mentions and keyboard shortcuts</li>
         <li>Unified search across all your connected services</li>
       </ul>

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useSearch, useCreateNote, useCreateIssue, useEmployees } from '../api/hooks';
+import { useSearch, useCreateNote, useCreateIssue, usePeople } from '../api/hooks';
 import { openExternal } from '../api/client';
 import { detectEmployees } from '../utils/detectEmployees';
 import { parseIssuePrefix } from '../utils/parseIssuePrefix';
@@ -66,7 +66,7 @@ export function SearchOverlay({ isOpen, onClose, onHelpOpen }: SearchOverlayProp
   const navigate = useNavigate();
   const createNote = useCreateNote();
   const createIssue = useCreateIssue();
-  const { data: employees } = useEmployees();
+  const { data: employees } = usePeople();
 
   // Mention autocomplete state (note mode only)
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
@@ -203,14 +203,14 @@ export function SearchOverlay({ isOpen, onClose, onHelpOpen }: SearchOverlayProp
     const r = data.results;
 
     // People
-    for (const emp of r.employees ?? []) {
+    for (const emp of r.people ?? []) {
       flat.push({
         category: 'People',
         type: 'employee',
         id: emp.id,
         label: emp.name,
         sublabel: emp.title,
-        navigateTo: `/employees/${emp.id}`,
+        navigateTo: `/people/${emp.id}`,
         highlightHtml: emp.name_hl,
       });
     }
@@ -225,7 +225,7 @@ export function SearchOverlay({ isOpen, onClose, onHelpOpen }: SearchOverlayProp
         type: 'note',
         id: String(note.id),
         label: `${prefix}${cleanText.slice(0, 100)}`,
-        sublabel: note.employee_name ?? undefined,
+        sublabel: note.person_name ?? undefined,
         navigateTo: isThought ? `/thoughts?noteId=${note.id}` : `/notes?noteId=${note.id}`,
         highlightHtml: note.text_hl,
         fullText: note.text,
@@ -259,12 +259,12 @@ export function SearchOverlay({ isOpen, onClose, onHelpOpen }: SearchOverlayProp
         type: 'granola',
         id: gm.id,
         label: gm.title,
-        sublabel: gm.employee_name ?? undefined,
+        sublabel: gm.person_name ?? undefined,
         snippet: gm.summary_snippet ?? undefined,
-        navigateTo: gm.employee_id
-          ? `/employees/${gm.employee_id}?meetingDate=${meetingDate}&meetingSource=granola`
+        navigateTo: gm.person_id
+          ? `/people/${gm.person_id}?meetingDate=${meetingDate}&meetingSource=granola`
           : '/',
-        externalUrl: gm.employee_id ? undefined : (gm.granola_link ?? undefined),
+        externalUrl: gm.person_id ? undefined : (gm.granola_link ?? undefined),
         highlightHtml: gm.title_hl,
         fullText: gm.summary_snippet ?? undefined,
         date: meetingDate,
@@ -278,9 +278,9 @@ export function SearchOverlay({ isOpen, onClose, onHelpOpen }: SearchOverlayProp
         type: 'meeting_file',
         id: String(mf.id),
         label: mf.title,
-        sublabel: [mf.employee_name, mf.meeting_date].filter(Boolean).join(' \u2014 '),
+        sublabel: [mf.person_name, mf.meeting_date].filter(Boolean).join(' \u2014 '),
         snippet: mf.summary_snippet ?? undefined,
-        navigateTo: `/employees/${mf.employee_id}?meetingDate=${mf.meeting_date}&meetingSource=file`,
+        navigateTo: `/people/${mf.person_id}?meetingDate=${mf.meeting_date}&meetingSource=file`,
         highlightHtml: mf.title_hl,
         fullText: mf.summary_snippet ?? undefined,
         date: mf.meeting_date,
@@ -294,9 +294,9 @@ export function SearchOverlay({ isOpen, onClose, onHelpOpen }: SearchOverlayProp
         type: 'one_on_one',
         id: String(oo.id),
         label: oo.title || `1:1 on ${oo.meeting_date}`,
-        sublabel: oo.employee_name ?? undefined,
+        sublabel: oo.person_name ?? undefined,
         snippet: oo.content_snippet ?? undefined,
-        navigateTo: `/employees/${oo.employee_id}?meetingDate=${oo.meeting_date}&meetingSource=manual`,
+        navigateTo: `/people/${oo.person_id}?meetingDate=${oo.meeting_date}&meetingSource=manual`,
         highlightHtml: oo.title_hl,
         fullText: oo.content_snippet ?? undefined,
         date: oo.meeting_date,
@@ -448,7 +448,7 @@ export function SearchOverlay({ isOpen, onClose, onHelpOpen }: SearchOverlayProp
           title: parsed.title,
           priority: parsed.priority,
           tshirt_size: parsed.tshirtSize,
-          employee_ids: detected.employees.map((e) => e.id),
+          person_ids: detected.employees.map((e) => e.id),
         },
         { onSuccess }
       );
@@ -456,7 +456,7 @@ export function SearchOverlay({ isOpen, onClose, onHelpOpen }: SearchOverlayProp
       createNote.mutate(
         {
           text: trimmed,
-          employee_ids: detected.employees.map((e) => e.id),
+          person_ids: detected.employees.map((e) => e.id),
           is_one_on_one: detected.isOneOnOne,
         },
         { onSuccess }

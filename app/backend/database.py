@@ -130,7 +130,7 @@ def init_db():
 
 # FTS (Full-Text Search) helper functions
 FTS_TABLES = [
-    "fts_employees",
+    "fts_people",
     "fts_notes",
     "fts_granola",
     "fts_meeting_files",

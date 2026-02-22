@@ -2,6 +2,7 @@
 
 import os
 import shutil
+from datetime import datetime
 
 from fastapi import APIRouter
 from pydantic import BaseModel
@@ -77,6 +78,23 @@ def complete_setup():
     return {"status": "ok"}
 
 
+@router.post("/backup")
+def backup_database():
+    """Create a timestamped copy of the database file."""
+    if not DATABASE_PATH.exists():
+        return {"status": "error", "message": "Database file not found"}
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_path = DATABASE_PATH.with_name(f"dashboard_backup_{timestamp}.db")
+    shutil.copy2(DATABASE_PATH, backup_path)
+
+    return {
+        "status": "ok",
+        "backup_path": str(backup_path),
+        "size_bytes": backup_path.stat().st_size,
+    }
+
+
 @router.post("/reset")
 def reset_all_data():
     """Delete all user data and return to fresh state."""
@@ -119,7 +137,7 @@ def reset_all_data():
     # 7. Re-initialize fresh database
     from connectors.registry import init_registry
     from database import init_db
-    from utils.employee_matching import rebuild_from_db
+    from utils.person_matching import rebuild_from_db
 
     init_db()
     init_registry()

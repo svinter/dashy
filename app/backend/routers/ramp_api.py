@@ -117,7 +117,7 @@ def get_prioritized_ramp(
                 "SELECT DISTINCT t.id, t.amount, t.currency, t.merchant_name, t.category, t.transaction_date, "
                 "t.cardholder_name, t.cardholder_email, t.memo, t.status, t.ramp_url "
                 "FROM ramp_transactions t "
-                "INNER JOIN employees e ON lower(t.cardholder_name) = lower(e.name) "
+                "INNER JOIN people e ON lower(t.cardholder_name) = lower(e.name) "
                 "WHERE datetime(t.transaction_date) >= datetime('now', ?) "
                 "ORDER BY t.amount DESC LIMIT 200",
                 (cutoff,),

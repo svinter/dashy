@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { useEmployees, useSync, useSyncStatus, useAuthStatus, useConnectors, useCreateEmployee, useDeleteEmployee, usePersonas, useGroups } from '../../api/hooks';
+import { usePeople, useSync, useSyncStatus, useAuthStatus, useConnectors, useCreatePerson, useDeletePerson, useUpdatePerson, usePersonas, useGroups, useRenameGroup } from '../../api/hooks';
 import type { SyncSourceInfo } from '../../api/types';
 
 function formatTimeAgo(iso: string) {
@@ -18,7 +18,7 @@ export function Sidebar() {
   const onRampPage = pathname.startsWith('/ramp');
   const onClaudePage = pathname.startsWith('/claude');
   const { data: personas } = usePersonas();
-  const { data: employees } = useEmployees();
+  const { data: employees } = usePeople();
   const { data: groups } = useGroups();
   const { data: connectors } = useConnectors();
   const sync = useSync();
@@ -39,27 +39,19 @@ export function Sidebar() {
     })
   );
 
-  // Connectors that are enabled but not connected — need setup help
-  const needsSetup = [...enabled].filter(id => !noAuthCheck.has(id) && !active.has(id));
 
-  const createEmployee = useCreateEmployee();
-  const deleteEmployee = useDeleteEmployee();
+  const createEmployee = useCreatePerson();
+  const deleteEmployee = useDeletePerson();
+  const updateEmployee = useUpdatePerson();
+  const renameGroup = useRenameGroup();
 
   const [addingTo, setAddingTo] = useState<string | null>(null);
   const [newName, setNewName] = useState('');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [syncStartedAt, setSyncStartedAt] = useState<string | null>(null);
-  const prevRunningRef = useRef(false);
-
-  useEffect(() => {
-    const isRunning = syncStatus?.running ?? false;
-    if (!prevRunningRef.current && isRunning) {
-      setSyncStartedAt(new Date().toISOString());
-    } else if (prevRunningRef.current && !isRunning) {
-      setSyncStartedAt(null);
-    }
-    prevRunningRef.current = isRunning;
-  }, [syncStatus?.running]);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const [renamingGroup, setRenamingGroup] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [dragOverGroup, setDragOverGroup] = useState<string | null>(null);
 
   const lastSyncedAt = (() => {
     if (!syncStatus?.sources) return null;
@@ -70,20 +62,19 @@ export function Sidebar() {
     return timestamps.reduce((a, b) => (a > b ? a : b));
   })();
 
-  function getSourceStatus(info: { last_sync_at: string; last_sync_status: string }) {
-    if (syncStatus?.running) {
-      if (syncStartedAt && info.last_sync_at > syncStartedAt) {
-        return info.last_sync_status === 'success' ? 'done' : 'error';
-      }
-      return 'running';
-    }
-    return info.last_sync_status === 'success' ? 'done' : 'error';
-  }
 
   const toggleExpand = (id: string) => {
     setExpanded((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleGroup = (group: string) => {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(group)) next.delete(group); else next.add(group);
       return next;
     });
   };
@@ -131,14 +122,6 @@ export function Sidebar() {
     return false;
   }).length;
 
-  // Map sync source names back to connector IDs for filtering
-  const syncSourceToConnector: Record<string, string> = {
-    gmail: 'google', calendar: 'google',
-    slack: 'slack', notion: 'notion', github: 'github',
-    granola: 'granola', ramp: 'ramp', ramp_vendors: 'ramp', ramp_bills: 'ramp',
-    drive: 'google_drive', sheets: 'google_drive', docs: 'google_drive',
-    news: 'news',
-  };
 
   return (
     <aside className="sidebar">
@@ -182,6 +165,7 @@ export function Sidebar() {
         <div className="sidebar-section-label">tools</div>
         <nav>
           <NavLink to="/team">Team</NavLink>
+          <NavLink to="/people">People</NavLink>
           <NavLink to="/claude" end>Claude</NavLink>
           {onClaudePage && personas?.filter(p => !p.is_default).map(p => (
             <NavLink
@@ -212,44 +196,124 @@ export function Sidebar() {
           if (members.length === 0 && !isTeam) return null;
 
           return (
-            <div key={group}>
+            <div
+              key={group}
+              onDragOver={(e) => { e.preventDefault(); setDragOverGroup(group); }}
+              onDragLeave={() => setDragOverGroup(null)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragOverGroup(null);
+                const empId = e.dataTransfer.getData('text/employee-id');
+                const fromGroup = e.dataTransfer.getData('text/from-group');
+                if (empId && fromGroup !== group) {
+                  updateEmployee.mutate({ id: empId, group_name: group });
+                }
+              }}
+              style={dragOverGroup === group ? { background: 'var(--color-highlight)', borderRadius: 4 } : undefined}
+            >
               <div className="sidebar-section-label">
-                {group}
-                <button className="sidebar-add-btn" onClick={() => { setAddingTo(addingTo === group ? null : group); setNewName(''); }}>+</button>
-              </div>
-              {addingTo === group && (
-                <form className="sidebar-inline-add" onSubmit={(e) => { e.preventDefault(); handleQuickAdd(group); }}>
-                  <input autoFocus value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Name" />
-                </form>
-              )}
-              <nav className="org-tree">
-                {members.length > 0 ? (
-                  members.filter(e => !e.reports_to || !members.some(m => m.id === e.reports_to)).map((emp) => {
-                    const subs = reportsByManager.get(emp.id) || [];
-                    return (
-                      <div key={emp.id}>
-                        <div className="sidebar-person">
-                          <NavLink to={`/employees/${emp.id}`}>{emp.name}</NavLink>
-                          {subs.length > 0 && (
-                            <button className="sidebar-expand-btn" onClick={() => toggleExpand(emp.id)}>
-                              {expanded.has(emp.id) ? '\u25BE' : '\u25B8'}
-                            </button>
-                          )}
-                          <button className="sidebar-remove-btn" onClick={() => handleRemove(emp.id, emp.name)}>&times;</button>
-                        </div>
-                        {expanded.has(emp.id) && subs.map((sub) => (
-                          <div key={sub.id} className="sidebar-person sidebar-sub-report">
-                            <NavLink to={`/employees/${sub.id}`}>{sub.name}</NavLink>
-                            <button className="sidebar-remove-btn" onClick={() => handleRemove(sub.id, sub.name)}>&times;</button>
-                          </div>
-                        ))}
-                      </div>
-                    );
-                  })
+                {renamingGroup === group ? (
+                  <form
+                    className="sidebar-inline-add"
+                    style={{ flex: 1, margin: 0 }}
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      const val = renameValue.trim().toLowerCase();
+                      if (val && val !== group) {
+                        renameGroup.mutate({ oldName: group, newName: val });
+                      }
+                      setRenamingGroup(null);
+                    }}
+                  >
+                    <input
+                      autoFocus
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      onBlur={() => setRenamingGroup(null)}
+                      style={{ fontSize: 'var(--text-sm)', width: '100%' }}
+                    />
+                  </form>
                 ) : (
-                  isTeam && <span className="sidebar-empty-hint">no entries yet</span>
+                  <span
+                    onClick={() => toggleGroup(group)}
+                    onDoubleClick={(e) => {
+                      if (!isTeam) {
+                        e.stopPropagation();
+                        setRenamingGroup(group);
+                        setRenameValue(group);
+                      }
+                    }}
+                    style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+                    title={!isTeam ? 'Click to expand/collapse · Double-click to rename' : 'Click to expand/collapse'}
+                  >
+                    <span style={{ fontSize: '0.6em', opacity: 0.5 }}>{expandedGroups.has(group) ? '\u25BE' : '\u25B8'}</span>
+                    {group}
+                  </span>
                 )}
-              </nav>
+                <button className="sidebar-add-btn" onClick={() => {
+                  if (addingTo === group) {
+                    setAddingTo(null);
+                  } else {
+                    setAddingTo(group);
+                    setExpandedGroups(prev => new Set(prev).add(group));
+                  }
+                  setNewName('');
+                }}>+</button>
+              </div>
+              {expandedGroups.has(group) && (
+                <>
+                  {addingTo === group && (
+                    <form className="sidebar-inline-add" onSubmit={(e) => { e.preventDefault(); handleQuickAdd(group); }}>
+                      <input autoFocus value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Name" />
+                    </form>
+                  )}
+                  <nav className="org-tree">
+                    {members.length > 0 ? (
+                      members.filter(e => !e.reports_to || !members.some(m => m.id === e.reports_to)).map((emp) => {
+                        const subs = reportsByManager.get(emp.id) || [];
+                        return (
+                          <div key={emp.id}>
+                            <div
+                              className="sidebar-person"
+                              draggable
+                              onDragStart={(e) => {
+                                e.dataTransfer.setData('text/employee-id', emp.id);
+                                e.dataTransfer.setData('text/from-group', group);
+                                e.dataTransfer.effectAllowed = 'move';
+                              }}
+                            >
+                              <NavLink to={`/people/${emp.id}`}>{emp.name}</NavLink>
+                              {subs.length > 0 && (
+                                <button className="sidebar-expand-btn" onClick={() => toggleExpand(emp.id)}>
+                                  {expanded.has(emp.id) ? '\u25BE' : '\u25B8'}
+                                </button>
+                              )}
+                              <button className="sidebar-remove-btn" onClick={() => handleRemove(emp.id, emp.name)}>&times;</button>
+                            </div>
+                            {expanded.has(emp.id) && subs.map((sub) => (
+                              <div
+                                key={sub.id}
+                                className="sidebar-person sidebar-sub-report"
+                                draggable
+                                onDragStart={(e) => {
+                                  e.dataTransfer.setData('text/employee-id', sub.id);
+                                  e.dataTransfer.setData('text/from-group', group);
+                                  e.dataTransfer.effectAllowed = 'move';
+                                }}
+                              >
+                                <NavLink to={`/people/${sub.id}`}>{sub.name}</NavLink>
+                                <button className="sidebar-remove-btn" onClick={() => handleRemove(sub.id, sub.name)}>&times;</button>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })
+                    ) : (
+                      isTeam && <span className="sidebar-empty-hint">no entries yet</span>
+                    )}
+                  </nav>
+                </>
+              )}
             </div>
           );
         })}
@@ -279,71 +343,16 @@ export function Sidebar() {
         ) : (
           <button
             className="btn-link"
-            style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)', marginTop: 'var(--space-xs)', padding: 0 }}
+            style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)', marginTop: 'var(--space-lg)', padding: 0, fontVariant: 'small-caps', letterSpacing: '0.05em' }}
             onClick={() => { setAddingTo('__new_group__'); setNewName(''); }}
           >
             + new group
           </button>
         )}
 
-        <div style={{ marginTop: 'var(--space-xl)' }}>
-          <button
-            className={`sync-button ${sync.isPending ? 'syncing' : ''}`}
-            onClick={() => sync.mutate()}
-            disabled={sync.isPending}
-          >
-            <span className={`sync-icon ${sync.isPending ? 'syncing' : ''}`}>
-              &#x21bb;
-            </span>
-            {sync.isPending ? 'Syncing...' : <><span>Refresh</span><kbd style={{ marginLeft: 6, opacity: 0.5 }}>s</kbd></>}
-          </button>
-          {!sync.isPending && lastSyncedAt && (
-            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)', marginTop: 4 }}>
-              synced {formatTimeAgo(lastSyncedAt)}
-            </div>
-          )}
-        </div>
-
-        {syncStatus?.sources && Object.keys(syncStatus.sources).length > 0 && (
-          <div className="sync-status">
-            {Object.entries(syncStatus.sources)
-              .filter(([source]) => {
-                const connectorId = syncSourceToConnector[source] ?? source;
-                return active.has(connectorId);
-              })
-              .map(([source, info]) => {
-              const status = getSourceStatus(info);
-              return (
-                <div key={source} className="sync-source">
-                  <span>{source}</span>
-                  {status === 'running' ? (
-                    <svg className="sync-icon syncing" width="10" height="10" viewBox="0 0 14 14" style={{ display: 'inline-block' }}>
-                      <circle cx="7" cy="7" r="5.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeDasharray="20 14" />
-                    </svg>
-                  ) : (
-                    <span className={status === 'done' ? 'status-ok' : 'status-error'}>
-                      {status === 'done' ? '\u2713' : '\u2717'}
-                    </span>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {needsSetup.length > 0 && (
-          <div className="sync-status">
-            {needsSetup.map(id => {
-              const c = connectors?.find(c => c.id === id);
-              return (
-                <div key={id} className="sync-source">
-                  <span>{c?.name ?? id}</span>
-                  <NavLink to="/settings" style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)' }}>
-                    set up
-                  </NavLink>
-                </div>
-              );
-            })}
+        {!sync.isPending && lastSyncedAt && (
+          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)', marginTop: 'var(--space-lg)' }}>
+            synced {formatTimeAgo(lastSyncedAt)}
           </div>
         )}
       </div>
@@ -360,7 +369,7 @@ export function Sidebar() {
           <button
             className="restart-button"
             disabled={sync.isPending}
-            title="Re-check connections"
+            title="Sync all sources"
             onClick={() => {
               sync.mutate();
             }}

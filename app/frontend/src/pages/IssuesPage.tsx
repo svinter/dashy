@@ -5,10 +5,10 @@ import {
   useCreateIssue,
   useUpdateIssue,
   useDeleteIssue,
-  useEmployees,
+  usePeople,
   useSearchMeetings,
 } from '../api/hooks';
-import type { Employee, Issue, MeetingSearchResult } from '../api/types';
+import type { Person, Issue, MeetingSearchResult } from '../api/types';
 import { parseIssuePrefix } from '../utils/parseIssuePrefix';
 import { detectEmployees } from '../utils/detectEmployees';
 import { useMentionAutocomplete } from '../hooks/useMentionAutocomplete';
@@ -37,9 +37,9 @@ function IssueItem({
   isExpanded: boolean;
   isFocused: boolean;
   onToggleExpand: () => void;
-  onUpdate: (update: Partial<Issue> & { employee_ids?: string[]; meeting_ids?: { ref_type: string; ref_id: string }[] }) => void;
+  onUpdate: (update: Partial<Issue> & { person_ids?: string[]; meeting_ids?: { ref_type: string; ref_id: string }[] }) => void;
   onDelete: () => void;
-  employees: Employee[] | undefined;
+  employees: Person[] | undefined;
   itemRef?: (el: HTMLDivElement | null) => void;
   titleInputRef?: (el: HTMLInputElement | null) => void;
 }) {
@@ -94,16 +94,16 @@ function IssueItem({
   const handleStatusClick = (status: Issue['status']) => onUpdate({ status });
 
   const handleAddPerson = (empId: string) => {
-    const currentIds = issue.employees.map((e) => e.id);
+    const currentIds = issue.people.map((e) => e.id);
     if (!currentIds.includes(empId)) {
-      onUpdate({ employee_ids: [...currentIds, empId] });
+      onUpdate({ person_ids: [...currentIds, empId] });
     }
     setAddPersonText('');
     mention.dismiss();
   };
 
   const handleRemovePerson = (empId: string) => {
-    onUpdate({ employee_ids: issue.employees.filter((e) => e.id !== empId).map((e) => e.id) });
+    onUpdate({ person_ids: issue.people.filter((e) => e.id !== empId).map((e) => e.id) });
   };
 
   const handleAddMeeting = (meeting: MeetingSearchResult) => {
@@ -142,10 +142,10 @@ function IssueItem({
         <div className="issue-title-row">
           <span className={`issue-title ${issue.status === 'done' ? 'done' : ''}`}>{issue.title}</span>
           <div className="note-meta">
-            {issue.employees.map((emp, i) => (
+            {issue.people.map((emp, i) => (
               <span key={emp.id}>
                 {i > 0 && ', '}
-                <Link to={`/employees/${emp.id}`} onClick={(e) => e.stopPropagation()}>{emp.name}</Link>
+                <Link to={`/people/${emp.id}`} onClick={(e) => e.stopPropagation()}>{emp.name}</Link>
               </span>
             ))}
             {issue.status === 'in_progress' && <span className="issue-status-badge status-in-progress">in progress</span>}
@@ -217,9 +217,9 @@ function IssueItem({
           <div className="issue-detail-field">
             <label className="issue-field-label">People</label>
             <div className="issue-tag-list">
-              {issue.employees.map((emp) => (
+              {issue.people.map((emp) => (
                 <span key={emp.id} className="issue-person-tag">
-                  <Link to={`/employees/${emp.id}`}>{emp.name}</Link>
+                  <Link to={`/people/${emp.id}`}>{emp.name}</Link>
                   <button type="button" onClick={() => handleRemovePerson(emp.id)}>&times;</button>
                 </span>
               ))}
@@ -308,7 +308,7 @@ export function IssuesPage() {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const { data: issues, isLoading } = useIssues({ status: statusFilter || undefined });
-  const { data: employees } = useEmployees();
+  const { data: employees } = usePeople();
   const createIssue = useCreateIssue();
   const updateIssue = useUpdateIssue();
   const deleteIssue = useDeleteIssue();
@@ -527,7 +527,7 @@ export function IssuesPage() {
       title,
       priority,
       tshirt_size: tshirtSize,
-      employee_ids: detected.employees.map((e) => e.id),
+      person_ids: detected.employees.map((e) => e.id),
     });
     setText('');
   };
@@ -570,7 +570,7 @@ export function IssuesPage() {
                   className={`mention-option ${i === mention.selectedIndex ? 'selected' : ''}`}
                   onMouseDown={(e) => {
                     e.preventDefault();
-                    const newText = mention.selectEmployee(text, emp);
+                    const newText = mention.selectPerson(text, emp);
                     setText(newText);
                     mention.handleChange(newText);
                     createInputRef.current?.focus();

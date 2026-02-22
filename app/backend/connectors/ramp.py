@@ -67,9 +67,9 @@ def _headers() -> dict:
 
 
 def _get_org_names() -> set[str]:
-    """Return lowercase full names of all employees in the DB."""
+    """Return lowercase full names of all people in the DB."""
     with get_db_connection(readonly=True) as db:
-        rows = db.execute("SELECT name FROM employees WHERE name IS NOT NULL AND name != ''").fetchall()
+        rows = db.execute("SELECT name FROM people WHERE name IS NOT NULL AND name != ''").fetchall()
     return {row["name"].lower() for row in rows}
 
 
@@ -77,7 +77,7 @@ def sync_ramp_transactions(org_only: bool = False, from_date: str | None = None)
     """Fetch transactions from Ramp and store in SQLite. Returns count.
 
     Args:
-        org_only: If True, only store transactions from employees in the org DB.
+        org_only: If True, only store transactions from people in the org DB.
         from_date: ISO date string (e.g. '2024-01-01') to pull from. Defaults to
                    RAMP_TRANSACTION_SYNC_DAYS ago.
     """
