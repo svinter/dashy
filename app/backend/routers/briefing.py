@@ -49,19 +49,26 @@ def get_briefing():
         calendar_today = [
             dict(r)
             for r in db.execute(
-                "SELECT * FROM calendar_events WHERE date(start_time) = date('now') ORDER BY start_time"
+                "SELECT * FROM calendar_events WHERE date(start_time) = date('now')"
+                " AND COALESCE(status, 'confirmed') != 'cancelled'"
+                " AND COALESCE(self_response, '') != 'declined'"
+                " ORDER BY start_time"
             ).fetchall()
         ]
 
         # --- Calendar summary ---
         tomorrow_count = db.execute(
             "SELECT COUNT(*) as c FROM calendar_events WHERE date(start_time) = date('now', '+1 day')"
+            " AND COALESCE(status, 'confirmed') != 'cancelled'"
+            " AND COALESCE(self_response, '') != 'declined'"
         ).fetchone()["c"]
 
         week_count = db.execute(
             "SELECT COUNT(*) as c FROM calendar_events "
             "WHERE start_time > datetime('now') "
             "AND start_time <= datetime('now', '+7 days')"
+            " AND COALESCE(status, 'confirmed') != 'cancelled'"
+            " AND COALESCE(self_response, '') != 'declined'"
         ).fetchone()["c"]
 
         # --- Attention items (cached AI priorities) ---

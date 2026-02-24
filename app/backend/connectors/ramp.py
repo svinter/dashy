@@ -78,17 +78,23 @@ def sync_ramp_transactions(org_only: bool = False, from_date: str | None = None)
 
     Args:
         org_only: If True, only store transactions from people in the org DB.
-        from_date: ISO date string (e.g. '2024-01-01') to pull from. Defaults to
-                   RAMP_TRANSACTION_SYNC_DAYS ago.
+        from_date: ISO date/datetime string to pull from. Accepts full timestamps
+                   (e.g. '2026-02-24T10:30:00') or dates ('2024-01-01').
+                   Defaults to RAMP_TRANSACTION_SYNC_DAYS ago.
     """
     if from_date:
-        cutoff_iso = f"{from_date}T00:00:00Z"
+        # Normalize: strip sub-second precision, ensure it ends with Z for Ramp API
+        cleaned = from_date.split(".")[0]  # drop microseconds if present
+        if "T" in cleaned:
+            cutoff_iso = cleaned if cleaned.endswith("Z") else cleaned + "Z"
+        else:
+            cutoff_iso = f"{cleaned}T00:00:00Z"
     else:
         cutoff = datetime.utcnow() - timedelta(days=RAMP_TRANSACTION_SYNC_DAYS)
         cutoff_iso = cutoff.strftime("%Y-%m-%dT00:00:00Z")
 
     org_names = _get_org_names() if org_only else None
-    logger.info("Ramp sync: org_only=%s, org members=%d", org_only, len(org_names) if org_names else -1)
+    logger.info("Ramp sync: org_only=%s, org members=%d, from=%s", org_only, len(org_names) if org_names else -1, cutoff_iso)
 
     # Phase 1: Fetch all transactions from API (no DB connection held)
     all_transactions = []
@@ -272,13 +278,17 @@ def sync_ramp_bills(from_date: str | None = None, wipe: bool = True) -> int:
     """Fetch bills from Ramp and store in ramp_bills. Returns count.
 
     Args:
-        from_date: ISO date string (e.g. '2024-01-01') to pull from. Defaults to
-                   RAMP_TRANSACTION_SYNC_DAYS ago.
+        from_date: ISO date/datetime string to pull from. Accepts full timestamps
+                   or dates. Defaults to RAMP_TRANSACTION_SYNC_DAYS ago.
         wipe: If True, delete all existing bills before inserting (full refresh).
-              If False, upsert only (useful for historical backfill).
+              If False, upsert only (incremental).
     """
     if from_date:
-        cutoff_iso = f"{from_date}T00:00:00Z"
+        cleaned = from_date.split(".")[0]
+        if "T" in cleaned:
+            cutoff_iso = cleaned if cleaned.endswith("Z") else cleaned + "Z"
+        else:
+            cutoff_iso = f"{cleaned}T00:00:00Z"
     else:
         cutoff = datetime.utcnow() - timedelta(days=RAMP_TRANSACTION_SYNC_DAYS)
         cutoff_iso = cutoff.strftime("%Y-%m-%dT00:00:00Z")

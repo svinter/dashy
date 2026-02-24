@@ -56,11 +56,15 @@ interface SearchOverlayProps {
   onHelpOpen?: () => void;
 }
 
-type OverlayMode = 'search' | 'note';
+type OverlayMode = 'search' | 'create-pick' | 'issue-size' | 'issue-priority' | 'input';
+type CreateType = 'note' | 'thought' | 'issue';
+interface IssueAttrs { size: 's' | 'm' | 'l' | 'xl'; priority: 0 | 1 | 2 | 3; }
 
 export function SearchOverlay({ isOpen, onClose, onHelpOpen }: SearchOverlayProps) {
   const [query, setQuery] = useState('');
   const [mode, setMode] = useState<OverlayMode>('search');
+  const [createType, setCreateType] = useState<CreateType>('note');
+  const [issueAttrs, setIssueAttrs] = useState<IssueAttrs>({ size: 's', priority: 1 });
   const [includeExternal, setIncludeExternal] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [preview, setPreview] = useState<FlatResult | null>(null);
@@ -78,7 +82,7 @@ export function SearchOverlay({ isOpen, onClose, onHelpOpen }: SearchOverlayProp
   const [mentionSelectedIndex, setMentionSelectedIndex] = useState(0);
 
   const mentionMatches = useMemo(() => {
-    if (mode !== 'note' || mentionQuery === null || !employees) return [];
+    if (mode !== 'input' || mentionQuery === null || !employees) return [];
     return employees.filter(e =>
       mentionQuery === '' ||
       e.name.toLowerCase().includes(mentionQuery.toLowerCase()) ||
@@ -119,21 +123,24 @@ export function SearchOverlay({ isOpen, onClose, onHelpOpen }: SearchOverlayProp
     setTimeout(() => inputRef.current?.focus(), 0);
   }, [query, mentionStart]);
 
-  // Note context (derived state for note mode)
+  // Note context (derived state for input mode)
   const noteContext = useMemo(() => {
-    if (mode !== 'note') return null;
+    if (mode !== 'input') return null;
     const trimmed = query.trim();
     if (!trimmed) return null;
-    const isThought = trimmed.startsWith('[t]') || trimmed.startsWith('[T]');
-    const isOneOnOne = trimmed.startsWith('[1]');
     const detected = employees ? detectEmployees(trimmed, employees) : { employees: [], isOneOnOne: false };
     return {
-      isThought,
-      isOneOnOne: isOneOnOne || detected.isOneOnOne,
       linkedEmployees: detected.employees,
-      noteType: isThought ? 'thought' : (isOneOnOne || detected.isOneOnOne) ? '1:1 topic' : 'note',
+      isOneOnOne: detected.isOneOnOne || trimmed.startsWith('[1]'),
     };
   }, [mode, query, employees]);
+
+  const resetCreateState = useCallback(() => {
+    setCreateType('note');
+    setIssueAttrs({ size: 's', priority: 1 });
+    setMentionQuery(null);
+    setMentionStart(-1);
+  }, []);
 
   // Debounce: only search after 150ms of idle typing
   const [debouncedQuery, setDebouncedQuery] = useState('');
@@ -410,6 +417,8 @@ export function SearchOverlay({ isOpen, onClose, onHelpOpen }: SearchOverlayProp
       setQuery('');
       setDebouncedQuery('');
       setMode('search');
+      setCreateType('note');
+      setIssueAttrs({ size: 's', priority: 1 });
       setSelectedIndex(0);
       setPreview(null);
       setAddedConfirmation(null);
@@ -468,6 +477,55 @@ export function SearchOverlay({ isOpen, onClose, onHelpOpen }: SearchOverlayProp
     }
   }, [query, employees, createNote, createIssue, onClose]);
 
+  // Submit from the fast-create wizard (input mode)
+  const handleSubmitCreate = useCallback(() => {
+    const trimmed = query.trim();
+    if (!trimmed || createNote.isPending || createIssue.isPending) return;
+
+    const detected = employees ? detectEmployees(trimmed, employees) : { employees: [], isOneOnOne: false };
+
+    const onSuccess = (label: string) => {
+      setAddedConfirmation(label);
+      setQuery('');
+      setDebouncedQuery('');
+      resetCreateState();
+      setTimeout(() => {
+        setAddedConfirmation(null);
+        onClose();
+      }, 1200);
+    };
+
+    if (createType === 'issue') {
+      createIssue.mutate(
+        {
+          title: trimmed,
+          priority: issueAttrs.priority,
+          tshirt_size: issueAttrs.size,
+          person_ids: detected.employees.map((e) => e.id),
+        },
+        { onSuccess: () => onSuccess(`Issue: ${trimmed}`) }
+      );
+    } else if (createType === 'thought') {
+      createNote.mutate(
+        {
+          text: `[t] ${trimmed}`,
+          person_ids: detected.employees.map((e) => e.id),
+          is_one_on_one: false,
+        },
+        { onSuccess: () => onSuccess(trimmed) }
+      );
+    } else {
+      createNote.mutate(
+        {
+          text: trimmed,
+          person_ids: detected.employees.map((e) => e.id),
+          is_one_on_one: detected.isOneOnOne,
+        },
+        { onSuccess: () => onSuccess(trimmed) }
+      );
+    }
+  }, [query, createType, issueAttrs, employees, createNote, createIssue, onClose, resetCreateState]);
+
   const handleSelect = useCallback((result: FlatResult) => {
     if (result.type === 'add_note') {
       handleAddNote();
@@ -515,8 +573,91 @@ export function SearchOverlay({ isOpen, onClose, onHelpOpen }: SearchOverlayProp
       return;
     }
 
-    if (mode === 'note') {
-      // --- NOTE MODE ---
+    // --- CREATE-PICK MODE: i/t/n selection ---
+    if (mode === 'create-pick') {
+      e.preventDefault();
+      if (e.key === 'i') {
+        setCreateType('issue');
+        setMode('issue-size');
+      } else if (e.key === 't') {
+        setCreateType('thought');
+        setMode('input');
+        setTimeout(() => inputRef.current?.focus(), 0);
+      } else if (e.key === 'n') {
+        setCreateType('note');
+        setMode('input');
+        setTimeout(() => inputRef.current?.focus(), 0);
+      } else if (e.key === 'Escape' || e.key === 'Tab') {
+        setMode('search');
+        resetCreateState();
+      } else if (e.key.length === 1 && !e.metaKey && !e.ctrlKey) {
+        // Any other printable char: default to note, char becomes first char
+        setCreateType('note');
+        setQuery(e.key);
+        setMode('input');
+        setTimeout(() => inputRef.current?.focus(), 0);
+      }
+      return;
+    }
+
+    // --- ISSUE-SIZE MODE: s/m/l/x selection + arrow keys ---
+    if (mode === 'issue-size') {
+      e.preventDefault();
+      const sizes: Array<'s' | 'm' | 'l' | 'xl'> = ['s', 'm', 'l', 'xl'];
+      const sizeMap: Record<string, 's' | 'm' | 'l' | 'xl'> = { s: 's', m: 'm', l: 'l', x: 'xl' };
+      if (sizeMap[e.key]) {
+        setIssueAttrs(a => ({ ...a, size: sizeMap[e.key] }));
+        setMode('issue-priority');
+      } else if (e.key === 'ArrowRight') {
+        setIssueAttrs(a => {
+          const idx = sizes.indexOf(a.size);
+          return { ...a, size: sizes[Math.min(idx + 1, sizes.length - 1)] };
+        });
+      } else if (e.key === 'ArrowLeft') {
+        setIssueAttrs(a => {
+          const idx = sizes.indexOf(a.size);
+          return { ...a, size: sizes[Math.max(idx - 1, 0)] };
+        });
+      } else if (e.key === 'Enter') {
+        setMode('issue-priority');
+      } else if (e.key === 'Escape') {
+        setMode('create-pick');
+      } else if (e.key.length === 1 && !e.metaKey && !e.ctrlKey) {
+        // Unrecognized: accept default size, char becomes first char of title
+        setQuery(e.key);
+        setMode('input');
+        setTimeout(() => inputRef.current?.focus(), 0);
+      }
+      return;
+    }
+
+    // --- ISSUE-PRIORITY MODE: 0/1/2/3 selection + arrow keys ---
+    if (mode === 'issue-priority') {
+      e.preventDefault();
+      if (['0', '1', '2', '3'].includes(e.key)) {
+        setIssueAttrs(a => ({ ...a, priority: parseInt(e.key) as 0 | 1 | 2 | 3 }));
+        setMode('input');
+        setTimeout(() => inputRef.current?.focus(), 0);
+      } else if (e.key === 'ArrowRight') {
+        setIssueAttrs(a => ({ ...a, priority: Math.min(a.priority + 1, 3) as 0 | 1 | 2 | 3 }));
+      } else if (e.key === 'ArrowLeft') {
+        setIssueAttrs(a => ({ ...a, priority: Math.max(a.priority - 1, 0) as 0 | 1 | 2 | 3 }));
+      } else if (e.key === 'Enter') {
+        setMode('input');
+        setTimeout(() => inputRef.current?.focus(), 0);
+      } else if (e.key === 'Escape') {
+        setMode('issue-size');
+      } else if (e.key.length === 1 && !e.metaKey && !e.ctrlKey) {
+        // Unrecognized: accept default priority, char becomes first char
+        setQuery(e.key);
+        setMode('input');
+        setTimeout(() => inputRef.current?.focus(), 0);
+      }
+      return;
+    }
+
+    // --- INPUT MODE (text entry for note/thought/issue) ---
+    if (mode === 'input') {
       // Mention autocomplete takes priority
       if (mentionOpen) {
         if (e.key === 'ArrowDown') { e.preventDefault(); setMentionSelectedIndex(i => Math.min(i + 1, mentionMatches.length - 1)); return; }
@@ -524,29 +665,27 @@ export function SearchOverlay({ isOpen, onClose, onHelpOpen }: SearchOverlayProp
         if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); completeMention(mentionMatches[mentionSelectedIndex]); return; }
         if (e.key === 'Escape') { e.preventDefault(); setMentionQuery(null); setMentionStart(-1); return; }
       }
-      // Tab: exit note mode back to search
+      // Tab: exit back to search
       if (e.key === 'Tab') {
         e.preventDefault();
         setMode('search');
-        setMentionQuery(null);
-        setMentionStart(-1);
+        resetCreateState();
         setTimeout(() => inputRef.current?.focus(), 0);
         return;
       }
-      // Enter: submit note
+      // Enter: submit
       if (e.key === 'Enter' && query.trim()) {
         e.preventDefault();
-        handleAddNote();
+        handleSubmitCreate();
         return;
       }
-      // Escape: back to search mode
+      // Escape: back to search, clear
       if (e.key === 'Escape') {
         e.preventDefault();
         setMode('search');
         setQuery('');
         setDebouncedQuery('');
-        setMentionQuery(null);
-        setMentionStart(-1);
+        resetCreateState();
         setTimeout(() => inputRef.current?.focus(), 0);
         return;
       }
@@ -570,10 +709,10 @@ export function SearchOverlay({ isOpen, onClose, onHelpOpen }: SearchOverlayProp
       onClose();
     } else if (e.key === 'Tab') {
       e.preventDefault();
-      setMode('note');
+      setMode('create-pick');
       setSelectedIndex(0);
     }
-  }, [mode, flatResults, selectedIndex, handleSelect, handleNavigate, handleAddNote, onClose, preview, query, mentionOpen, mentionMatches, mentionSelectedIndex, completeMention]);
+  }, [mode, flatResults, selectedIndex, handleSelect, handleNavigate, handleAddNote, handleSubmitCreate, onClose, preview, query, mentionOpen, mentionMatches, mentionSelectedIndex, completeMention, resetCreateState, createType, issueAttrs]);
 
   if (!isOpen) return null;
 
@@ -592,10 +731,17 @@ export function SearchOverlay({ isOpen, onClose, onHelpOpen }: SearchOverlayProp
 
   return (
     <div className="search-overlay" onClick={onClose}>
-      <div className={`search-modal ${mode === 'note' ? 'search-modal--note-mode' : ''}`} onClick={e => e.stopPropagation()}>
+      <div className={`search-modal ${mode !== 'search' ? 'search-modal--note-mode' : ''}`} onClick={e => e.stopPropagation()}>
         <div className="search-input-row">
-          {mode === 'note' && (
-            <span className="search-mode-badge">Note</span>
+          {mode !== 'search' && (
+            <span className="search-mode-badge">
+              {mode === 'create-pick' && 'Create'}
+              {mode === 'issue-size' && 'Issue'}
+              {mode === 'issue-priority' && <>Issue &middot; {issueAttrs.size.toUpperCase()}</>}
+              {mode === 'input' && createType === 'issue' && <>Issue &middot; {issueAttrs.size.toUpperCase()} &middot; P{issueAttrs.priority}</>}
+              {mode === 'input' && createType === 'thought' && 'Thought'}
+              {mode === 'input' && createType === 'note' && 'Note'}
+            </span>
           )}
           <input
             ref={inputRef}
@@ -604,14 +750,21 @@ export function SearchOverlay({ isOpen, onClose, onHelpOpen }: SearchOverlayProp
             onChange={e => {
               setQuery(e.target.value);
               setPreview(null);
-              if (mode === 'note') handleMentionChange(e.target.value);
+              if (mode === 'input') handleMentionChange(e.target.value);
             }}
             onKeyDown={handleKeyDown}
-            placeholder={mode === 'note'
-              ? 'Type a note... (@name to link, [1] for 1:1, [t] for thought)'
-              : 'Search or jump to...'}
+            placeholder={
+              mode === 'search' ? 'Search or jump to...' :
+              mode === 'create-pick' ? '' :
+              mode === 'issue-size' ? '' :
+              mode === 'issue-priority' ? '' :
+              createType === 'issue' ? 'Issue title... (@name to link)' :
+              createType === 'thought' ? 'Type your thought... (@name to link)' :
+              'Type a note... (@name to link, [1] for 1:1)'
+            }
             autoComplete="off"
-            spellCheck={mode === 'note'}
+            readOnly={mode === 'create-pick' || mode === 'issue-size' || mode === 'issue-priority'}
+            spellCheck={mode === 'input'}
           />
           {mode === 'search' && (
             <button
@@ -628,21 +781,80 @@ export function SearchOverlay({ isOpen, onClose, onHelpOpen }: SearchOverlayProp
           <div className="search-loading">Searching...</div>
         )}
 
-        {/* Confirmation after adding a note */}
+        {/* Confirmation after adding */}
         {addedConfirmation ? (
           <div className="search-note-added">
             <span className="search-note-added-icon">&#x2713;</span>
-            <span>Note added</span>
+            <span>{addedConfirmation.startsWith('Issue:') ? 'Issue' : 'Note'} added</span>
           </div>
-        ) : mode === 'note' ? (
-          /* --- NOTE MODE BODY --- */
+        ) : mode === 'create-pick' ? (
+          /* --- CREATE-PICK: type selection --- */
+          <div className="search-create-picker">
+            <div className="search-picker-options">
+              <button className="search-picker-pill" onClick={() => { setCreateType('issue'); setMode('issue-size'); }}>
+                <kbd>i</kbd> Issue
+              </button>
+              <button className="search-picker-pill" onClick={() => { setCreateType('thought'); setMode('input'); setTimeout(() => inputRef.current?.focus(), 0); }}>
+                <kbd>t</kbd> Thought
+              </button>
+              <button className="search-picker-pill" onClick={() => { setCreateType('note'); setMode('input'); setTimeout(() => inputRef.current?.focus(), 0); }}>
+                <kbd>n</kbd> Note
+              </button>
+            </div>
+            <div className="search-footer">
+              <span className="search-hint">
+                Press a letter to select &middot; <kbd>Esc</kbd> back to search
+              </span>
+            </div>
+          </div>
+        ) : mode === 'issue-size' ? (
+          /* --- ISSUE-SIZE: size selection --- */
+          <div className="search-create-picker">
+            <div className="search-picker-label">Size</div>
+            <div className="search-picker-options">
+              {([['s', 'S'], ['m', 'M'], ['l', 'L'], ['x', 'XL']] as const).map(([key, label]) => (
+                <button
+                  key={key}
+                  className={`search-picker-pill ${issueAttrs.size === (key === 'x' ? 'xl' : key) ? 'search-picker-pill--default' : ''}`}
+                  onClick={() => { setIssueAttrs(a => ({ ...a, size: (key === 'x' ? 'xl' : key) as IssueAttrs['size'] })); setMode('issue-priority'); }}
+                >
+                  <kbd>{key}</kbd> {label}
+                </button>
+              ))}
+            </div>
+            <div className="search-footer">
+              <span className="search-hint">
+                <kbd>&larr;</kbd><kbd>&rarr;</kbd> select &middot; <kbd>Enter</kbd> confirm &middot; <kbd>Esc</kbd> back
+              </span>
+            </div>
+          </div>
+        ) : mode === 'issue-priority' ? (
+          /* --- ISSUE-PRIORITY: priority selection --- */
+          <div className="search-create-picker">
+            <div className="search-picker-label">Priority</div>
+            <div className="search-picker-options">
+              {([0, 1, 2, 3] as const).map(p => (
+                <button
+                  key={p}
+                  className={`search-picker-pill ${issueAttrs.priority === p ? 'search-picker-pill--default' : ''}`}
+                  onClick={() => { setIssueAttrs(a => ({ ...a, priority: p })); setMode('input'); setTimeout(() => inputRef.current?.focus(), 0); }}
+                >
+                  <kbd>{p}</kbd> P{p}
+                </button>
+              ))}
+            </div>
+            <div className="search-footer">
+              <span className="search-hint">
+                <kbd>&larr;</kbd><kbd>&rarr;</kbd> select &middot; <kbd>Enter</kbd> confirm &middot; <kbd>Esc</kbd> back
+              </span>
+            </div>
+          </div>
+        ) : mode === 'input' ? (
+          /* --- INPUT MODE: text entry --- */
           <>
             <div className="search-note-compose">
               {query.trim() ? (
                 <div className="search-note-context">
-                  <span className={`note-type-badge ${noteContext?.isThought ? 'thought' : noteContext?.isOneOnOne ? 'one-on-one' : ''}`}>
-                    {noteContext?.noteType}
-                  </span>
                   {noteContext && noteContext.linkedEmployees.length > 0 && (
                     <div className="search-note-linked">
                       Linked to: {noteContext.linkedEmployees.map(e => e.name).join(', ')}
@@ -651,9 +863,14 @@ export function SearchOverlay({ isOpen, onClose, onHelpOpen }: SearchOverlayProp
                 </div>
               ) : (
                 <div className="search-note-help">
-                  <p>Start typing your note.</p>
+                  <p>
+                    {createType === 'issue' ? 'Type the issue title.' :
+                     createType === 'thought' ? 'Type your thought.' :
+                     'Start typing your note.'}
+                  </p>
                   <p className="search-note-help-hint">
-                    <code>@name</code> to link to a person &middot; <code>[1]</code> prefix for 1:1 topic &middot; <code>[t]</code> prefix for thought
+                    <code>@name</code> to link to a person
+                    {createType === 'note' && <> &middot; <code>[1]</code> prefix for 1:1 topic</>}
                   </p>
                 </div>
               )}
@@ -677,7 +894,7 @@ export function SearchOverlay({ isOpen, onClose, onHelpOpen }: SearchOverlayProp
               <span className="search-hint">
                 {query.trim() && (
                   <>
-                    <kbd>Enter</kbd> add note
+                    <kbd>Enter</kbd> add {createType}
                     &nbsp;&middot;&nbsp;
                   </>
                 )}
@@ -791,7 +1008,7 @@ export function SearchOverlay({ isOpen, onClose, onHelpOpen }: SearchOverlayProp
                   </>
                 )}
                 &nbsp;&middot;&nbsp;
-                <kbd>Tab</kbd> note mode
+                <kbd>Tab</kbd> create
                 &nbsp;&middot;&nbsp;
                 <kbd>&#x2318;E</kbd> external
                 &nbsp;&middot;&nbsp;

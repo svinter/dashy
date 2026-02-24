@@ -50,7 +50,10 @@ def get_dashboard(days: int = Query(7, ge=1, le=90)):
         calendar_today = [
             dict(r)
             for r in db.execute(
-                "SELECT * FROM calendar_events WHERE date(start_time) = date('now') ORDER BY start_time"
+                "SELECT * FROM calendar_events WHERE date(start_time) = date('now')"
+                " AND COALESCE(status, 'confirmed') != 'cancelled'"
+                " AND COALESCE(self_response, '') != 'declined'"
+                " ORDER BY start_time"
             ).fetchall()
         ]
 
@@ -83,7 +86,10 @@ def get_dashboard(days: int = Query(7, ge=1, le=90)):
         meetings_upcoming = [
             dict(r)
             for r in db.execute(
-                "SELECT * FROM calendar_events WHERE start_time > datetime('now') ORDER BY start_time LIMIT 10"
+                "SELECT * FROM calendar_events WHERE start_time > datetime('now')"
+                " AND COALESCE(status, 'confirmed') != 'cancelled'"
+                " AND COALESCE(self_response, '') != 'declined'"
+                " ORDER BY start_time LIMIT 10"
             ).fetchall()
         ]
 

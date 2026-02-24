@@ -15,7 +15,10 @@ def _build_context(db) -> dict:
         dict(r)
         for r in db.execute(
             "SELECT summary, start_time, end_time, attendees_json, description "
-            "FROM calendar_events WHERE date(start_time) = date('now') ORDER BY start_time"
+            "FROM calendar_events WHERE date(start_time) = date('now')"
+            " AND COALESCE(status, 'confirmed') != 'cancelled'"
+            " AND COALESCE(self_response, '') != 'declined'"
+            " ORDER BY start_time"
         ).fetchall()
     ]
 
@@ -23,7 +26,10 @@ def _build_context(db) -> dict:
         dict(r)
         for r in db.execute(
             "SELECT summary, start_time, end_time, attendees_json "
-            "FROM calendar_events WHERE start_time > datetime('now') ORDER BY start_time LIMIT 5"
+            "FROM calendar_events WHERE start_time > datetime('now')"
+            " AND COALESCE(status, 'confirmed') != 'cancelled'"
+            " AND COALESCE(self_response, '') != 'declined'"
+            " ORDER BY start_time LIMIT 5"
         ).fetchall()
     ]
 

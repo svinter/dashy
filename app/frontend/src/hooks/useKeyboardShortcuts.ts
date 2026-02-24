@@ -52,7 +52,7 @@ export const SHORTCUT_DEFINITIONS: ShortcutDef[] = [
 
   // Overlays
   { keys: '\u2318K', description: 'Search / command palette', category: 'overlays' },
-  { keys: 'Tab (in \u2318K)', description: 'Switch to note mode', category: 'overlays' },
+  { keys: 'Tab (in \u2318K)', description: 'Quick create (issue/thought/note)', category: 'overlays' },
   { keys: '\u2318E (in \u2318K)', description: 'Toggle external search', category: 'overlays' },
   { keys: '?', description: 'Keyboard shortcuts help', category: 'overlays' },
   { keys: 'Escape', description: 'Close overlay', category: 'overlays' },

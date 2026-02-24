@@ -10,10 +10,14 @@ const ALL_DATA_SOURCES: { key: string; label: string; connector: string | null }
   { key: 'gmail', label: 'Gmail', connector: 'google' },
   { key: 'calendar', label: 'Calendar', connector: 'google' },
   { key: 'drive', label: 'Drive', connector: 'google_drive' },
+  { key: 'sheets', label: 'Sheets', connector: 'google_drive' },
+  { key: 'docs', label: 'Docs', connector: 'google_drive' },
   { key: 'slack', label: 'Slack', connector: 'slack' },
   { key: 'notion', label: 'Notion', connector: 'notion' },
   { key: 'github', label: 'GitHub', connector: 'github' },
-  { key: 'ramp', label: 'Ramp', connector: 'ramp' },
+  { key: 'ramp', label: 'Ramp transactions', connector: 'ramp' },
+  { key: 'ramp_vendors', label: 'Ramp vendors', connector: 'ramp' },
+  { key: 'ramp_bills', label: 'Ramp bills', connector: 'ramp' },
   { key: 'news', label: 'News', connector: 'news' },
 ];
 

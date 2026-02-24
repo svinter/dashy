@@ -168,11 +168,26 @@ def sync_github():
         _update_sync_state("github", "error", traceback.format_exc(), 0)
 
 
+def _get_last_sync_date(source: str) -> str | None:
+    """Return the last successful sync timestamp for incremental fetching."""
+    try:
+        with get_db_connection(readonly=True) as db:
+            row = db.execute(
+                "SELECT last_sync_at FROM sync_state WHERE source = ? AND last_sync_status = 'success'",
+                (source,),
+            ).fetchone()
+            return row["last_sync_at"] if row else None
+    except Exception:
+        return None
+
+
 def sync_ramp(org_only: bool = False):
     try:
         from connectors.ramp import sync_ramp_transactions
 
-        count = sync_ramp_transactions(org_only=org_only)
+        # Use last sync time for incremental fetch instead of full 90-day window
+        from_date = _get_last_sync_date("ramp")
+        count = sync_ramp_transactions(org_only=org_only, from_date=from_date)
         _update_sync_state("ramp", "success", None, count)
     except ImportError:
         _update_sync_state("ramp", "error", "Ramp connector not available", 0)
@@ -197,7 +212,9 @@ def sync_ramp_bills():
         from connectors.ramp import seed_projects_from_vendors
         from connectors.ramp import sync_ramp_bills as _sync_bills
 
-        count = _sync_bills()
+        # Use last sync time for incremental fetch; skip wipe when doing incremental
+        from_date = _get_last_sync_date("ramp_bills")
+        count = _sync_bills(from_date=from_date, wipe=from_date is None)
         seed_projects_from_vendors()
         _update_sync_state("ramp_bills", "success", None, count)
     except ImportError:

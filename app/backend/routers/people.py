@@ -342,7 +342,10 @@ def get_person(person_id: str):
         if email_patterns:
             future_events = db.execute(
                 "SELECT id, summary, start_time, end_time, html_link, attendees_json "
-                "FROM calendar_events WHERE start_time > datetime('now') ORDER BY start_time"
+                "FROM calendar_events WHERE start_time > datetime('now')"
+                " AND COALESCE(status, 'confirmed') != 'cancelled'"
+                " AND COALESCE(self_response, '') != 'declined'"
+                " ORDER BY start_time"
             ).fetchall()
             for event in future_events:
                 attendees_raw = event["attendees_json"] or "[]"

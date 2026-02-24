@@ -47,6 +47,8 @@ def list_meetings(
                 LEFT JOIN meeting_notes mn
                     ON mn.calendar_event_id = ce.id
                 WHERE ce.start_time > datetime('now')
+                  AND COALESCE(ce.status, 'confirmed') != 'cancelled'
+                  AND COALESCE(ce.self_response, '') != 'declined'
                 ORDER BY ce.start_time ASC
                 LIMIT ? OFFSET ?
                 """,
@@ -55,6 +57,8 @@ def list_meetings(
 
             total = db.execute(
                 "SELECT COUNT(*) as c FROM calendar_events WHERE start_time > datetime('now')"
+                " AND COALESCE(status, 'confirmed') != 'cancelled'"
+                " AND COALESCE(self_response, '') != 'declined'"
             ).fetchone()["c"]
 
         else:  # past
@@ -77,6 +81,8 @@ def list_meetings(
                     LEFT JOIN meeting_notes mn ON mn.calendar_event_id = ce.id
                     LEFT JOIN meeting_notes mn2 ON mn2.granola_meeting_id = gm.id
                     WHERE ce.start_time <= datetime('now')
+                      AND COALESCE(ce.status, 'confirmed') != 'cancelled'
+                      AND COALESCE(ce.self_response, '') != 'declined'
 
                     UNION ALL
 
@@ -107,6 +113,8 @@ def list_meetings(
 
             total_cal = db.execute(
                 "SELECT COUNT(*) as c FROM calendar_events WHERE start_time <= datetime('now')"
+                " AND COALESCE(status, 'confirmed') != 'cancelled'"
+                " AND COALESCE(self_response, '') != 'declined'"
             ).fetchone()["c"]
             total_granola = db.execute(
                 """SELECT COUNT(*) as c FROM granola_meetings
