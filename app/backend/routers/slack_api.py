@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Optional
 
 import certifi
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from pydantic import BaseModel
 
 from app_config import get_prompt_context, get_secret
@@ -296,31 +296,20 @@ Order by priority_score descending. Return ALL messages provided, scored."""
 
 
 def _rank_slack_with_gemini(messages: list[dict]) -> list[dict]:
-    """Call Gemini to rank Slack messages by priority."""
-    api_key = get_secret("GEMINI_API_KEY") or ""
-    if not api_key:
-        return []
+    """Rank Slack messages by priority using the configured AI provider."""
+    from ai_client import generate
 
-    from google import genai
-
-    client = genai.Client(api_key=api_key)
     now = datetime.now().strftime("%A, %B %d %Y, %I:%M %p")
     user_message = f"Current time: {now}\n\nSlack messages to rank:\n{json.dumps(messages, default=str)}"
 
-    response = client.models.generate_content(
-        model="gemini-2.0-flash",
-        contents=user_message,
-        config={
-            "system_instruction": _build_slack_rank_prompt(),
-            "temperature": 0.2,
-            "response_mime_type": "application/json",
-        },
-    )
+    text = generate(system_prompt=_build_slack_rank_prompt(), user_message=user_message, json_mode=True)
+    if not text:
+        return []
 
     try:
-        items = json.loads(response.text)
-        if isinstance(items, list):
-            return items
+        result = json.loads(text)
+        if isinstance(result, list):
+            return result
     except (json.JSONDecodeError, TypeError):
         pass
     return []
@@ -331,28 +320,21 @@ def _dismissed_slack_ids(db) -> set[str]:
     return {r["item_id"] for r in rows}
 
 
-@router.get("/prioritized")
-def get_prioritized_slack(refresh: bool = Query(False), days: int = Query(7, ge=1, le=90)):
-    """Return top 50 Slack messages ranked by Gemini priority score."""
+def rerank_slack(days: int = 7) -> bool:
+    """Rerank Slack items — updates cache if data changed. Returns True if cache was updated."""
+    from routers._ranking_cache import finish_reranking, start_reranking
+
+    if not start_reranking("slack"):
+        return False
+    try:
+        return _do_rerank_slack(days)
+    finally:
+        finish_reranking("slack")
+
+
+def _do_rerank_slack(days: int = 7) -> bool:
+    cutoff = f"-{days} days"
     with get_db_connection(readonly=True) as db:
-        dismissed = _dismissed_slack_ids(db)
-        cutoff = f"-{days} days"
-
-        # Check cache first
-        if not refresh:
-            cached = db.execute(
-                "SELECT data_json, generated_at FROM cached_slack_priorities ORDER BY id DESC LIMIT 1"
-            ).fetchone()
-            if cached:
-                data = json.loads(cached["data_json"])
-                data["items"] = [
-                    item
-                    for item in data.get("items", [])
-                    if item["id"] not in dismissed and _ts_within_days(item.get("ts"), days)
-                ]
-                return data
-
-        # Fetch recent messages from DB
         rows = db.execute(
             "SELECT id, user_name, text, channel_name, channel_type, ts, is_mention, permalink "
             "FROM slack_messages "
@@ -362,7 +344,7 @@ def get_prioritized_slack(refresh: bool = Query(False), days: int = Query(7, ge=
         ).fetchall()
 
     if not rows:
-        return {"items": [], "error": "No Slack messages synced yet"}
+        return False
 
     messages_for_llm = [
         {
@@ -376,33 +358,20 @@ def get_prioritized_slack(refresh: bool = Query(False), days: int = Query(7, ge=
         for r in rows
     ]
 
-    # Check if input data has changed since last ranking
     items_hash = compute_items_hash(messages_for_llm)
     with get_db_connection(readonly=True) as db:
-        cached = db.execute(
-            "SELECT data_json, data_hash FROM cached_slack_priorities ORDER BY id DESC LIMIT 1"
-        ).fetchone()
+        cached = db.execute("SELECT data_hash FROM cached_slack_priorities ORDER BY id DESC LIMIT 1").fetchone()
         if cached and cached["data_hash"] == items_hash:
-            logger.info("Slack ranking cache hit (hash match)")
-            data = json.loads(cached["data_json"])
-            data["items"] = [
-                item
-                for item in data.get("items", [])
-                if item["id"] not in dismissed and _ts_within_days(item.get("ts"), days)
-            ]
-            return data
+            return False
 
-    logger.info("Slack ranking cache miss — calling Gemini (%d messages)", len(messages_for_llm))
+    logger.info("Slack rerank — calling AI (%d messages)", len(messages_for_llm))
     try:
         ranked = _rank_slack_with_gemini(messages_for_llm)
     except Exception as e:
-        logger.error("Slack ranking failed: %s", e)
-        return {"items": [], "error": "Ranking service unavailable"}
+        logger.error("Slack rerank failed: %s", e)
+        return False
 
-    # Build lookup of full message data
     msg_lookup = {r["id"]: dict(r) for r in rows}
-
-    # Merge rankings with full message data
     items = []
     for rank in ranked:
         msg_id = rank.get("id", "")
@@ -424,20 +393,68 @@ def get_prioritized_slack(refresh: bool = Query(False), days: int = Query(7, ge=
             }
         )
 
-    # Sort by score desc, filter dismissed, take top 50
     items.sort(key=lambda x: x["priority_score"], reverse=True)
-    items = [i for i in items if i["id"] not in dismissed][:50]
-
+    items = items[:50]
     result = {"items": items}
 
-    # Cache result with hash
-    all_items_result = {"items": items}
     with get_write_db() as db:
         db.execute("DELETE FROM cached_slack_priorities")
         db.execute(
             "INSERT INTO cached_slack_priorities (data_json, data_hash) VALUES (?, ?)",
-            (json.dumps(all_items_result), items_hash),
+            (json.dumps(result), items_hash),
         )
         db.commit()
 
-    return result
+    logger.info("Slack rerank complete — %d items cached", len(items))
+    return True
+
+
+@router.get("/prioritized")
+def get_prioritized_slack(
+    refresh: bool = Query(False),
+    days: int = Query(7, ge=1, le=90),
+    background_tasks: BackgroundTasks = None,
+):
+    """Return top 50 Slack messages ranked by Gemini priority score."""
+    from routers._ranking_cache import is_reranking
+
+    with get_db_connection(readonly=True) as db:
+        dismissed = _dismissed_slack_ids(db)
+        cached = db.execute(
+            "SELECT data_json, generated_at FROM cached_slack_priorities ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+
+    if cached:
+        data = json.loads(cached["data_json"])
+        data["items"] = [
+            item
+            for item in data.get("items", [])
+            if item["id"] not in dismissed and _ts_within_days(item.get("ts"), days)
+        ]
+
+        if not refresh:
+            return data
+
+        # Stale-while-revalidate: return cached data, rerank in background
+        if background_tasks and not is_reranking("slack"):
+            background_tasks.add_task(rerank_slack, days)
+        data["stale"] = True
+        return data
+
+    # No cache — synchronous first-time ranking
+    result = _do_rerank_slack(days)
+    if not result:
+        return {"items": [], "error": "No Slack messages synced yet"}
+
+    with get_db_connection(readonly=True) as db:
+        cached = db.execute("SELECT data_json FROM cached_slack_priorities ORDER BY id DESC LIMIT 1").fetchone()
+        if cached:
+            data = json.loads(cached["data_json"])
+            data["items"] = [
+                item
+                for item in data.get("items", [])
+                if item["id"] not in dismissed and _ts_within_days(item.get("ts"), days)
+            ]
+            return data
+
+    return {"items": []}

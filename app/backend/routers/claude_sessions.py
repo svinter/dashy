@@ -3,7 +3,6 @@
 import base64
 import json
 import logging
-import os
 import threading
 from pathlib import Path
 
@@ -34,34 +33,28 @@ _SUMMARIZE_PROMPT = (
 
 
 def _summarize_session(plain_text: str) -> dict:
-    """Call Gemini to summarize session text. Returns {title, summary}."""
-    api_key = os.environ.get("GEMINI_API_KEY", "")
-    if not api_key or not plain_text.strip():
+    """Call AI to summarize session text. Returns {title, summary}."""
+    if not plain_text.strip():
+        return {}
+
+    from ai_client import generate
+
+    text_input = plain_text[-8000:] if len(plain_text) > 8000 else plain_text
+
+    text = generate(
+        system_prompt=_SUMMARIZE_PROMPT,
+        user_message=f"Summarize this Claude Code session:\n\n{text_input}",
+        json_mode=True,
+    )
+    if not text:
         return {}
 
     try:
-        from google import genai
-
-        client = genai.Client(api_key=api_key)
-        # Truncate to avoid token limits — last 8000 chars are most relevant
-        text = plain_text[-8000:] if len(plain_text) > 8000 else plain_text
-
-        response = client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=f"Summarize this Claude Code session:\n\n{text}",
-            config={
-                "system_instruction": _SUMMARIZE_PROMPT,
-                "temperature": 0.2,
-                "response_mime_type": "application/json",
-            },
-        )
-
-        result = json.loads(response.text)
+        result = json.loads(text)
         if isinstance(result, dict):
             return result
-    except Exception as e:
-        logger.warning(f"Gemini summarization failed: {e}")
-
+    except (json.JSONDecodeError, TypeError):
+        pass
     return {}
 
 
@@ -94,6 +87,14 @@ def _summarize_in_background(session_id: int, plain_text: str):
                     params,
                 )
                 db.commit()
+
+        # Create a memory entry capturing what happened in this session
+        try:
+            from routers.memory import create_memory_entry
+
+            create_memory_entry(trigger="claude_session", claude_session_id=session_id)
+        except Exception as e:
+            logger.warning(f"Memory entry creation failed for session {session_id}: {e}")
 
     threading.Thread(target=_run, daemon=True).start()
 

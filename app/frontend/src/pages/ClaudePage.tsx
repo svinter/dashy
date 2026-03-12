@@ -12,6 +12,10 @@ import {
   useCreateNoteFromSession,
   useCreateLongformFromSession,
   usePersonas,
+  useCreatePersona,
+  useUpdatePersona,
+  useDeletePersona,
+  useUploadPersonaAvatar,
 } from '../api/hooks';
 import { api } from '../api/client';
 import type { Issue, LongformPostDetail } from '../api/types';
@@ -45,6 +49,7 @@ export function ClaudePage({ visible, overlayOpen }: { visible: boolean; overlay
   const tabCounterRef = useRef(1);
 
   const [panelOpen, setPanelOpen] = useState(false);
+  const [panelTab, setPanelTab] = useState<'history' | 'personas'>('history');
   const [viewingSessionId, setViewingSessionId] = useState<number | null>(null);
   const [sessionTitle, setSessionTitle] = useState('');
 
@@ -54,7 +59,14 @@ export function ClaudePage({ visible, overlayOpen }: { visible: boolean; overlay
   const deleteSession = useDeleteClaudeSession();
   const createNoteFromSession = useCreateNoteFromSession();
   const { data: personas } = usePersonas();
+  const createPersona = useCreatePersona();
+  const updatePersona = useUpdatePersona();
+  const deletePersona = useDeletePersona();
+  const uploadAvatar = useUploadPersonaAvatar();
   const [showPersonaPicker, setShowPersonaPicker] = useState(false);
+  const [personaCreateForm, setPersonaCreateForm] = useState({ name: '', description: '', system_prompt: '' });
+  const [editingPersonaId, setEditingPersonaId] = useState<number | null>(null);
+  const [personaEditForm, setPersonaEditForm] = useState({ name: '', description: '', system_prompt: '' });
   const personaPickerRef = useRef<HTMLDivElement>(null);
 
   const location = useLocation();
@@ -477,57 +489,206 @@ export function ClaudePage({ visible, overlayOpen }: { visible: boolean; overlay
       <div className="claude-body">
         {panelOpen && (
           <div className="claude-sessions-panel">
-            <h3>History</h3>
-            <div className="claude-sessions-list">
-              {sessions?.map((s) => (
-                <div
-                  key={s.id}
-                  className={`claude-session-item${viewingSessionId === s.id ? ' active' : ''}`}
-                  onClick={() => handleViewSession(s.id)}
-                >
-                  <div className="claude-session-item-title">{s.title}</div>
-                  <div className="claude-session-item-meta">
-                    <TimeAgo date={s.created_at} />
-                  </div>
-                  {s.preview && (
-                    <div className="claude-session-item-preview">{s.preview}</div>
-                  )}
-                  <button
-                    className="claude-session-note-btn"
-                    onClick={(e) => handleCreateNote(s.id, e)}
-                    title="Create note from session"
-                    disabled={createNoteFromSession.isPending}
-                  >
-                    📝
-                  </button>
-                  <button
-                    className="claude-session-note-btn"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      createLongformFromSession.mutate(s.id, {
-                        onSuccess: (post) => {
-                          navigate(`/longform?postId=${post.id}`);
-                        },
-                      });
-                    }}
-                    title="Save as longform post"
-                    disabled={createLongformFromSession.isPending}
-                  >
-                    📄
-                  </button>
-                  <button
-                    className="claude-session-delete"
-                    onClick={(e) => handleDeleteSession(s.id, e)}
-                    title="Delete session"
-                  >
-                    &times;
-                  </button>
-                </div>
-              ))}
-              {(!sessions || sessions.length === 0) && (
-                <div className="claude-sessions-empty">No saved sessions</div>
-              )}
+            <div className="github-tabs" style={{ marginBottom: 'var(--space-sm)' }}>
+              <button className={`github-tab ${panelTab === 'history' ? 'active' : ''}`} onClick={() => setPanelTab('history')}>History</button>
+              <button className={`github-tab ${panelTab === 'personas' ? 'active' : ''}`} onClick={() => setPanelTab('personas')}>Personas</button>
             </div>
+
+            {panelTab === 'history' && (
+              <div className="claude-sessions-list">
+                {sessions?.map((s) => (
+                  <div
+                    key={s.id}
+                    className={`claude-session-item${viewingSessionId === s.id ? ' active' : ''}`}
+                    onClick={() => handleViewSession(s.id)}
+                  >
+                    <div className="claude-session-item-title">{s.title}</div>
+                    <div className="claude-session-item-meta">
+                      <TimeAgo date={s.created_at} />
+                    </div>
+                    {s.preview && (
+                      <div className="claude-session-item-preview">{s.preview}</div>
+                    )}
+                    <button
+                      className="claude-session-note-btn"
+                      onClick={(e) => handleCreateNote(s.id, e)}
+                      title="Create note from session"
+                      disabled={createNoteFromSession.isPending}
+                    >
+                      📝
+                    </button>
+                    <button
+                      className="claude-session-note-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        createLongformFromSession.mutate(s.id, {
+                          onSuccess: (post) => {
+                            navigate(`/longform?postId=${post.id}`);
+                          },
+                        });
+                      }}
+                      title="Save as longform post"
+                      disabled={createLongformFromSession.isPending}
+                    >
+                      📄
+                    </button>
+                    <button
+                      className="claude-session-delete"
+                      onClick={(e) => handleDeleteSession(s.id, e)}
+                      title="Delete session"
+                    >
+                      &times;
+                    </button>
+                  </div>
+                ))}
+                {(!sessions || sessions.length === 0) && (
+                  <div className="claude-sessions-empty">No saved sessions</div>
+                )}
+              </div>
+            )}
+
+            {panelTab === 'personas' && (
+              <div className="claude-sessions-list">
+                {personas?.map((persona) => (
+                  <div key={persona.id} className="claude-session-item" style={{ cursor: 'default' }}>
+                    {editingPersonaId === persona.id ? (
+                      <form onSubmit={(e) => {
+                        e.preventDefault();
+                        updatePersona.mutate({ id: persona.id, ...personaEditForm }, {
+                          onSuccess: () => setEditingPersonaId(null),
+                        });
+                      }}>
+                        <input
+                          type="text"
+                          value={personaEditForm.name}
+                          onChange={(e) => setPersonaEditForm({ ...personaEditForm, name: e.target.value })}
+                          placeholder="Name"
+                          className="note-input"
+                          style={{ marginBottom: 'var(--space-xs)', fontSize: 'var(--text-sm)' }}
+                          required
+                        />
+                        <input
+                          type="text"
+                          value={personaEditForm.description}
+                          onChange={(e) => setPersonaEditForm({ ...personaEditForm, description: e.target.value })}
+                          placeholder="Description"
+                          className="note-input"
+                          style={{ marginBottom: 'var(--space-xs)', fontSize: 'var(--text-sm)' }}
+                        />
+                        <textarea
+                          value={personaEditForm.system_prompt}
+                          onChange={(e) => setPersonaEditForm({ ...personaEditForm, system_prompt: e.target.value })}
+                          placeholder="System prompt..."
+                          className="note-input"
+                          style={{ minHeight: 80, fontSize: 'var(--text-xs)', fontFamily: 'var(--font-mono)', resize: 'vertical' }}
+                        />
+                        <div style={{ display: 'flex', gap: 'var(--space-xs)', marginTop: 'var(--space-xs)' }}>
+                          <button type="submit" className="auth-action-btn" style={{ fontSize: 'var(--text-xs)' }} disabled={updatePersona.isPending}>Save</button>
+                          <button type="button" className="auth-action-btn" style={{ fontSize: 'var(--text-xs)' }} onClick={() => setEditingPersonaId(null)}>Cancel</button>
+                        </div>
+                      </form>
+                    ) : (
+                      <>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)' }}>
+                          <label className="persona-avatar-upload" style={{ cursor: 'pointer', position: 'relative' }}>
+                            {persona.avatar_filename ? (
+                              <img src={`/api/personas/${persona.id}/avatar`} alt="" className="persona-avatar" style={{ width: 32, height: 32 }} />
+                            ) : (
+                              <span className="persona-avatar-placeholder" style={{ width: 32, height: 32, fontSize: 14 }}>{persona.name.charAt(0).toUpperCase()}</span>
+                            )}
+                            <input
+                              type="file"
+                              accept="image/png,image/jpeg,image/webp,image/gif"
+                              style={{ display: 'none' }}
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) uploadAvatar.mutate({ id: persona.id, file });
+                                e.target.value = '';
+                              }}
+                            />
+                          </label>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div className="claude-session-item-title">{persona.name}</div>
+                            {persona.description && (
+                              <div className="claude-session-item-meta">{persona.description}</div>
+                            )}
+                          </div>
+                        </div>
+                        {persona.system_prompt && (
+                          <div className="claude-session-item-preview" style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>
+                            {persona.system_prompt.slice(0, 150)}{persona.system_prompt.length > 150 ? '...' : ''}
+                          </div>
+                        )}
+                        <div style={{ display: 'flex', gap: 'var(--space-xs)', marginTop: 'var(--space-xs)' }}>
+                          <button
+                            className="auth-action-btn"
+                            style={{ fontSize: 'var(--text-xs)' }}
+                            onClick={() => {
+                              setEditingPersonaId(persona.id);
+                              setPersonaEditForm({ name: persona.name, description: persona.description, system_prompt: persona.system_prompt });
+                            }}
+                          >
+                            Edit
+                          </button>
+                          {!persona.is_default && (
+                            <button
+                              className="auth-action-btn"
+                              style={{ fontSize: 'var(--text-xs)', color: 'var(--color-accent)' }}
+                              onClick={() => deletePersona.mutate(persona.id)}
+                            >
+                              Delete
+                            </button>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ))}
+
+                {/* Create new persona form */}
+                <div className="claude-session-item" style={{ cursor: 'default' }}>
+                  <form onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!personaCreateForm.name.trim()) return;
+                    createPersona.mutate(personaCreateForm, {
+                      onSuccess: () => setPersonaCreateForm({ name: '', description: '', system_prompt: '' }),
+                    });
+                  }}>
+                    <input
+                      type="text"
+                      value={personaCreateForm.name}
+                      onChange={(e) => setPersonaCreateForm({ ...personaCreateForm, name: e.target.value })}
+                      placeholder="New persona name..."
+                      className="note-input"
+                      style={{ marginBottom: 'var(--space-xs)', fontSize: 'var(--text-sm)' }}
+                      required
+                    />
+                    {personaCreateForm.name && (
+                      <>
+                        <input
+                          type="text"
+                          value={personaCreateForm.description}
+                          onChange={(e) => setPersonaCreateForm({ ...personaCreateForm, description: e.target.value })}
+                          placeholder="Short description"
+                          className="note-input"
+                          style={{ marginBottom: 'var(--space-xs)', fontSize: 'var(--text-sm)' }}
+                        />
+                        <textarea
+                          value={personaCreateForm.system_prompt}
+                          onChange={(e) => setPersonaCreateForm({ ...personaCreateForm, system_prompt: e.target.value })}
+                          placeholder="System prompt..."
+                          className="note-input"
+                          style={{ minHeight: 80, fontSize: 'var(--text-xs)', fontFamily: 'var(--font-mono)', resize: 'vertical' }}
+                        />
+                        <button type="submit" className="auth-action-btn" style={{ fontSize: 'var(--text-xs)', marginTop: 'var(--space-xs)' }} disabled={createPersona.isPending}>
+                          {createPersona.isPending ? 'Creating...' : 'Create'}
+                        </button>
+                      </>
+                    )}
+                  </form>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

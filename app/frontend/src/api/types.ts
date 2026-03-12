@@ -343,6 +343,10 @@ export interface SyncStatus {
       duration_seconds: number | null;
     }
   >;
+  auto_sync?: {
+    enabled: boolean;
+    interval_seconds: number;
+  };
 }
 
 export interface SyncSourceInfo {
@@ -601,6 +605,7 @@ export interface PrioritizedDriveFile extends DriveFile {
 export interface PrioritizedDriveData {
   items: PrioritizedDriveFile[];
   error?: string;
+  stale?: boolean;
 }
 
 export interface GoogleSheet {
@@ -657,6 +662,7 @@ export interface PrioritizedNewsItem {
 export interface PrioritizedNewsData {
   items: PrioritizedNewsItem[];
   error?: string;
+  stale?: boolean;
 }
 
 export interface PrioritizedSlackMessage {
@@ -675,6 +681,7 @@ export interface PrioritizedSlackMessage {
 export interface PrioritizedSlackData {
   items: PrioritizedSlackMessage[];
   error?: string;
+  stale?: boolean;
 }
 
 export interface PrioritizedEmail {
@@ -714,6 +721,7 @@ export interface EmailThreadDetail {
 export interface PrioritizedEmailData {
   items: PrioritizedEmail[];
   error?: string;
+  stale?: boolean;
 }
 
 export interface PrioritizedNotionPage {
@@ -731,6 +739,7 @@ export interface PrioritizedNotionPage {
 export interface PrioritizedNotionData {
   items: PrioritizedNotionPage[];
   error?: string;
+  stale?: boolean;
 }
 
 export interface RampTransaction {
@@ -753,6 +762,7 @@ export interface RampData {
   items: RampTransaction[];
   total_amount: number;
   error?: string;
+  stale?: boolean;
 }
 
 export interface RampBill {
@@ -890,6 +900,26 @@ export interface UserProfile {
   news_topics?: string[];
   meeting_notes_provider?: string;
   notion_meeting_notes_database_id?: string;
+  whatsapp_phone?: string;
+  ai_provider?: string;
+  ai_model?: string;
+  auto_sync_interval_seconds?: number;
+}
+
+// --- WhatsApp ---
+
+export interface WhatsAppStatus {
+  connected: boolean;
+  phone?: string;
+  hasQR?: boolean;
+  error?: string;
+}
+
+export interface WhatsAppQR {
+  qr?: string;
+  connected?: boolean;
+  waiting?: boolean;
+  error?: string;
 }
 
 export interface SetupStatus {
@@ -920,6 +950,26 @@ export interface SecretStatus {
 }
 
 export type SecretsStatus = Record<string, SecretStatus>;
+
+// --- Memory ---
+
+export interface MemoryEntry {
+  id: number;
+  trigger: 'sync' | 'claude_session' | 'manual';
+  summary: string;
+  sources: string[];
+  word_count: number;
+  claude_session_id: number | null;
+  data_hash: string;
+  created_at: string;
+}
+
+export interface MemorySummary {
+  summary_text: string | null;
+  last_entry_id: number;
+  entry_count: number;
+  generated_at: string | null;
+}
 
 // --- Briefing ---
 

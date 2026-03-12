@@ -4,10 +4,10 @@ import json
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from googleapiclient.discovery import build
 
-from app_config import get_prompt_context, get_secret
+from app_config import get_prompt_context
 from connectors.google_auth import get_google_credentials
 from database import get_db_connection, get_write_db
 from models import GoogleDocAppend, GoogleDocCreate
@@ -267,31 +267,20 @@ Order by priority_score descending. Return ALL files provided, scored."""
 
 
 def _rank_drive_with_gemini(files: list[dict]) -> list[dict]:
-    """Call Gemini to rank Drive files by priority."""
-    api_key = get_secret("GEMINI_API_KEY") or ""
-    if not api_key:
-        return []
+    """Rank Drive files by priority using the configured AI provider."""
+    from ai_client import generate
 
-    from google import genai
-
-    client = genai.Client(api_key=api_key)
     now = datetime.now().strftime("%A, %B %d %Y, %I:%M %p")
     user_message = f"Current time: {now}\n\nDrive files to rank:\n{json.dumps(files, default=str)}"
 
-    response = client.models.generate_content(
-        model="gemini-2.0-flash",
-        contents=user_message,
-        config={
-            "system_instruction": _build_drive_rank_prompt(),
-            "temperature": 0.2,
-            "response_mime_type": "application/json",
-        },
-    )
+    text = generate(system_prompt=_build_drive_rank_prompt(), user_message=user_message, json_mode=True)
+    if not text:
+        return []
 
     try:
-        items = json.loads(response.text)
-        if isinstance(items, list):
-            return items
+        result = json.loads(text)
+        if isinstance(result, list):
+            return result
     except (json.JSONDecodeError, TypeError):
         pass
     return []
@@ -302,24 +291,21 @@ def _dismissed_drive_ids(db) -> set[str]:
     return {r["item_id"] for r in rows}
 
 
-@router.get("/prioritized")
-def get_prioritized_drive(refresh: bool = Query(False), days: int = Query(30, ge=1, le=365)):
-    """Return Drive files ranked by Gemini priority score."""
+def rerank_drive(days: int = 30) -> bool:
+    """Rerank Drive items — updates cache if data changed. Returns True if cache was updated."""
+    from routers._ranking_cache import finish_reranking, start_reranking
+
+    if not start_reranking("drive"):
+        return False
+    try:
+        return _do_rerank_drive(days)
+    finally:
+        finish_reranking("drive")
+
+
+def _do_rerank_drive(days: int = 30) -> bool:
+    cutoff = f"-{days} days"
     with get_db_connection(readonly=True) as db:
-        dismissed = _dismissed_drive_ids(db)
-        cutoff = f"-{days} days"
-
-        # Check cache first
-        if not refresh:
-            cached = db.execute(
-                "SELECT data_json, generated_at FROM cached_drive_priorities ORDER BY id DESC LIMIT 1"
-            ).fetchone()
-            if cached:
-                data = json.loads(cached["data_json"])
-                data["items"] = [item for item in data.get("items", []) if item["id"] not in dismissed]
-                return data
-
-        # Fetch recent files from DB
         rows = db.execute(
             "SELECT id, name, mime_type, web_view_link, modified_time, "
             "modified_by_name, owner_name, shared, starred, description, content_preview "
@@ -330,7 +316,7 @@ def get_prioritized_drive(refresh: bool = Query(False), days: int = Query(30, ge
         ).fetchall()
 
     if not rows:
-        return {"items": [], "error": "No Drive files synced yet"}
+        return False
 
     files_for_llm = []
     file_lookup = {}
@@ -351,26 +337,19 @@ def get_prioritized_drive(refresh: bool = Query(False), days: int = Query(30, ge
         )
         file_lookup[rd["id"]] = rd
 
-    # Check if input data has changed since last ranking
     items_hash = compute_items_hash(files_for_llm)
     with get_db_connection(readonly=True) as db:
-        cached = db.execute(
-            "SELECT data_json, data_hash FROM cached_drive_priorities ORDER BY id DESC LIMIT 1"
-        ).fetchone()
+        cached = db.execute("SELECT data_hash FROM cached_drive_priorities ORDER BY id DESC LIMIT 1").fetchone()
         if cached and cached["data_hash"] == items_hash:
-            logger.info("Drive ranking cache hit (hash match)")
-            data = json.loads(cached["data_json"])
-            data["items"] = [item for item in data.get("items", []) if item["id"] not in dismissed]
-            return data
+            return False
 
-    logger.info("Drive ranking cache miss — calling Gemini (%d files)", len(files_for_llm))
+    logger.info("Drive rerank — calling AI (%d files)", len(files_for_llm))
     try:
         ranked = _rank_drive_with_gemini(files_for_llm)
     except Exception as e:
-        logger.error("Drive ranking failed: %s", e)
-        return {"items": [], "error": "Ranking service unavailable"}
+        logger.error("Drive rerank failed: %s", e)
+        return False
 
-    # Merge rankings with file data
     items = []
     for rank in ranked:
         fid = rank.get("id", "")
@@ -385,13 +364,10 @@ def get_prioritized_drive(refresh: bool = Query(False), days: int = Query(30, ge
             }
         )
 
-    # Sort by score desc, filter dismissed, take top 50
     items.sort(key=lambda x: x["priority_score"], reverse=True)
-    items = [i for i in items if i["id"] not in dismissed][:50]
-
+    items = items[:50]
     result = {"items": items}
 
-    # Cache result with hash
     with get_write_db() as db:
         db.execute("DELETE FROM cached_drive_priorities")
         db.execute(
@@ -400,4 +376,47 @@ def get_prioritized_drive(refresh: bool = Query(False), days: int = Query(30, ge
         )
         db.commit()
 
-    return result
+    logger.info("Drive rerank complete — %d items cached", len(items))
+    return True
+
+
+@router.get("/prioritized")
+def get_prioritized_drive(
+    refresh: bool = Query(False),
+    days: int = Query(30, ge=1, le=365),
+    background_tasks: BackgroundTasks = None,
+):
+    """Return Drive files ranked by Gemini priority score."""
+    from routers._ranking_cache import is_reranking
+
+    with get_db_connection(readonly=True) as db:
+        dismissed = _dismissed_drive_ids(db)
+        cached = db.execute(
+            "SELECT data_json, generated_at FROM cached_drive_priorities ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+
+    if cached:
+        data = json.loads(cached["data_json"])
+        data["items"] = [item for item in data.get("items", []) if item["id"] not in dismissed]
+
+        if not refresh:
+            return data
+
+        if background_tasks and not is_reranking("drive"):
+            background_tasks.add_task(rerank_drive, days)
+        data["stale"] = True
+        return data
+
+    # No cache — synchronous first-time ranking
+    result = _do_rerank_drive(days)
+    if not result:
+        return {"items": [], "error": "No Drive files synced yet"}
+
+    with get_db_connection(readonly=True) as db:
+        cached = db.execute("SELECT data_json FROM cached_drive_priorities ORDER BY id DESC LIMIT 1").fetchone()
+        if cached:
+            data = json.loads(cached["data_json"])
+            data["items"] = [item for item in data.get("items", []) if item["id"] not in dismissed]
+            return data
+
+    return {"items": []}

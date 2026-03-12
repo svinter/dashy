@@ -28,7 +28,7 @@ export function detectEmployees(
       found = employees.find((e) => {
         if (seen.has(e.id)) return false;
         return e.name.toLowerCase().split(' ')[0] === firstName;
-      }) ?? null;
+      }) ?? undefined;
       // If first-name match consumed a last name token, rewind the regex
       if (found && hasLastName) {
         mentionRegex.lastIndex = mentionMatch.index + 1 + firstName.length;

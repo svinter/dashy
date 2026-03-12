@@ -4,7 +4,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Query
 
-from app_config import get_prompt_context, get_secret
+from app_config import get_prompt_context
 from database import get_db_connection, get_write_db
 from routers._ranking_cache import compute_items_hash
 
@@ -168,14 +168,8 @@ No markdown, no explanation, just the JSON object."""
 
 
 def _call_gemini(context: dict, dismissed_titles: list[str]) -> dict:
-    """Call Gemini API to analyze priorities. Returns {"summary": str, "items": list}."""
-    api_key = get_secret("GEMINI_API_KEY") or ""
-    if not api_key:
-        return {"summary": "", "items": []}
-
-    from google import genai
-
-    client = genai.Client(api_key=api_key)
+    """Analyze priorities using the configured AI provider."""
+    from ai_client import generate
 
     now = datetime.now().strftime("%A, %B %d %Y, %I:%M %p")
     user_message = f"Current time: {now}\n\nHere is the data to analyze:\n{json.dumps(context, default=str)}"
@@ -187,19 +181,12 @@ def _call_gemini(context: dict, dismissed_titles: list[str]) -> dict:
             + "\n".join(f"- {t}" for t in dismissed_titles)
         )
 
-    response = client.models.generate_content(
-        model="gemini-2.0-flash",
-        contents=user_message,
-        config={
-            "system_instruction": _build_system_prompt(),
-            "temperature": 0.3,
-            "response_mime_type": "application/json",
-        },
-    )
+    text = generate(system_prompt=_build_system_prompt(), user_message=user_message, json_mode=True, temperature=0.3)
+    if not text:
+        return {"summary": "", "items": []}
 
     try:
-        parsed = json.loads(response.text)
-        # Handle both new format {"summary": ..., "items": [...]} and legacy format [...]
+        parsed = json.loads(text)
         if isinstance(parsed, dict):
             return {
                 "summary": parsed.get("summary", ""),

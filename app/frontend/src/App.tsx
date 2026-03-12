@@ -7,7 +7,6 @@ import { SearchOverlay } from './components/SearchOverlay';
 import { KeyboardHelp } from './components/KeyboardHelp';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { UndoToast, getUndoTrigger } from './components/UndoToast';
-import { SyncProgressOverlay } from './components/SyncProgressOverlay';
 import { IssueDiscoveryOverlay, type DiscoveryPhase } from './components/IssueDiscoveryOverlay';
 import { useSync, useSetupStatus } from './api/hooks';
 import { BriefingPage } from './pages/BriefingPage';
@@ -16,25 +15,26 @@ import './styles/tufte.css';
 // Lazy-loaded pages — each gets its own chunk
 const NotePage = lazy(() => import('./pages/NotePage').then(m => ({ default: m.NotePage })));
 const PersonPage = lazy(() => import('./pages/PersonPage').then(m => ({ default: m.PersonPage })));
-const OrgTreePage = lazy(() => import('./pages/OrgTreePage').then(m => ({ default: m.OrgTreePage })));
+
 const NewsPage = lazy(() => import('./pages/NewsPage').then(m => ({ default: m.NewsPage })));
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then(m => ({ default: m.SettingsPage })));
 const ClaudePage = lazy(() => import('./pages/ClaudePage').then(m => ({ default: m.ClaudePage })));
-const ThoughtsPage = lazy(() => import('./pages/ThoughtsPage').then(m => ({ default: m.ThoughtsPage })));
+
 const GitHubPage = lazy(() => import('./pages/GitHubPage').then(m => ({ default: m.GitHubPage })));
 const MeetingsPage = lazy(() => import('./pages/MeetingsPage').then(m => ({ default: m.MeetingsPage })));
 const IssuesPage = lazy(() => import('./pages/IssuesPage').then(m => ({ default: m.IssuesPage })));
 const LongformPage = lazy(() => import('./pages/LongformPage').then(m => ({ default: m.LongformPage })));
-const PrioritiesPage = lazy(() => import('./pages/PrioritiesPage').then(m => ({ default: m.PrioritiesPage })));
+
 const SlackPage = lazy(() => import('./pages/SlackPage').then(m => ({ default: m.SlackPage })));
 const NotionPage = lazy(() => import('./pages/NotionPage').then(m => ({ default: m.NotionPage })));
 const EmailPage = lazy(() => import('./pages/EmailPage').then(m => ({ default: m.EmailPage })));
 const RampPage = lazy(() => import('./pages/RampPage').then(m => ({ default: m.RampPage })));
 const HelpPage = lazy(() => import('./pages/HelpPage').then(m => ({ default: m.HelpPage })));
 const SetupPage = lazy(() => import('./pages/SetupPage').then(m => ({ default: m.SetupPage })));
-const PersonasPage = lazy(() => import('./pages/PersonasPage').then(m => ({ default: m.PersonasPage })));
+
 const DrivePage = lazy(() => import('./pages/DrivePage').then(m => ({ default: m.DrivePage })));
 const PeoplePage = lazy(() => import('./pages/PeoplePage').then(m => ({ default: m.PeoplePage })));
+
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -104,14 +104,14 @@ function AppContent() {
             <Routes>
               <Route path="/help" element={<HelpPage />} />
               <Route path="/" element={<RootRedirect />} />
-              <Route path="/priorities" element={<PrioritiesPage />} />
+
               <Route path="/notes" element={<NotePage />} />
-              <Route path="/thoughts" element={<ThoughtsPage />} />
+
               <Route path="/issues" element={<IssuesPage />} />
               <Route path="/longform" element={<LongformPage />} />
               <Route path="/meetings" element={<MeetingsPage />} />
               <Route path="/news" element={<NewsPage />} />
-              <Route path="/team" element={<OrgTreePage />} />
+              <Route path="/team" element={<Navigate to="/people" replace />} />
               <Route path="/people" element={<PeoplePage />} />
               <Route path="/people/:id" element={<PersonPage />} />
               <Route path="/employees/:id" element={<PersonPage />} /> {/* backward compat redirect */}
@@ -124,7 +124,8 @@ function AppContent() {
               <Route path="/ramp/bills" element={<RampPage />} />
               <Route path="/ramp/projects" element={<RampPage />} />
               <Route path="/settings" element={<SettingsPage />} />
-              <Route path="/personas" element={<PersonasPage />} />
+              <Route path="/personas" element={<Navigate to="/claude" replace />} />
+
               <Route path="/claude" element={null} />
             </Routes>
             <div style={{ display: isClaudePage ? 'contents' : 'none' }}>
@@ -133,7 +134,6 @@ function AppContent() {
           </Suspense>
         </main>
       </div>
-      <SyncProgressOverlay />
       <IssueDiscoveryOverlay phase={discoveryPhase} onPhaseChange={setDiscoveryPhase} />
       <ErrorLogPanel />
       <SearchOverlay

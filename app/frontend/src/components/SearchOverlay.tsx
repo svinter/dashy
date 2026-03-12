@@ -28,24 +28,20 @@ type FlatResult = {
 
 // Pages available as quick-nav commands
 const PAGE_COMMANDS: { label: string; sublabel: string; route: string; keywords: string[]; externalUrl?: string }[] = [
-  { label: 'Dashboard', sublabel: 'Home overview', route: '/', keywords: ['dashboard', 'home', 'overview', 'briefing'] },
-  { label: 'Priorities', sublabel: 'AI morning briefing', route: '/priorities', keywords: ['priorities', 'briefing', 'morning', 'today'] },
-  { label: 'Notes', sublabel: 'Add and manage notes', route: '/notes?focus=1', keywords: ['notes', 'note', 'todo', 'todos'] },
-  { label: 'Thoughts', sublabel: 'Add a thought', route: '/thoughts?focus=1', keywords: ['thoughts', 'thought', 'think'] },
+  { label: 'Today', sublabel: 'Home overview', route: '/', keywords: ['dashboard', 'home', 'overview', 'briefing', 'today'] },
+  { label: 'Notes', sublabel: 'Add and manage notes', route: '/notes?focus=1', keywords: ['notes', 'note', 'todo', 'todos', 'thoughts', 'thought'] },
   { label: 'Issues', sublabel: 'Track work items', route: '/issues', keywords: ['issues', 'issue', 'bugs', 'tasks', 'work'] },
-  { label: 'Longform', sublabel: 'Blog posts and drafts', route: '/longform', keywords: ['longform', 'blog', 'post', 'writing', 'draft', 'article'] },
+  { label: 'Writing', sublabel: 'Blog posts and drafts', route: '/longform', keywords: ['longform', 'blog', 'post', 'writing', 'draft', 'article'] },
   { label: 'Meetings', sublabel: 'Calendar and meeting notes', route: '/meetings', keywords: ['meetings', 'meeting', 'calendar'] },
   { label: 'Email', sublabel: 'Prioritized email', route: '/email', keywords: ['email', 'gmail', 'inbox', 'mail'] },
   { label: 'News', sublabel: 'News feed', route: '/news', keywords: ['news', 'feed'] },
-  { label: 'Team', sublabel: 'Org chart', route: '/team', keywords: ['team', 'org', 'chart'] },
-  { label: 'People', sublabel: 'Coworkers and contacts', route: '/people', keywords: ['people', 'coworkers', 'contacts', 'directory'] },
+  { label: 'People', sublabel: 'Coworkers, contacts, and org chart', route: '/people', keywords: ['people', 'coworkers', 'contacts', 'directory', 'team', 'org', 'chart'] },
   { label: 'GitHub', sublabel: 'Pull requests and code', route: '/github', keywords: ['github', 'pr', 'pull', 'code'] },
-  { label: 'Claude', sublabel: 'Claude Code terminal', route: '/claude', keywords: ['claude', 'terminal', 'ai'] },
+  { label: 'Claude', sublabel: 'Claude Code terminal', route: '/claude', keywords: ['claude', 'terminal', 'ai', 'personas', 'persona'] },
   { label: 'Slack', sublabel: 'Slack messages overview', route: '/slack', keywords: ['slack', 'messages', 'dms'] },
   { label: 'Notion', sublabel: 'Notion pages overview', route: '/notion', keywords: ['notion', 'docs', 'wiki'] },
   { label: 'Drive', sublabel: 'Google Drive files', route: '/drive', keywords: ['drive', 'google drive', 'files', 'documents'] },
   { label: 'Ramp', sublabel: 'Transactions and expenses', route: '/ramp', keywords: ['ramp', 'expenses', 'transactions', 'bills', 'spending'] },
-  { label: 'Personas', sublabel: 'Claude persona management', route: '/personas', keywords: ['personas', 'persona'] },
   { label: 'Settings', sublabel: 'Auth and sync', route: '/settings', keywords: ['settings', 'config', 'auth', 'sync'] },
   { label: 'Help', sublabel: 'App intro and guide', route: '/help', keywords: ['help', 'intro', 'guide', 'about'] },
   { label: 'Keyboard Shortcuts', sublabel: 'Show all shortcuts', route: '__help__', keywords: ['keyboard', 'shortcuts', 'keys', 'hotkeys', '?'] },
@@ -238,7 +234,7 @@ export function SearchOverlay({ isOpen, onClose, onHelpOpen }: SearchOverlayProp
         id: String(note.id),
         label: `${prefix}${cleanText.slice(0, 100)}`,
         sublabel: note.person_name ?? undefined,
-        navigateTo: isThought ? `/thoughts?noteId=${note.id}` : `/notes?noteId=${note.id}`,
+        navigateTo: `/notes?noteId=${note.id}`,
         highlightHtml: note.text_hl,
         fullText: note.text,
         date: note.created_at,
@@ -729,7 +725,7 @@ export function SearchOverlay({ isOpen, onClose, onHelpOpen }: SearchOverlayProp
       setMode('create-pick');
       setSelectedIndex(0);
     }
-  }, [mode, flatResults, selectedIndex, handleSelect, handleNavigate, handleAddNote, handleSubmitCreate, onClose, preview, query, mentionOpen, mentionMatches, mentionSelectedIndex, completeMention, resetCreateState, createType, issueAttrs]);
+  }, [mode, flatResults, selectedIndex, handleSelect, handleNavigate, handleAddNote, handleSubmitCreate, onClose, preview, query, mentionOpen, mentionMatches, mentionSelectedIndex, completeMention, resetCreateState]);
 
   if (!isOpen) return null;
 

@@ -13,7 +13,7 @@ from datetime import datetime
 
 from fastapi import APIRouter
 
-from app_config import get_prompt_context, get_secret
+from app_config import get_prompt_context
 from database import get_db_connection, get_write_db
 from routers._ranking_cache import compute_items_hash
 
@@ -229,14 +229,9 @@ def _build_fallback_context(context: dict) -> str:
 
 
 def _compress_with_gemini(context: dict) -> str:
-    """Use Gemini to compress raw context into a concise LLM-optimized briefing."""
-    api_key = get_secret("GEMINI_API_KEY") or ""
-    if not api_key:
-        return ""
+    """Use AI to compress raw context into a concise LLM-optimized briefing."""
+    from ai_client import generate
 
-    from google import genai
-
-    client = genai.Client(api_key=api_key)
     ctx = get_prompt_context()
     now = datetime.now().strftime("%A, %B %d %Y, %I:%M %p")
 
@@ -263,19 +258,8 @@ Guidelines:
 
     user_message = f"Current time: {now}\n\nRaw data:\n{json.dumps(context, default=str)}"
 
-    try:
-        response = client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=user_message,
-            config={
-                "system_instruction": system_prompt,
-                "temperature": 0.2,
-            },
-        )
-        return response.text.strip()
-    except Exception as e:
-        logger.error("Status context Gemini call failed: %s", e)
-        return ""
+    text = generate(system_prompt=system_prompt, user_message=user_message, temperature=0.2)
+    return text.strip() if text else ""
 
 
 # ---------------------------------------------------------------------------

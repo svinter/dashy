@@ -204,10 +204,10 @@ function FilesTab() {
             <button
               className="priorities-refresh-btn"
               onClick={() => refresh.mutate()}
-              disabled={refresh.isPending}
-              title="Re-rank with Gemini"
+              disabled={refresh.isPending || !!data?.stale}
+              title="Re-rank with AI"
             >
-              {refresh.isPending ? 'Ranking...' : 'Refresh'}
+              {data?.stale ? 'Updating...' : refresh.isPending ? 'Ranking...' : 'Refresh'}
             </button>
           </div>
 

@@ -58,6 +58,10 @@ import type {
   SecretsStatus,
   DiscoveryStatus,
   DiscoveryProposalsResponse,
+  MemoryEntry,
+  MemorySummary,
+  WhatsAppStatus,
+  WhatsAppQR,
 } from './types';
 
 export function usePeople(filters?: { is_coworker?: boolean; group?: string }) {
@@ -198,14 +202,22 @@ export function useDismissPriority() {
       api.post('/priorities/dismiss', body),
     onMutate: async ({ title }) => {
       await qc.cancelQueries({ queryKey: ['priorities'] });
-      const prev = qc.getQueryData<PrioritiesData>(['priorities']);
-      if (prev) {
+      await qc.cancelQueries({ queryKey: ['briefing'] });
+      const prevPriorities = qc.getQueryData<PrioritiesData>(['priorities']);
+      const prevBriefing = qc.getQueryData<BriefingData>(['briefing']);
+      if (prevPriorities) {
         qc.setQueryData<PrioritiesData>(['priorities'], {
-          ...prev,
-          items: prev.items.filter((item) => item.title !== title),
+          ...prevPriorities,
+          items: prevPriorities.items.filter((item) => item.title !== title),
         });
       }
-      return { prev };
+      if (prevBriefing) {
+        qc.setQueryData<BriefingData>(['briefing'], {
+          ...prevBriefing,
+          attention_items: prevBriefing.attention_items?.filter((item) => item.title !== title),
+        });
+      }
+      return { prevPriorities, prevBriefing };
     },
     onSuccess: (_data, { title }) => {
       pushUndo({
@@ -213,11 +225,13 @@ export function useDismissPriority() {
         undo: async () => {
           await api.post('/priorities/undismiss', { title });
           qc.invalidateQueries({ queryKey: ['priorities'] });
+          qc.invalidateQueries({ queryKey: ['briefing'] });
         },
       });
     },
     onError: (_err, _vars, context) => {
-      if (context?.prev) qc.setQueryData(['priorities'], context.prev);
+      if (context?.prevPriorities) qc.setQueryData(['priorities'], context.prevPriorities);
+      if (context?.prevBriefing) qc.setQueryData(['briefing'], context.prevBriefing);
     },
   });
 }
@@ -989,6 +1003,11 @@ export function useRefreshPrioritizedNews(days: number = 14) {
     mutationFn: () => api.get<PrioritizedNewsData>(`/news/prioritized?refresh=true&days=${days}`),
     onSuccess: (data) => {
       qc.setQueryData<PrioritizedNewsData>(['news-prioritized', days], data);
+      if (data.stale) {
+        // Background rerank in progress — poll for fresh result
+        setTimeout(() => qc.invalidateQueries({ queryKey: ['news-prioritized', days] }), 3000);
+        setTimeout(() => qc.invalidateQueries({ queryKey: ['news-prioritized', days] }), 8000);
+      }
     },
   });
 }
@@ -1082,6 +1101,10 @@ export function useRefreshPrioritizedSlack(days: number = 7) {
     mutationFn: () => api.get<PrioritizedSlackData>(`/slack/prioritized?refresh=true&days=${days}`),
     onSuccess: (data) => {
       qc.setQueryData<PrioritizedSlackData>(['slack-prioritized', days], data);
+      if (data.stale) {
+        setTimeout(() => qc.invalidateQueries({ queryKey: ['slack-prioritized', days] }), 3000);
+        setTimeout(() => qc.invalidateQueries({ queryKey: ['slack-prioritized', days] }), 8000);
+      }
     },
   });
 }
@@ -1100,6 +1123,10 @@ export function useRefreshPrioritizedNotion(days: number = 7) {
     mutationFn: () => api.get<PrioritizedNotionData>(`/notion/prioritized?refresh=true&days=${days}`),
     onSuccess: (data) => {
       qc.setQueryData<PrioritizedNotionData>(['notion-prioritized', days], data);
+      if (data.stale) {
+        setTimeout(() => qc.invalidateQueries({ queryKey: ['notion-prioritized', days] }), 3000);
+        setTimeout(() => qc.invalidateQueries({ queryKey: ['notion-prioritized', days] }), 8000);
+      }
     },
   });
 }
@@ -1118,6 +1145,10 @@ export function useRefreshPrioritizedEmail(days: number = 7) {
     mutationFn: () => api.get<PrioritizedEmailData>(`/gmail/prioritized?refresh=true&days=${days}`),
     onSuccess: (data) => {
       qc.setQueryData<PrioritizedEmailData>(['email-prioritized', days], data);
+      if (data.stale) {
+        setTimeout(() => qc.invalidateQueries({ queryKey: ['email-prioritized', days] }), 3000);
+        setTimeout(() => qc.invalidateQueries({ queryKey: ['email-prioritized', days] }), 8000);
+      }
     },
   });
 }
@@ -1151,6 +1182,10 @@ export function useRefreshPrioritizedRamp(days: number = 7, orgOnly: boolean = t
     mutationFn: () => api.get<RampData>(`/ramp/prioritized?refresh=true&days=${days}&org_only=${orgOnly}`),
     onSuccess: (data) => {
       qc.setQueryData<RampData>(['ramp-prioritized', days, orgOnly], data);
+      if (data.stale) {
+        setTimeout(() => qc.invalidateQueries({ queryKey: ['ramp-prioritized', days, orgOnly] }), 3000);
+        setTimeout(() => qc.invalidateQueries({ queryKey: ['ramp-prioritized', days, orgOnly] }), 8000);
+      }
     },
   });
 }
@@ -1238,6 +1273,10 @@ export function useRefreshPrioritizedDrive(days: number = 7) {
     mutationFn: () => api.get<PrioritizedDriveData>(`/drive/prioritized?refresh=true&days=${days}`),
     onSuccess: (data) => {
       qc.setQueryData<PrioritizedDriveData>(['drive-prioritized', days], data);
+      if (data.stale) {
+        setTimeout(() => qc.invalidateQueries({ queryKey: ['drive-prioritized', days] }), 3000);
+        setTimeout(() => qc.invalidateQueries({ queryKey: ['drive-prioritized', days] }), 8000);
+      }
     },
   });
 }
@@ -1575,6 +1614,61 @@ export function useUploadPersonaAvatar() {
   });
 }
 
+// --- Memory ---
+
+export function useMemoryEntries(limit = 50) {
+  return useQuery({
+    queryKey: ['memory', limit],
+    queryFn: () => api.get<MemoryEntry[]>(`/memory?limit=${limit}`),
+  });
+}
+
+export function useMemorySummary() {
+  return useQuery({
+    queryKey: ['memory-summary'],
+    queryFn: () => api.get<MemorySummary>('/memory/summary'),
+  });
+}
+
+export function useCompactMemory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<MemoryEntry>('/memory/compact', {}),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['memory'] });
+      qc.invalidateQueries({ queryKey: ['memory-summary'] });
+    },
+  });
+}
+
+export function useRebuildMemorySummary() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<MemorySummary>('/memory/rebuild-summary', {}),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['memory-summary'] });
+    },
+  });
+}
+
+export function useDeleteMemoryEntry() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.delete(`/memory/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['memory'] });
+    },
+  });
+}
+
+export function useSearchMemory(q: string) {
+  return useQuery({
+    queryKey: ['memory-search', q],
+    queryFn: () => api.get<MemoryEntry[]>(`/memory/search?q=${encodeURIComponent(q)}`),
+    enabled: q.length >= 2,
+  });
+}
+
 // --- All Items (paginated from synced DB) ---
 
 const ALL_ITEMS_PAGE_SIZE = 30;
@@ -1631,5 +1725,24 @@ export function useAllDriveFiles() {
     initialPageParam: 0,
     getNextPageParam: (lastPage) =>
       lastPage.has_more ? lastPage.offset + lastPage.limit : undefined,
+  });
+}
+
+// --- WhatsApp ---
+
+export function useWhatsAppStatus() {
+  return useQuery({
+    queryKey: ['whatsapp-status'],
+    queryFn: () => api.get<WhatsAppStatus>('/whatsapp/status'),
+    refetchInterval: 10000,
+  });
+}
+
+export function useWhatsAppQR(enabled = false) {
+  return useQuery({
+    queryKey: ['whatsapp-qr'],
+    queryFn: () => api.get<WhatsAppQR>('/whatsapp/qr'),
+    refetchInterval: 3000,
+    enabled,
   });
 }

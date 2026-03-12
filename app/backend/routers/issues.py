@@ -321,12 +321,8 @@ def search_meetings(
 
 @router.post("/group")
 def group_issues():
-    """Use Gemini to suggest groupings for open/in-progress issues."""
-    from app_config import get_prompt_context, get_secret
-
-    api_key = get_secret("GEMINI_API_KEY") or ""
-    if not api_key:
-        return {"groups": [], "error": "Gemini API key not configured"}
+    """Use AI to suggest groupings for open/in-progress issues."""
+    from app_config import get_prompt_context
 
     with get_db_connection(readonly=True) as db:
         rows = db.execute("SELECT * FROM issues WHERE status != 'done' ORDER BY priority ASC").fetchall()
@@ -335,9 +331,6 @@ def group_issues():
     if not issues:
         return {"groups": []}
 
-    from google import genai
-
-    client = genai.Client(api_key=api_key)
     ctx = get_prompt_context()
 
     system_prompt = f"""You are a project management assistant for {ctx}.
@@ -363,21 +356,18 @@ Every issue must appear in exactly one group. Create 2-6 groups."""
         for i in issues
     ]
 
+    from ai_client import generate
+
+    user_message = json.dumps(issues_data, default=str)
+    text = generate(system_prompt=system_prompt, user_message=user_message, json_mode=True, temperature=0.3)
+    if not text:
+        return {"groups": [], "error": "AI not configured"}
+
     try:
-        response = client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=json.dumps(issues_data, default=str),
-            config={
-                "system_instruction": system_prompt,
-                "temperature": 0.3,
-                "response_mime_type": "application/json",
-            },
-        )
-        groups = json.loads(response.text)
+        groups = json.loads(text)
         return {"groups": groups}
-    except Exception as e:
-        logger.error("Issue grouping failed: %s", e)
-        return {"groups": [], "error": "Grouping service unavailable"}
+    except (json.JSONDecodeError, TypeError):
+        return {"groups": [], "error": "AI response parsing failed"}
 
 
 @router.get("/{issue_id}")

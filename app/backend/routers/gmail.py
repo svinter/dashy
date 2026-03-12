@@ -7,10 +7,10 @@ import re
 from collections import OrderedDict
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from googleapiclient.discovery import build
 
-from app_config import get_prompt_context, get_secret
+from app_config import get_prompt_context
 from connectors.google_auth import get_google_credentials
 from database import get_db_connection, get_write_db
 from models import GmailArchive, GmailDraftCreate, GmailDraftUpdate, GmailSend, GmailTrash
@@ -399,31 +399,20 @@ Order by priority_score descending. Return ALL emails provided, scored."""
 
 
 def _rank_email_with_gemini(emails: list[dict]) -> list[dict]:
-    """Call Gemini to rank emails by priority."""
-    api_key = get_secret("GEMINI_API_KEY") or ""
-    if not api_key:
-        return []
+    """Rank emails by priority using the configured AI provider."""
+    from ai_client import generate
 
-    from google import genai
-
-    client = genai.Client(api_key=api_key)
     now = datetime.now().strftime("%A, %B %d %Y, %I:%M %p")
     user_message = f"Current time: {now}\n\nEmails to rank:\n{json.dumps(emails, default=str)}"
 
-    response = client.models.generate_content(
-        model="gemini-2.0-flash",
-        contents=user_message,
-        config={
-            "system_instruction": _build_email_rank_prompt(),
-            "temperature": 0.2,
-            "response_mime_type": "application/json",
-        },
-    )
+    text = generate(system_prompt=_build_email_rank_prompt(), user_message=user_message, json_mode=True)
+    if not text:
+        return []
 
     try:
-        items = json.loads(response.text)
-        if isinstance(items, list):
-            return items
+        result = json.loads(text)
+        if isinstance(result, list):
+            return result
     except (json.JSONDecodeError, TypeError):
         pass
     return []
@@ -434,24 +423,21 @@ def _dismissed_email_ids(db) -> set[str]:
     return {r["item_id"] for r in rows}
 
 
-@router.get("/prioritized")
-def get_prioritized_email(refresh: bool = Query(False), days: int = Query(7, ge=1, le=90)):
-    """Return recent emails ranked by Gemini priority score."""
+def rerank_email(days: int = 7) -> bool:
+    """Rerank email items — updates cache if data changed. Returns True if cache was updated."""
+    from routers._ranking_cache import finish_reranking, start_reranking
+
+    if not start_reranking("email"):
+        return False
+    try:
+        return _do_rerank_email(days)
+    finally:
+        finish_reranking("email")
+
+
+def _do_rerank_email(days: int = 7) -> bool:
+    cutoff = f"-{days} days"
     with get_db_connection(readonly=True) as db:
-        dismissed = _dismissed_email_ids(db)
-        cutoff = f"-{days} days"
-
-        # Check cache first
-        if not refresh:
-            cached = db.execute(
-                "SELECT data_json, generated_at FROM cached_email_priorities ORDER BY id DESC LIMIT 1"
-            ).fetchone()
-            if cached:
-                data = json.loads(cached["data_json"])
-                data["items"] = [item for item in data.get("items", []) if item["id"] not in dismissed]
-                return data
-
-        # Fetch recent emails from DB
         rows = db.execute(
             "SELECT id, thread_id, subject, snippet, from_name, from_email, date, "
             "labels_json, is_unread, body_preview "
@@ -462,9 +448,8 @@ def get_prioritized_email(refresh: bool = Query(False), days: int = Query(7, ge=
         ).fetchall()
 
     if not rows:
-        return {"items": [], "error": "No emails synced yet"}
+        return False
 
-    # Group by thread before sending to Gemini
     thread_groups: OrderedDict[str, list[dict]] = OrderedDict()
     for r in rows:
         tid = r["thread_id"] or r["id"]
@@ -474,7 +459,7 @@ def get_prioritized_email(refresh: bool = Query(False), days: int = Query(7, ge=
 
     emails_for_llm = []
     for tid, msgs in thread_groups.items():
-        latest = msgs[0]  # rows ordered by date DESC
+        latest = msgs[0]
         combined_snippet = " | ".join((m["snippet"] or "")[:150] for m in msgs[:3])
         emails_for_llm.append(
             {
@@ -489,26 +474,19 @@ def get_prioritized_email(refresh: bool = Query(False), days: int = Query(7, ge=
             }
         )
 
-    # Check if input data has changed since last ranking
     items_hash = compute_items_hash(emails_for_llm)
     with get_db_connection(readonly=True) as db:
-        cached = db.execute(
-            "SELECT data_json, data_hash FROM cached_email_priorities ORDER BY id DESC LIMIT 1"
-        ).fetchone()
+        cached = db.execute("SELECT data_hash FROM cached_email_priorities ORDER BY id DESC LIMIT 1").fetchone()
         if cached and cached["data_hash"] == items_hash:
-            logger.info("Email ranking cache hit (hash match)")
-            data = json.loads(cached["data_json"])
-            data["items"] = [item for item in data.get("items", []) if item["id"] not in dismissed]
-            return data
+            return False
 
-    logger.info("Email ranking cache miss — calling Gemini (%d threads)", len(emails_for_llm))
+    logger.info("Email rerank — calling AI (%d threads)", len(emails_for_llm))
     try:
         ranked = _rank_email_with_gemini(emails_for_llm)
     except Exception as e:
-        logger.error("Email ranking failed: %s", e)
-        return {"items": [], "error": "Ranking service unavailable"}
+        logger.error("Email rerank failed: %s", e)
+        return False
 
-    # Build thread-level lookup
     thread_lookup = {}
     for tid, msgs in thread_groups.items():
         latest = msgs[0]
@@ -524,7 +502,6 @@ def get_prioritized_email(refresh: bool = Query(False), days: int = Query(7, ge=
             "message_count": len(msgs),
         }
 
-    # Merge rankings with thread data
     items = []
     for rank in ranked:
         tid = rank.get("id", "")
@@ -539,13 +516,10 @@ def get_prioritized_email(refresh: bool = Query(False), days: int = Query(7, ge=
             }
         )
 
-    # Sort by score desc, filter dismissed, take top 50
     items.sort(key=lambda x: x["priority_score"], reverse=True)
-    items = [i for i in items if i["id"] not in dismissed][:50]
-
+    items = items[:50]
     result = {"items": items}
 
-    # Cache result with hash
     with get_write_db() as db:
         db.execute("DELETE FROM cached_email_priorities")
         db.execute(
@@ -554,4 +528,49 @@ def get_prioritized_email(refresh: bool = Query(False), days: int = Query(7, ge=
         )
         db.commit()
 
-    return result
+    logger.info("Email rerank complete — %d items cached", len(items))
+    return True
+
+
+@router.get("/prioritized")
+def get_prioritized_email(
+    refresh: bool = Query(False),
+    days: int = Query(7, ge=1, le=90),
+    background_tasks: BackgroundTasks = None,
+):
+    """Return recent emails ranked by Gemini priority score."""
+    from routers._ranking_cache import is_reranking
+
+    with get_db_connection(readonly=True) as db:
+        dismissed = _dismissed_email_ids(db)
+        cached = db.execute(
+            "SELECT data_json, generated_at FROM cached_email_priorities ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+
+    if cached:
+        data = json.loads(cached["data_json"])
+        data["items"] = [item for item in data.get("items", []) if item["id"] not in dismissed]
+
+        if not refresh:
+            return data
+
+        # Stale-while-revalidate: return cached data, rerank in background
+        if background_tasks and not is_reranking("email"):
+            background_tasks.add_task(rerank_email, days)
+        data["stale"] = True
+        return data
+
+    # No cache — synchronous first-time ranking
+    result = _do_rerank_email(days)
+    if not result:
+        return {"items": [], "error": "No emails synced yet"}
+
+    # Read back from cache
+    with get_db_connection(readonly=True) as db:
+        cached = db.execute("SELECT data_json FROM cached_email_priorities ORDER BY id DESC LIMIT 1").fetchone()
+        if cached:
+            data = json.loads(cached["data_json"])
+            data["items"] = [item for item in data.get("items", []) if item["id"] not in dismissed]
+            return data
+
+    return {"items": []}

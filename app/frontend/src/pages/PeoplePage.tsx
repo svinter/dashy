@@ -6,12 +6,52 @@ import { useFocusNavigation } from '../hooks/useFocusNavigation';
 import { KeyboardHints } from '../components/shared/KeyboardHints';
 
 type FilterTab = 'all' | 'coworkers' | 'contacts';
+type ViewMode = 'table' | 'tree';
+
+// --- Tree view helpers (from OrgTreePage) ---
+
+function buildTree(people: Person[]): (Person & { children: Person[] })[] {
+  const map = new Map<string, Person & { children: Person[] }>();
+  for (const p of people) {
+    map.set(p.id, { ...p, children: [] });
+  }
+  const roots: (Person & { children: Person[] })[] = [];
+  for (const p of people) {
+    const node = map.get(p.id)!;
+    if (p.reports_to && map.has(p.reports_to)) {
+      map.get(p.reports_to)!.children.push(node);
+    } else {
+      roots.push(node);
+    }
+  }
+  return roots;
+}
+
+function TreeNode({ node, depth = 0 }: { node: Person & { children: Person[] }; depth?: number }) {
+  return (
+    <>
+      <li className="org-tree-item" style={{ paddingLeft: `${depth * 24}px` }}>
+        <Link to={`/people/${node.id}`} className="org-tree-name">{node.name}</Link>
+        <span className="org-tree-title">{node.title}</span>
+        {node.children.length > 0 && (
+          <span className="org-tree-count">{node.children.length}</span>
+        )}
+      </li>
+      {node.children.map((child) => (
+        <TreeNode key={child.id} node={child as Person & { children: Person[] }} depth={depth + 1} />
+      ))}
+    </>
+  );
+}
+
+// --- Main page ---
 
 export function PeoplePage() {
   const [activeTab, setActiveTab] = useState<FilterTab>('all');
   const [groupFilter, setGroupFilter] = useState<string>('');
   const [search, setSearch] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>('table');
 
   // Build API filters from tab + group selection
   const apiFilters = useMemo(() => {
@@ -42,27 +82,59 @@ export function PeoplePage() {
   }, [people, search]);
 
   const { containerRef } = useFocusNavigation({
-    selector: '.people-table-row',
+    selector: viewMode === 'table' ? '.people-table-row' : '.org-tree-item',
     onOpen: (i) => {
       if (filtered[i]) navigate(`/people/${filtered[i].id}`);
     },
   });
 
+  // Group people for tree view
+  const groupList = useMemo(() => groups ?? ['team'], [groups]);
+  const peopleByGroup = useMemo(() => {
+    const map = new Map<string, Person[]>();
+    for (const group of groupList) {
+      map.set(group, filtered.filter(p => p.group_name === group));
+    }
+    // People with no group or unmatched group
+    const ungrouped = filtered.filter(p => !p.group_name || !groupList.includes(p.group_name));
+    if (ungrouped.length > 0) map.set('other', ungrouped);
+    return map;
+  }, [filtered, groupList]);
+
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
         <h1>People</h1>
-        <button
-          className="btn-primary"
-          onClick={() => setShowAddForm(!showAddForm)}
-        >
-          {showAddForm ? 'Cancel' : 'Add Person'}
-        </button>
+        <div style={{ display: 'flex', gap: 'var(--space-sm)', alignItems: 'center' }}>
+          <span className="day-filter">
+            <button
+              className={`day-filter-btn${viewMode === 'table' ? ' day-filter-active' : ''}`}
+              onClick={() => setViewMode('table')}
+              title="Table view"
+            >
+              Table
+            </button>
+            <button
+              className={`day-filter-btn${viewMode === 'tree' ? ' day-filter-active' : ''}`}
+              onClick={() => setViewMode('tree')}
+              title="Org tree view"
+            >
+              Tree
+            </button>
+          </span>
+          <button
+            className="btn-primary"
+            onClick={() => setShowAddForm(!showAddForm)}
+          >
+            {showAddForm ? 'Cancel' : 'Add Person'}
+          </button>
+        </div>
       </div>
 
       {showAddForm && (
         <AddPersonForm
           groups={groups ?? []}
+          people={people ?? []}
           onSubmit={(data) => {
             createPerson.mutate(data, {
               onSuccess: () => setShowAddForm(false),
@@ -119,7 +191,8 @@ export function PeoplePage() {
         </p>
       )}
 
-      {filtered.length > 0 && (
+      {/* Table view */}
+      {viewMode === 'table' && filtered.length > 0 && (
         <div ref={containerRef}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
@@ -146,6 +219,26 @@ export function PeoplePage() {
             ))}
           </tbody>
         </table>
+        </div>
+      )}
+
+      {/* Tree view */}
+      {viewMode === 'tree' && filtered.length > 0 && (
+        <div ref={containerRef}>
+          {[...peopleByGroup.entries()].map(([group, members]) => {
+            if (members.length === 0) return null;
+            const tree = buildTree(members);
+            return (
+              <div key={group}>
+                <h2 style={{ textTransform: 'capitalize' }}>{group}</h2>
+                <ul className="org-tree-list">
+                  {tree.map((node) => (
+                    <TreeNode key={node.id} node={node} />
+                  ))}
+                </ul>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -194,11 +287,13 @@ function PersonRow({ person, onDelete }: { person: Person; onDelete: () => void 
 
 function AddPersonForm({
   groups,
+  people,
   onSubmit,
   onCancel,
   isPending,
 }: {
   groups: string[];
+  people: Person[];
   onSubmit: (data: {
     name: string;
     title?: string;
@@ -207,6 +302,7 @@ function AddPersonForm({
     phone?: string;
     is_coworker?: boolean;
     group_name?: string;
+    reports_to?: string;
   }) => void;
   onCancel: () => void;
   isPending: boolean;
@@ -218,6 +314,7 @@ function AddPersonForm({
   const [phone, setPhone] = useState('');
   const [isCoworker, setIsCoworker] = useState(true);
   const [groupName, setGroupName] = useState('');
+  const [reportsTo, setReportsTo] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -230,6 +327,7 @@ function AddPersonForm({
       phone: phone.trim() || undefined,
       is_coworker: isCoworker,
       group_name: groupName || undefined,
+      reports_to: reportsTo || undefined,
     });
   };
 
@@ -320,6 +418,19 @@ function AddPersonForm({
             onChange={(e) => setIsCoworker(e.target.checked)}
           />
           Coworker
+        </label>
+        <label style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)' }}>
+          Reports to:
+          <select
+            value={reportsTo}
+            onChange={(e) => setReportsTo(e.target.value)}
+            style={{ marginLeft: 'var(--space-xs)' }}
+          >
+            <option value="">None</option>
+            {people.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
         </label>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 'var(--space-sm)' }}>
           <button type="button" className="btn-secondary" onClick={onCancel}>

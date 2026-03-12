@@ -102,7 +102,7 @@ export function HelpPage() {
           directly in Claude for help.
         </p>
         <div className="help-keys">
-          <kbd>g</kbd> <kbd>l</kbd> Longform writing
+          <kbd>g</kbd> <kbd>l</kbd> Writing
         </div>
       </section>
 
@@ -141,6 +141,23 @@ export function HelpPage() {
         <div className="help-keys">
           <kbd>g</kbd> <kbd>c</kbd> Claude
         </div>
+      </section>
+
+      <section className="help-section">
+        <h2>&ldquo;Can I text my dashboard?&rdquo;</h2>
+        <p>
+          Yes. Connect your WhatsApp as a linked device and message yourself for
+          hands-free access to your dashboard. The AI agent behind it can check
+          your calendar, search email and Slack, look up people, create notes,
+          review issues, and pull your morning briefing&mdash;all from a text
+          message. Conversations persist across sessions so you can pick up where
+          you left off.
+        </p>
+        <p>
+          Enable the WhatsApp connector in Settings, set your phone number in
+          your profile, and scan the QR code. It starts automatically
+          with <code>make dev</code>.
+        </p>
       </section>
 
       <footer className="help-footer">

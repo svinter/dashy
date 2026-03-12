@@ -65,7 +65,6 @@ Secrets are stored in `config.json` with 0600 permissions. Environment variables
 │   │   ├── models.py            # Pydantic request/response models
 │   │   ├── alembic/             # Database migrations
 │   │   ├── routers/             # API endpoints
-│   │   │   ├── dashboard.py     # GET /api/dashboard — aggregated overview
 │   │   │   ├── briefing.py      # GET /api/briefing — morning briefing aggregation
 │   │   │   ├── people.py        # CRUD /api/people — coworkers, contacts, groups
 │   │   │   ├── notes.py         # CRUD /api/notes — todos with @mentions
@@ -118,32 +117,27 @@ Secrets are stored in `config.json` with 0600 permissions. Environment variables
 │   │   │   │   ├── types.ts     # TypeScript interfaces
 │   │   │   │   └── errorLog.ts  # In-memory error queue
 │   │   │   ├── pages/
-│   │   │   │   ├── BriefingPage.tsx   # Home: weather, inbox, calendar, priorities, digest
-│   │   │   │   ├── DashboardPage.tsx  # Legacy dashboard (still available)
-│   │   │   │   ├── PrioritiesPage.tsx # Detailed AI priority rankings
+│   │   │   │   ├── BriefingPage.tsx   # Home ("Today"): weather, inbox, calendar, priorities, digest
 │   │   │   │   ├── SetupPage.tsx      # First-run onboarding wizard
 │   │   │   │   ├── SettingsPage.tsx   # Profile, connectors, sync controls
 │   │   │   │   ├── NotePage.tsx       # Notes with @mention autocomplete
-│   │   │   │   ├── ThoughtsPage.tsx   # Notes prefixed with [t]
 │   │   │   │   ├── IssuesPage.tsx     # Local issue tracking + AI discovery
-│   │   │   │   ├── LongformPage.tsx   # Blog posts/drafts with markdown editor
-│   │   │   │   ├── PeoplePage.tsx     # People directory (coworkers + contacts)
+│   │   │   │   ├── LongformPage.tsx   # Writing: blog posts/drafts with markdown editor
+│   │   │   │   ├── PeoplePage.tsx     # People directory with table/tree toggle
 │   │   │   │   ├── PersonPage.tsx     # Person detail: meetings, topics, attributes
-│   │   │   │   ├── OrgTreePage.tsx    # Team org chart
 │   │   │   │   ├── MeetingsPage.tsx   # Calendar + Granola meeting history
-│   │   │   │   ├── EmailPage.tsx      # Gmail inbox with search
-│   │   │   │   ├── SlackPage.tsx      # Slack messages and channels
-│   │   │   │   ├── NotionPage.tsx     # Notion pages
+│   │   │   │   ├── EmailPage.tsx      # Gmail inbox with AI ranking
+│   │   │   │   ├── SlackPage.tsx      # Slack messages with AI ranking
+│   │   │   │   ├── NotionPage.tsx     # Notion pages with AI ranking
 │   │   │   │   ├── DrivePage.tsx      # Google Drive with Gemini ranking
 │   │   │   │   ├── GitHubPage.tsx     # Pull requests and issues
 │   │   │   │   ├── RampPage.tsx       # Transactions, bills, projects
-│   │   │   │   ├── NewsPage.tsx       # Aggregated news feed
-│   │   │   │   ├── ClaudePage.tsx     # Embedded Claude Code terminal
-│   │   │   │   ├── PersonasPage.tsx   # Claude persona/session management
+│   │   │   │   ├── NewsPage.tsx       # Aggregated news feed with AI ranking
+│   │   │   │   ├── ClaudePage.tsx     # Embedded Claude Code terminal + persona management
 │   │   │   │   └── HelpPage.tsx       # Feature overview and keyboard shortcuts
 │   │   │   ├── components/
 │   │   │   │   ├── layout/Sidebar.tsx # Navigation, team list
-│   │   │   │   └── shared/           # TimeAgo, MarkdownRenderer
+│   │   │   │   └── shared/           # TimeAgo, MarkdownRenderer, PrioritizedSourceList
 │   │   │   └── styles/tufte.css      # All styling (Tufte-inspired)
 │   │   ├── package.json
 │   │   └── vite.config.ts            # Dev proxy to backend
@@ -157,28 +151,26 @@ Secrets are stored in `config.json` with 0600 permissions. Environment variables
 
 | Route | Page | Purpose |
 |-------|------|---------|
-| `/` | BriefingPage | Morning briefing: weather, inbox pulse, calendar, AI priorities, overnight digest |
-| `/priorities` | PrioritiesPage | Detailed AI priority rankings view |
+| `/` | BriefingPage | "Today": weather, inbox pulse, calendar, AI priorities, overnight digest |
 | `/setup` | SetupPage | First-run onboarding wizard |
 | `/settings` | SettingsPage | Profile, connectors, sync controls |
 | `/notes` | NotePage | Notes CRUD with @mention autocomplete and person linking |
-| `/thoughts` | ThoughtsPage | Notes prefixed with `[t]` — separate view |
 | `/issues` | IssuesPage | Local issue tracking with priority, sizing, tags, and AI discovery |
-| `/longform` | LongformPage | Blog posts/drafts: markdown editor, tags, comments, split view |
-| `/news` | NewsPage | Infinite scroll news from Slack, email, Google News |
-| `/team` | OrgTreePage | Org chart: executives + direct reports tree |
-| `/people` | PeoplePage | People directory: coworkers, contacts, groups |
+| `/longform`, `/writing` | LongformPage | Writing: blog posts/drafts, markdown editor, tags, comments, split view |
+| `/news` | NewsPage | AI-ranked news from Slack, email, Google News |
+| `/people` | PeoplePage | People directory with table/tree view toggle |
 | `/people/:id` | PersonPage | Person detail: meetings, 1:1 topics, attributes, connections |
-| `/email` | EmailPage | Gmail inbox with search |
-| `/slack` | SlackPage | Slack messages and channels |
-| `/notion` | NotionPage | Notion pages |
+| `/email` | EmailPage | Gmail inbox with AI ranking |
+| `/slack` | SlackPage | Slack messages with AI ranking |
+| `/notion` | NotionPage | Notion pages with AI ranking |
 | `/drive` | DrivePage | Google Drive files with Gemini AI relevance ranking |
 | `/github` | GitHubPage | Pull requests and issues |
 | `/ramp` | RampPage | Transactions, bills, and project tracking with AI ranking |
 | `/meetings` | MeetingsPage | Calendar + Granola meeting history |
-| `/claude` | ClaudePage | Embedded Claude Code terminal via WebSocket |
-| `/personas` | PersonasPage | Claude Code persona and session management |
+| `/claude` | ClaudePage | Embedded Claude Code terminal + persona management |
 | `/help` | HelpPage | Feature overview and keyboard shortcuts |
+| `/team` | → redirects to `/people` |
+| `/personas` | → redirects to `/claude` |
 
 ## Database Tables
 

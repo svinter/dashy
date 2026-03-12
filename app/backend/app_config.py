@@ -20,6 +20,8 @@ ALLOWED_SECRET_KEYS = frozenset(
         "GEMINI_API_KEY",
         "RAMP_CLIENT_ID",
         "RAMP_CLIENT_SECRET",
+        "ANTHROPIC_API_KEY",
+        "OPENAI_API_KEY",
     }
 )
 

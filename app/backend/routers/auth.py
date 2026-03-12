@@ -356,6 +356,10 @@ def test_connection(service: str):
         "github": _check_github,
         "ramp": _check_ramp,
     }
+    # Lazy import to avoid circular deps
+    from routers.whatsapp import _check_whatsapp
+
+    checkers["whatsapp"] = _check_whatsapp
     checker = checkers.get(service)
     if not checker:
         return {"error": f"Unknown service: {service}"}

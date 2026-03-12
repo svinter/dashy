@@ -1,4 +1,4 @@
-.PHONY: start stop restart backend frontend status logs app build dev run test test-headed test-setup lint fmt dmg db-migrate db-upgrade db-downgrade db-current db-history db-revision
+.PHONY: start stop restart backend frontend status logs app build dev run test test-headed test-setup lint fmt dmg db-migrate db-upgrade db-downgrade db-current db-history db-revision whatsapp whatsapp-stop
 
 BACKEND_DIR = app/backend
 FRONTEND_DIR = app/frontend
@@ -15,6 +15,13 @@ start:
 	@cd $(FRONTEND_DIR) && npm install --silent
 	@echo "Building frontend..."
 	@cd $(FRONTEND_DIR) && npm run build
+	@if python3 -c "import json,os;p=os.path.join(os.environ.get('DASHBOARD_DATA_DIR',os.path.expanduser('~/.personal-dashboard')),'config.json');c=json.load(open(p));exit(0 if c.get('connectors',{}).get('whatsapp',{}).get('enabled') else 1)" 2>/dev/null; then \
+		lsof -ti:3001 | xargs kill -9 2>/dev/null || true; \
+		(cd app/whatsapp && npm install --silent); \
+		cd app/whatsapp && node index.js > /tmp/dashboard-whatsapp.log 2>&1 & \
+		sleep 2; \
+		curl -sf http://localhost:3001/status > /dev/null && echo "WhatsApp sidecar running on :3001" || echo "WhatsApp sidecar failed — check /tmp/dashboard-whatsapp.log"; \
+	fi
 	@echo "Opening Dashboard..."
 	@open Dashboard.app
 
@@ -33,7 +40,7 @@ build:
 
 # --- Dev mode (hot reload) ---
 
-dev: backend frontend
+dev: backend frontend whatsapp
 	@echo "Dev mode running at http://localhost:5173"
 
 backend:
@@ -53,17 +60,21 @@ frontend:
 stop:
 	@lsof -ti:8000 | xargs kill -9 2>/dev/null && echo "Backend stopped" || echo "Backend not running"
 	@lsof -ti:5173 | xargs kill -9 2>/dev/null && echo "Frontend stopped" || echo "Frontend not running"
+	@lsof -ti:3001 | xargs kill -9 2>/dev/null && echo "WhatsApp sidecar stopped" || echo "WhatsApp sidecar not running"
 
 restart: stop dev
 
 status:
-	@echo "Backend:  $$(lsof -ti:8000 > /dev/null 2>&1 && echo 'running' || echo 'stopped')"
-	@echo "Frontend: $$(lsof -ti:5173 > /dev/null 2>&1 && echo 'running' || echo 'stopped')"
+	@echo "Backend:   $$(lsof -ti:8000 > /dev/null 2>&1 && echo 'running' || echo 'stopped')"
+	@echo "Frontend:  $$(lsof -ti:5173 > /dev/null 2>&1 && echo 'running' || echo 'stopped')"
+	@echo "WhatsApp:  $$(lsof -ti:3001 > /dev/null 2>&1 && echo 'running' || echo 'stopped')"
 
 logs:
 	@echo "=== Backend ===" && tail -20 /tmp/dashboard-backend.log 2>/dev/null || echo "No backend logs"
 	@echo ""
 	@echo "=== Frontend ===" && tail -20 /tmp/dashboard-frontend.log 2>/dev/null || echo "No frontend logs"
+	@echo ""
+	@echo "=== WhatsApp ===" && tail -20 /tmp/dashboard-whatsapp.log 2>/dev/null || echo "No WhatsApp logs"
 
 # --- Lint & Format ---
 
@@ -124,3 +135,17 @@ db-revision:
 	@echo "Creating new migration..."
 	@read -p "Enter migration message: " msg; \
 	cd $(BACKEND_DIR) && source venv/bin/activate && alembic revision -m "$$msg"
+
+# --- WhatsApp sidecar ---
+
+whatsapp:
+	@if python3 -c "import json,os;p=os.path.join(os.environ.get('DASHBOARD_DATA_DIR',os.path.expanduser('~/.personal-dashboard')),'config.json');c=json.load(open(p));exit(0 if c.get('connectors',{}).get('whatsapp',{}).get('enabled') else 1)" 2>/dev/null; then \
+		lsof -ti:3001 | xargs kill -9 2>/dev/null || true; \
+		(cd app/whatsapp && npm install --silent); \
+		cd app/whatsapp && node index.js > /tmp/dashboard-whatsapp.log 2>&1 & \
+		sleep 2; \
+		curl -sf http://localhost:3001/status > /dev/null && echo "WhatsApp sidecar running on :3001" || echo "WhatsApp sidecar failed — check /tmp/dashboard-whatsapp.log"; \
+	fi
+
+whatsapp-stop:
+	@lsof -ti:3001 | xargs kill -9 2>/dev/null && echo "WhatsApp sidecar stopped" || echo "WhatsApp sidecar not running"

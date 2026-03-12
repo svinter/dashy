@@ -18,6 +18,8 @@ import {
   useUpdateSecret,
   useSetupStatus,
   useResetData,
+  useWhatsAppStatus,
+  useWhatsAppQR,
   useBackupDatabase,
 } from '../api/hooks';
 import type { ServiceAuthStatus, SyncSourceInfo, ConnectorInfo, UserProfile } from '../api/types';
@@ -97,6 +99,72 @@ function SyncSuccessBlock({ name, info }: { name: string; info: SyncSourceInfo }
       )}
     </div>
   );
+}
+
+function WhatsAppQRSection() {
+  const waStatus = useWhatsAppStatus();
+  const waQR = useWhatsAppQR(!waStatus.data?.connected);
+  const [starting, setStarting] = useState(false);
+
+  const startSidecar = async () => {
+    setStarting(true);
+    try {
+      await fetch('/api/whatsapp/start', { method: 'POST' });
+      // Give it a moment then refetch status
+      setTimeout(() => {
+        waStatus.refetch();
+        waQR.refetch();
+        setStarting(false);
+      }, 3000);
+    } catch {
+      setStarting(false);
+    }
+  };
+
+  if (waStatus.data?.connected) {
+    return (
+      <div style={{ margin: 'var(--space-md) 0', padding: 'var(--space-sm)', background: 'var(--color-bg-subtle, #f8f8f8)', borderRadius: '4px' }}>
+        Connected to WhatsApp{waStatus.data.phone ? ` (${waStatus.data.phone})` : ''}
+      </div>
+    );
+  }
+
+  if (waQR.data?.qr) {
+    return (
+      <div style={{ margin: 'var(--space-md) 0', textAlign: 'center' }}>
+        <p style={{ marginBottom: 'var(--space-sm)', fontSize: 'var(--text-sm)' }}>
+          Scan with WhatsApp &rarr; Linked Devices &rarr; Link a Device
+        </p>
+        <img
+          src={waQR.data.qr}
+          alt="WhatsApp QR Code"
+          style={{ width: 200, height: 200, imageRendering: 'pixelated' }}
+        />
+      </div>
+    );
+  }
+
+  // Sidecar not running — show Start button
+  const needsStart = !waStatus.data?.connected && !waQR.data?.qr;
+  if (needsStart) {
+    return (
+      <div style={{ margin: 'var(--space-md) 0' }}>
+        <button className="btn-primary" onClick={startSidecar} disabled={starting}>
+          {starting ? 'Starting...' : 'Start WhatsApp'}
+        </button>
+      </div>
+    );
+  }
+
+  if (waQR.data?.error || waStatus.data?.error) {
+    return (
+      <div className="auth-error" style={{ margin: 'var(--space-md) 0' }}>
+        {waQR.data?.error || waStatus.data?.error}
+      </div>
+    );
+  }
+
+  return null;
 }
 
 function ServiceCard({
@@ -189,7 +257,6 @@ function ServiceCard({
                 });
               }}
               disabled={setAccessMode.isPending}
-              style={{ fontSize: 'var(--text-sm)', padding: '2px 4px' }}
             >
               <option value="readonly">Read Only</option>
               <option value="readwrite">Read &amp; Write</option>
@@ -316,6 +383,9 @@ function ServiceCard({
             )}
           </div>
 
+          {/* WhatsApp QR code pairing */}
+          {connector.id === 'whatsapp' && <WhatsAppQRSection />}
+
           {/* Help steps */}
           <button className="setup-help-toggle" onClick={() => setShowHelp(!showHelp)}>
             {showHelp ? 'Hide setup guide' : 'How to set up'}
@@ -358,7 +428,7 @@ function ProfileSection() {
 
   const save = () => {
     const updates: Partial<UserProfile> = {};
-    for (const key of ['user_name', 'user_title', 'user_company', 'user_company_description', 'user_email', 'user_email_domain', 'user_location', 'github_repo'] as const) {
+    for (const key of ['user_name', 'user_title', 'user_company', 'user_company_description', 'user_email', 'user_email_domain', 'user_location', 'github_repo', 'whatsapp_phone'] as const) {
       if (form[key] !== undefined) updates[key] = form[key];
     }
     if (Object.keys(updates).length > 0) {
@@ -407,6 +477,7 @@ function ProfileSection() {
         <label>Email Domain <input type="text" value={val('user_email_domain')} onChange={(e) => setForm({ ...form, user_email_domain: e.target.value })} /></label>
         <label>Location <input type="text" value={val('user_location')} onChange={(e) => setForm({ ...form, user_location: e.target.value })} placeholder="e.g. San Francisco, CA" /></label>
         <label>GitHub Repo <input type="text" value={val('github_repo')} onChange={(e) => setForm({ ...form, github_repo: e.target.value })} placeholder="e.g. myorg/myrepo" /></label>
+        <label>WhatsApp Phone <input type="tel" value={val('whatsapp_phone')} onChange={(e) => setForm({ ...form, whatsapp_phone: e.target.value })} placeholder="e.g. 15551234567 (country code + number)" /></label>
       </div>
       <div style={{ display: 'flex', gap: 'var(--space-sm)', marginTop: 'var(--space-sm)' }}>
         <button className="btn-primary" onClick={save} disabled={update.isPending}>
@@ -415,6 +486,74 @@ function ProfileSection() {
         <button className="btn-secondary" onClick={() => setEditing(false)}>Cancel</button>
       </div>
     </div>
+  );
+}
+
+const AI_PROVIDER_MAP: Record<string, string> = { gemini: 'gemini', anthropic: 'anthropic', openai: 'openai' };
+
+function AISection({
+  connectors,
+  authMap,
+}: {
+  connectors: ConnectorInfo[];
+  authMap: Record<string, ServiceAuthStatus>;
+}) {
+  const { data: profile } = useProfile();
+  const update = useUpdateProfile();
+  const currentProvider = profile?.ai_provider || 'gemini';
+  const currentModel = profile?.ai_model || '';
+
+  const handleProviderChange = (provider: string) => {
+    update.mutate({ ai_provider: provider, ai_model: '' });
+  };
+
+  const handleModelChange = (model: string) => {
+    update.mutate({ ai_model: model });
+  };
+
+  const matchingConnector = connectors.find(c => c.id === AI_PROVIDER_MAP[currentProvider]);
+
+  const placeholder =
+    currentProvider === 'gemini' ? 'gemini-2.0-flash' :
+    currentProvider === 'anthropic' ? 'claude-sonnet-4-20250514' :
+    'gpt-4o-mini';
+
+  return (
+    <section className="settings-group">
+      <h3>AI</h3>
+      <p className="settings-group-desc">
+        Powers priority ranking, issue discovery, and news scoring. Pick a provider and add your API key.
+      </p>
+      <div className="setup-form" style={{ maxWidth: '400px', marginBottom: 'var(--space-md)' }}>
+        <label>Provider
+          <select
+            value={currentProvider}
+            onChange={(e) => handleProviderChange(e.target.value)}
+            disabled={update.isPending}
+          >
+            <option value="gemini">Gemini (Google)</option>
+            <option value="anthropic">Anthropic (Claude)</option>
+            <option value="openai">OpenAI (GPT)</option>
+          </select>
+        </label>
+        <label>Model
+          <input
+            type="text"
+            value={currentModel}
+            onChange={(e) => handleModelChange(e.target.value)}
+            placeholder={placeholder}
+          />
+        </label>
+      </div>
+      {matchingConnector && (
+        <div className="auth-grid">
+          <ServiceCard
+            connector={matchingConnector}
+            status={authMap[matchingConnector.id as keyof typeof authMap]}
+          />
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -568,7 +707,7 @@ function SyncStatusSummary() {
   const { data: authStatus } = useAuthStatus();
 
   const enabled = new Set(connectors?.filter(c => c.enabled).map(c => c.id));
-  const noAuthCheck = new Set(['news', 'gemini']);
+  const noAuthCheck = new Set(['news', 'gemini', 'anthropic', 'openai', 'whatsapp']);
   const active = new Set(
     [...enabled].filter(id => {
       if (noAuthCheck.has(id)) return true;
@@ -629,6 +768,51 @@ function SyncStatusSummary() {
   );
 }
 
+const AUTO_SYNC_OPTIONS = [
+  { value: 0, label: 'Off' },
+  { value: 60, label: '1 minute' },
+  { value: 180, label: '3 minutes' },
+  { value: 300, label: '5 minutes' },
+  { value: 600, label: '10 minutes' },
+  { value: 900, label: '15 minutes' },
+  { value: 1800, label: '30 minutes' },
+];
+
+function AutoSyncSetting() {
+  const { data: profile } = useProfile();
+  const updateProfile = useUpdateProfile();
+  const currentInterval = profile?.auto_sync_interval_seconds ?? 900;
+
+  return (
+    <div style={{ marginBottom: 'var(--space-md)' }}>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', fontSize: 'var(--text-sm)' }}>
+        Auto-sync every
+        <select
+          value={currentInterval}
+          onChange={(e) => {
+            updateProfile.mutate({ auto_sync_interval_seconds: parseInt(e.target.value) });
+          }}
+        >
+          {AUTO_SYNC_OPTIONS.map(opt => (
+            <option key={opt.value} value={opt.value}>{opt.label}</option>
+          ))}
+        </select>
+      </label>
+    </div>
+  );
+}
+
+const CONNECTOR_GROUPS: { label: string; description: string; ids: string[] }[] = [
+  { label: 'Google Services', description: 'Gmail, Calendar, and Drive. Authenticate once to enable all Google services.', ids: ['google', 'google_drive'] },
+  { label: 'Communication', description: 'Search and sync messages from your team tools.', ids: ['slack', 'notion'] },
+  { label: 'Meeting Transcripts', description: 'Import meeting notes and transcripts.', ids: ['granola'] },
+  { label: 'Development', description: 'Pull requests and issues from GitHub.', ids: ['github'] },
+  { label: 'Finance', description: 'Transactions, bills, and vendor data from Ramp.', ids: ['ramp'] },
+  { label: 'Experimental', description: 'Features still in development.', ids: ['whatsapp', 'news'] },
+];
+
+const AI_CONNECTOR_IDS = new Set(['gemini', 'anthropic', 'openai']);
+
 export function SettingsPage() {
   const { data: authData, isLoading: authLoading, refetch } = useAuthStatus();
   const { data: connectors, isLoading: connectorsLoading } = useConnectors();
@@ -637,7 +821,8 @@ export function SettingsPage() {
 
   if (authLoading || connectorsLoading) return <p className="empty-state">Loading...</p>;
 
-  const authMap = authData ?? {};
+  const authMap = (authData ?? {}) as Record<string, ServiceAuthStatus>;
+  const allConnectors = connectors ?? [];
 
   return (
     <div>
@@ -645,49 +830,67 @@ export function SettingsPage() {
 
       <ProfileSection />
 
+      {/* Grouped connector sections */}
+      {CONNECTOR_GROUPS.map((group) => {
+        const groupConnectors = allConnectors.filter(c => group.ids.includes(c.id));
+        if (groupConnectors.length === 0) return null;
+        return (
+          <section key={group.label} className="settings-group">
+            <h3>{group.label}</h3>
+            <p className="settings-group-desc">{group.description}</p>
+            <div className="auth-grid">
+              {groupConnectors.map((connector) => (
+                <ServiceCard
+                  key={connector.id}
+                  connector={connector}
+                  status={authMap[connector.id]}
+                />
+              ))}
+            </div>
+          </section>
+        );
+      })}
+
+      {/* Meeting notes provider picker — after Communication & Granola are visible */}
       <MeetingNotesSection />
 
-      <h2>Connections</h2>
-      <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--text-sm)' }}>
-        Enable connectors and configure credentials. Toggle services on/off as needed.
-      </p>
+      {/* AI provider + API key — separate section */}
+      <AISection connectors={allConnectors.filter(c => AI_CONNECTOR_IDS.has(c.id))} authMap={authMap} />
 
-      <SyncStatusSummary />
-
-      <div className="auth-grid">
-        {(connectors ?? []).map((connector) => (
-          <ServiceCard
-            key={connector.id}
-            connector={connector}
-            status={authMap[connector.id as keyof typeof authMap]}
-          />
-        ))}
-      </div>
-
-      <div className="auth-page-actions">
-        <button className="sync-button" onClick={() => refetch()}>
-          Re-check All
-        </button>
-        <button
-          className={`sync-button ${triggerSync.isPending ? 'syncing' : ''}`}
-          onClick={() => {
-            triggerSync.mutate();
-            setTimeout(() => refetch(), 5000);
-          }}
-          disabled={triggerSync.isPending}
-        >
-          <span className={`sync-icon ${triggerSync.isPending ? 'syncing' : ''}`}>
-            &#x21bb;
-          </span>
-          {triggerSync.isPending ? 'Syncing...' : 'Sync All Sources'}
-        </button>
-      </div>
+      {/* Sync status + actions */}
+      <section className="settings-group">
+        <h3>Sync</h3>
+        <SyncStatusSummary />
+        <AutoSyncSetting />
+        <div className="auth-page-actions">
+          <button className="sync-button" onClick={() => refetch()}>
+            Re-check All
+          </button>
+          <button
+            className={`sync-button ${triggerSync.isPending ? 'syncing' : ''}`}
+            onClick={() => {
+              triggerSync.mutate();
+              setTimeout(() => refetch(), 5000);
+            }}
+            disabled={triggerSync.isPending}
+          >
+            <span className={`sync-icon ${triggerSync.isPending ? 'syncing' : ''}`}>
+              &#x21bb;
+            </span>
+            {triggerSync.isPending ? 'Syncing...' : 'Sync All Sources'}
+          </button>
+        </div>
+      </section>
 
       {setupStatus && (
         <DataSection setupStatus={setupStatus} />
       )}
 
       <ResetSection />
+
+      <section className="settings-group" style={{ borderTop: '1px solid var(--color-border)', paddingTop: 'var(--space-md)', marginTop: 'var(--space-xl)' }}>
+        <a href="/help" style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-light)' }}>? Help &amp; feature guide</a>
+      </section>
     </div>
   );
 }

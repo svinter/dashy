@@ -335,19 +335,12 @@ def _call_gemini_edit(
     selected_text: str = "",
     history: list[dict] | None = None,
 ) -> dict:
-    from app_config import get_prompt_context, get_secret
+    from ai_client import generate
+    from app_config import get_prompt_context
 
-    api_key = get_secret("GEMINI_API_KEY") or ""
-    if not api_key:
-        return {"revised_body": body, "commentary": "", "error": "Gemini API key not configured"}
-
-    from google import genai
-
-    client = genai.Client(api_key=api_key)
     ctx = get_prompt_context()
     system_prompt = _build_editing_prompt(ctx, selected_text)
 
-    # Truncate very long documents
     body_text = body[-30000:] if len(body) > 30000 else body
 
     user_message = f"Title: {title}\n\nDocument:\n{body_text}\n\nInstruction: {instruction}"
@@ -358,17 +351,11 @@ def _call_gemini_edit(
         )
         user_message = f"Recent editing history:\n{history_text}\n\n{user_message}"
 
-    response = client.models.generate_content(
-        model="gemini-2.0-flash",
-        contents=user_message,
-        config={
-            "system_instruction": system_prompt,
-            "temperature": 0.2,
-            "response_mime_type": "application/json",
-        },
-    )
+    text = generate(system_prompt=system_prompt, user_message=user_message, json_mode=True)
+    if not text:
+        return {"revised_body": body, "commentary": "", "error": "AI not configured"}
 
-    parsed = json.loads(response.text)
+    parsed = json.loads(text)
     return {
         "revised_body": parsed.get("revised_body", body),
         "commentary": parsed.get("commentary", ""),
@@ -419,9 +406,7 @@ _SESSION_TO_LONGFORM_PROMPT = (
 
 @router.post("/from-session/{session_id}")
 def create_from_session(session_id: int):
-    """Create a longform post from a saved Claude session, using Gemini to clean it up."""
-    from app_config import get_secret
-
+    """Create a longform post from a saved Claude session, using AI to clean it up."""
     with get_db_connection(readonly=True) as db:
         session = db.execute("SELECT * FROM claude_sessions WHERE id = ?", (session_id,)).fetchone()
         if not session:
@@ -448,35 +433,27 @@ def create_from_session(session_id: int):
     if not plain_text:
         plain_text = session.get("summary", "") or session.get("preview", "")
 
-    # Try Gemini cleanup
-    api_key = get_secret("GEMINI_API_KEY") or ""
     title = session.get("title", "Untitled")
     body = plain_text
 
-    if api_key and plain_text.strip():
+    if plain_text.strip():
         try:
-            from google import genai
+            from ai_client import generate
 
-            client = genai.Client(api_key=api_key)
-            # Truncate to last 12000 chars
-            text = plain_text[-12000:] if len(plain_text) > 12000 else plain_text
-
-            response = client.models.generate_content(
-                model="gemini-2.0-flash",
-                contents=f"Convert this Claude Code session to a blog post:\n\n{text}",
-                config={
-                    "system_instruction": _SESSION_TO_LONGFORM_PROMPT,
-                    "temperature": 0.3,
-                    "response_mime_type": "application/json",
-                },
+            text_input = plain_text[-12000:] if len(plain_text) > 12000 else plain_text
+            ai_text = generate(
+                system_prompt=_SESSION_TO_LONGFORM_PROMPT,
+                user_message=f"Convert this Claude Code session to a blog post:\n\n{text_input}",
+                json_mode=True,
+                temperature=0.3,
             )
-
-            result = json.loads(response.text)
-            if isinstance(result, dict):
-                title = result.get("title", title)
-                body = result.get("body", body)
+            if ai_text:
+                result = json.loads(ai_text)
+                if isinstance(result, dict):
+                    title = result.get("title", title)
+                    body = result.get("body", body)
         except Exception as e:
-            logger.warning(f"Gemini session-to-longform failed: {e}")
+            logger.warning(f"AI session-to-longform failed: {e}")
 
     word_count = len(body.split()) if body else 0
 

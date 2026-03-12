@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { usePeople, useSync, useSyncStatus, useAuthStatus, useConnectors, useCreatePerson, useDeletePerson, useUpdatePerson, usePersonas, useGroups, useRenameGroup } from '../../api/hooks';
+import { usePeople, useSync, useAuthStatus, useConnectors, useCreatePerson, useDeletePerson, useUpdatePerson, usePersonas, useGroups, useRenameGroup } from '../../api/hooks';
+import { useSyncProgress } from '../../hooks/useSyncProgress';
+import { SyncDetailModal } from '../SyncProgressOverlay';
 import type { SyncSourceInfo } from '../../api/types';
 
 function formatTimeAgo(iso: string) {
@@ -22,8 +24,9 @@ export function Sidebar() {
   const { data: groups } = useGroups();
   const { data: connectors } = useConnectors();
   const sync = useSync();
-  const { data: syncStatus } = useSyncStatus();
+  const syncProgress = useSyncProgress();
   const { data: authStatus } = useAuthStatus();
+  const [syncDetailOpen, setSyncDetailOpen] = useState(false);
 
   const enabled = new Set(connectors?.filter(c => c.enabled).map(c => c.id));
 
@@ -54,10 +57,10 @@ export function Sidebar() {
   const [dragOverGroup, setDragOverGroup] = useState<string | null>(null);
 
   const lastSyncedAt = (() => {
-    if (!syncStatus?.sources) return null;
-    const timestamps = Object.values(syncStatus.sources)
-      .map((s) => s.last_sync_at)
-      .filter(Boolean);
+    if (!syncProgress.sources) return null;
+    const timestamps = Object.values(syncProgress.sources)
+      .map((s) => (s as { last_sync_at?: string }).last_sync_at)
+      .filter(Boolean) as string[];
     if (!timestamps.length) return null;
     return timestamps.reduce((a, b) => (a > b ? a : b));
   })();
@@ -126,19 +129,13 @@ export function Sidebar() {
   return (
     <aside className="sidebar">
       <div className="sidebar-top">
-        <NavLink to="/help" className="sidebar-title sidebar-title-link">Dashboard</NavLink>
-
-        <nav>
-          <NavLink to="/" end>Overview</NavLink>
-          {active.has('gemini') && <NavLink to="/priorities">Priorities</NavLink>}
-        </nav>
+        <NavLink to="/" className="sidebar-title sidebar-title-link">Dashboard</NavLink>
 
         <div className="sidebar-section-label">work</div>
         <nav>
           <NavLink to="/notes">Notes</NavLink>
-          <NavLink to="/thoughts">Thoughts</NavLink>
           <NavLink to="/issues">Issues</NavLink>
-          <NavLink to="/longform">Longform</NavLink>
+          <NavLink to="/longform">Writing</NavLink>
           {(active.has('google') || active.has('granola')) && <NavLink to="/meetings">Meetings</NavLink>}
         </nav>
 
@@ -165,7 +162,6 @@ export function Sidebar() {
 
         <div className="sidebar-section-label">tools</div>
         <nav>
-          <NavLink to="/team">Team</NavLink>
           <NavLink to="/people">People</NavLink>
           <NavLink to="/claude" end>Claude</NavLink>
           {onClaudePage && personas?.filter(p => !p.is_default).map(p => (
@@ -188,7 +184,6 @@ export function Sidebar() {
               {p.name}
             </NavLink>
           ))}
-          <NavLink to="/personas">Personas</NavLink>
         </nav>
 
         {groupList.map((group) => {
@@ -351,10 +346,25 @@ export function Sidebar() {
           </button>
         )}
 
-        {!sync.isPending && lastSyncedAt && (
-          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)', marginTop: 'var(--space-lg)' }}>
-            synced {formatTimeAgo(lastSyncedAt)}
-          </div>
+        {syncProgress.isRunning ? (
+          <button
+            className="btn-link sync-progress-inline"
+            style={{ marginTop: 'var(--space-lg)' }}
+            onClick={() => setSyncDetailOpen(true)}
+          >
+            Syncing {syncProgress.completedCount}/{syncProgress.totalCount}&hellip;
+          </button>
+        ) : (
+          lastSyncedAt && (
+            <div
+              style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)', marginTop: 'var(--space-lg)' }}
+              title={syncProgress.autoSync?.enabled
+                ? `Auto-sync every ${Math.round((syncProgress.autoSync.interval_seconds || 900) / 60)}m`
+                : 'Auto-sync off'}
+            >
+              synced {formatTimeAgo(lastSyncedAt)}
+            </div>
+          )
         )}
       </div>
 
@@ -370,12 +380,20 @@ export function Sidebar() {
           <button
             className="restart-button"
             disabled={sync.isPending}
-            title="Sync all sources"
+            title={syncProgress.isRunning ? 'Click for sync details' : 'Sync all sources'}
             onClick={() => {
-              sync.mutate();
+              if (syncProgress.isRunning) {
+                setSyncDetailOpen(true);
+              } else {
+                sync.mutate();
+              }
             }}
           >
-            {sync.isPending ? '\u2026' : '\u21BB'}
+            {syncProgress.isRunning ? (
+              <svg className="sync-step-spinner" width="14" height="14" viewBox="0 0 14 14">
+                <circle cx="7" cy="7" r="5.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeDasharray="20 14" />
+              </svg>
+            ) : '\u21BB'}
           </button>
         </div>
         <div className="sidebar-shortcut-hint">
@@ -383,6 +401,8 @@ export function Sidebar() {
           <kbd>?</kbd> shortcuts &middot; <kbd>&#x2318;K</kbd> search
         </div>
       </div>
+
+      <SyncDetailModal open={syncDetailOpen} onClose={() => setSyncDetailOpen(false)} />
     </aside>
   );
 }

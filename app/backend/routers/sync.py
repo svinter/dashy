@@ -22,6 +22,11 @@ _sync_running = False
 _sync_active_sources: set[str] = set()
 _sync_cancel = threading.Event()
 
+# Auto-sync background scheduler
+_auto_sync_thread: threading.Thread | None = None
+_auto_sync_stop = threading.Event()
+DEFAULT_AUTO_SYNC_INTERVAL = 900  # 15 minutes
+
 
 def _update_sync_state(source: str, status: str, error: str | None, items: int, elapsed: float | None = None):
     with get_write_db() as db:
@@ -422,9 +427,111 @@ def _run_full_sync():
         from routers.status_context import build_status_context
 
         _tracked("status_context", build_status_context)
+
+        # Group 7: Create memory entry from synced data
+        from routers.memory import create_memory_entry
+
+        _tracked("memory", lambda: create_memory_entry(trigger="sync"))
+
+        if _sync_cancel.is_set():
+            return
+
+        # Group 8: Re-rank stale AI rankings in parallel
+        from routers._ranking_cache import rerank_stale_sources
+
+        _tracked("rerank", rerank_stale_sources)
     finally:
         _sync_active_sources.clear()
         _sync_running = False
+
+
+# ---------------------------------------------------------------------------
+# Auto-sync scheduler
+# ---------------------------------------------------------------------------
+
+
+def _get_auto_sync_interval() -> int | None:
+    """Read auto_sync_interval_seconds from profile config.
+
+    Returns None if auto-sync is disabled (interval == 0).
+    """
+    from app_config import get_profile
+
+    profile = get_profile()
+    interval = profile.get("auto_sync_interval_seconds", DEFAULT_AUTO_SYNC_INTERVAL)
+    if interval is None or interval <= 0:
+        return None
+    return max(60, int(interval))
+
+
+def _should_skip_auto_sync(interval: int) -> bool:
+    """Return True if the most recent sync is too recent to warrant another cycle."""
+    try:
+        with get_db_connection(readonly=True) as db:
+            row = db.execute(
+                "SELECT MAX(last_sync_at) as latest FROM sync_state WHERE last_sync_status IS NOT NULL"
+            ).fetchone()
+            if not row or not row["latest"]:
+                return False
+            latest = datetime.fromisoformat(row["latest"])
+            elapsed = (datetime.now() - latest).total_seconds()
+            return elapsed < (interval - 30)
+    except Exception:
+        return False
+
+
+def _auto_sync_loop():
+    """Background thread: wait for interval, then trigger full sync."""
+    global _sync_running
+    logger.info("Auto-sync thread started")
+    while not _auto_sync_stop.is_set():
+        interval = _get_auto_sync_interval()
+        if interval is None:
+            # Auto-sync disabled; sleep briefly and re-check
+            _auto_sync_stop.wait(30)
+            continue
+
+        # Sleep for the interval (interruptible via _auto_sync_stop)
+        if _auto_sync_stop.wait(interval):
+            break  # Stop event was set
+
+        # Re-read interval in case user changed it while sleeping
+        interval = _get_auto_sync_interval()
+        if interval is None:
+            continue
+
+        if _should_skip_auto_sync(interval):
+            logger.debug("Auto-sync skipped — recent sync detected")
+            continue
+
+        with _sync_lock:
+            if _sync_running:
+                logger.debug("Auto-sync skipped — sync already in progress")
+                continue
+            _sync_running = True
+
+        logger.info("Auto-sync starting")
+        try:
+            _run_full_sync()
+        except Exception:
+            logger.exception("Auto-sync failed")
+            _sync_running = False
+    logger.info("Auto-sync thread stopped")
+
+
+def start_auto_sync():
+    """Start the background auto-sync thread. Called from app startup."""
+    global _auto_sync_thread
+    if _auto_sync_thread and _auto_sync_thread.is_alive():
+        return
+    _auto_sync_stop.clear()
+    _auto_sync_thread = threading.Thread(target=_auto_sync_loop, daemon=True, name="auto-sync")
+    _auto_sync_thread.start()
+
+
+def stop_auto_sync():
+    """Signal the auto-sync thread to stop. Called on app shutdown."""
+    _auto_sync_stop.set()
 
 
 @router.post("")
@@ -482,8 +589,13 @@ def get_sync_status():
     global _sync_running
     with get_db_connection(readonly=True) as db:
         rows = db.execute("SELECT * FROM sync_state").fetchall()
+    interval = _get_auto_sync_interval()
     return {
         "running": _sync_running,
         "active_sources": sorted(_sync_active_sources),
         "sources": {row["source"]: dict(row) for row in rows},
+        "auto_sync": {
+            "enabled": interval is not None,
+            "interval_seconds": interval or DEFAULT_AUTO_SYNC_INTERVAL,
+        },
     }

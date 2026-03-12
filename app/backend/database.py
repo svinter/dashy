@@ -153,6 +153,7 @@ FTS_TABLES = [
     "fts_google_docs",
     "fts_longform",
     "fts_meeting_notes_ext",
+    "fts_memory",
 ]
 
 

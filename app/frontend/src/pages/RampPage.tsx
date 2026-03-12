@@ -100,8 +100,8 @@ function ExpensesTab() {
             </button>
           ))}
         </span>
-        <button className="priorities-refresh-btn" onClick={() => refresh.mutate()} disabled={refresh.isPending} title="Re-rank with Gemini">
-          {refresh.isPending ? 'Ranking...' : 'Refresh'}
+        <button className="priorities-refresh-btn" onClick={() => refresh.mutate()} disabled={refresh.isPending || !!data?.stale} title="Re-rank with AI">
+          {data?.stale ? 'Updating...' : refresh.isPending ? 'Ranking...' : 'Refresh'}
         </button>
         {data?.total_amount != null && data.total_amount > 0 && (
           <span className="ramp-total">{formatAmount(data.total_amount)} total</span>

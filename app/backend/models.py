@@ -290,3 +290,18 @@ class SheetsAppendRows(BaseModel):
 class SheetsCellUpdate(BaseModel):
     range: str  # A1 notation
     values: list[list[str]]
+
+
+# --- WhatsApp models ---
+
+
+class WhatsAppIncoming(BaseModel):
+    sender: str  # phone number e.g. "15551234567@s.whatsapp.net" or LID
+    text: str
+    message_id: str = ""
+    timestamp: str = ""
+    from_self: bool = False  # true when message is from the linked device owner
+    is_group: bool = False
+    group_name: Optional[str] = None
+    group_jid: Optional[str] = None
+    sender_jid: Optional[str] = None  # actual sender in group chats

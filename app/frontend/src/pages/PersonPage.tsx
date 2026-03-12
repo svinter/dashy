@@ -441,7 +441,7 @@ export function PersonPage() {
   const handleDelete = () => {
     if (!confirm(`Delete ${person.name}? This will unlink their notes and remove all meeting data.`)) return;
     deletePerson.mutate(person.id, {
-      onSuccess: () => navigate('/team'),
+      onSuccess: () => navigate('/people'),
     });
   };
 
@@ -474,7 +474,7 @@ export function PersonPage() {
   return (
     <div>
       <div className="breadcrumb">
-        <Link to={person.is_coworker ? '/team' : '/people'}>{person.is_coworker ? 'Team' : 'People'}</Link>
+        <Link to="/people">People</Link>
         {person.reports_to && (
           <>
             {' / '}

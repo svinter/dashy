@@ -175,12 +175,12 @@ register(
     )
 )
 
-# --- Gemini AI ---
+# --- AI Provider (Gemini / Anthropic / OpenAI) ---
 register(
     ConnectorInfo(
         id="gemini",
         name="Gemini AI",
-        description="AI-powered priority ranking and morning briefing",
+        description="Google Gemini API key (used when AI Provider is set to Gemini)",
         category="token",
         secret_keys=["GEMINI_API_KEY"],
         help_steps=[
@@ -191,7 +191,69 @@ register(
         help_url="https://aistudio.google.com/apikey",
         sync_sources=[],
         default_enabled=False,
-        sync_fn=None,  # Gemini doesn't have a sync function — it's used inline
+        sync_fn=None,
         check_fn=None,
+    )
+)
+
+register(
+    ConnectorInfo(
+        id="anthropic",
+        name="Anthropic AI",
+        description="Anthropic API key (used when AI Provider is set to Anthropic)",
+        category="token",
+        secret_keys=["ANTHROPIC_API_KEY"],
+        help_steps=[
+            "Go to console.anthropic.com/settings/keys",
+            "Create a new API key",
+            "Copy the API key",
+        ],
+        help_url="https://console.anthropic.com/settings/keys",
+        sync_sources=[],
+        default_enabled=False,
+        sync_fn=None,
+        check_fn=None,
+    )
+)
+
+register(
+    ConnectorInfo(
+        id="openai",
+        name="OpenAI",
+        description="OpenAI API key (used when AI Provider is set to OpenAI)",
+        category="token",
+        secret_keys=["OPENAI_API_KEY"],
+        help_steps=[
+            "Go to platform.openai.com/api-keys",
+            "Create a new API key",
+            "Copy the API key",
+        ],
+        help_url="https://platform.openai.com/api-keys",
+        sync_sources=[],
+        default_enabled=False,
+        sync_fn=None,
+        check_fn=None,
+    )
+)
+
+# --- WhatsApp ---
+register(
+    ConnectorInfo(
+        id="whatsapp",
+        name="WhatsApp",
+        description="Chat with your personal assistant via WhatsApp",
+        category="token",
+        secret_keys=[],
+        help_steps=[
+            "Configure an AI Provider above (Gemini, Anthropic, or OpenAI)",
+            "Set your WhatsApp phone number in Profile settings (e.g. 15551234567)",
+            "Click Start to launch the WhatsApp sidecar",
+            "Scan the QR code to pair your phone",
+            "Send a message from WhatsApp to test",
+        ],
+        sync_sources=[],
+        default_enabled=False,
+        sync_fn=None,
+        check_fn="routers.whatsapp._check_whatsapp",
     )
 )

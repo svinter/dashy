@@ -33,7 +33,6 @@ from routers import (
     calendar_api,
     claude,
     claude_sessions,
-    dashboard,
     drive_api,
     github_api,
     gmail,
@@ -41,6 +40,7 @@ from routers import (
     issues,
     longform,
     meetings,
+    memory,
     news,
     notes,
     notion_api,
@@ -56,6 +56,7 @@ from routers import (
     status_context,
     sync,
     weather,
+    whatsapp,
 )
 from routers.sync import sync_granola, sync_meeting_files
 from utils.person_matching import rebuild_from_db
@@ -93,7 +94,6 @@ app.add_middleware(SecurityHeadersMiddleware)
 # API routes (must be registered before the SPA catch-all)
 app.include_router(people.router)
 app.include_router(notes.router)
-app.include_router(dashboard.router)
 app.include_router(sync.router)
 app.include_router(auth.router)
 app.include_router(news.router)
@@ -119,6 +119,8 @@ app.include_router(personas.router)
 app.include_router(briefing.router)
 app.include_router(weather.router)
 app.include_router(status_context.router)
+app.include_router(memory.router)
+app.include_router(whatsapp.router)
 
 # GraphQL knowledge graph API
 from graphql_api import graphql_app
@@ -176,6 +178,17 @@ def startup():
     rebuild_from_db()
     sync_meeting_files()
     sync_granola()
+    # Start background auto-sync thread
+    from routers.sync import start_auto_sync
+
+    start_auto_sync()
+
+
+@app.on_event("shutdown")
+def shutdown():
+    from routers.sync import stop_auto_sync
+
+    stop_auto_sync()
 
 
 # Serve built frontend — must be last so it doesn't shadow API routes

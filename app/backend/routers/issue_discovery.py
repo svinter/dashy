@@ -8,7 +8,7 @@ from typing import Optional
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from pydantic import BaseModel
 
-from app_config import get_profile, get_prompt_context, get_secret
+from app_config import get_profile, get_prompt_context
 from database import get_db_connection, get_write_db, rebuild_fts_table
 
 logger = logging.getLogger(__name__)
@@ -269,29 +269,22 @@ No markdown, no explanation, just the JSON array."""
 
 
 def _call_gemini_discovery(context: dict, existing_titles: list[str], rejected_titles: list[str]) -> list[dict]:
-    api_key = get_secret("GEMINI_API_KEY") or ""
-    if not api_key:
-        return []
-
-    from google import genai
-
-    client = genai.Client(api_key=api_key)
+    from ai_client import generate
 
     now = datetime.now().strftime("%A, %B %d %Y, %I:%M %p")
     user_message = f"Current time: {now}\n\nRecent activity data:\n{json.dumps(context, default=str)}"
 
-    response = client.models.generate_content(
-        model="gemini-2.0-flash",
-        contents=user_message,
-        config={
-            "system_instruction": _build_discovery_prompt(existing_titles, rejected_titles),
-            "temperature": 0.3,
-            "response_mime_type": "application/json",
-        },
+    text = generate(
+        system_prompt=_build_discovery_prompt(existing_titles, rejected_titles),
+        user_message=user_message,
+        json_mode=True,
+        temperature=0.3,
     )
+    if not text:
+        return []
 
     try:
-        parsed = json.loads(response.text)
+        parsed = json.loads(text)
         if isinstance(parsed, list):
             return parsed
         if isinstance(parsed, dict) and "items" in parsed:
