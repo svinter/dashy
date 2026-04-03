@@ -99,6 +99,13 @@ logs:
 	@echo ""
 	@echo "=== WhatsApp ===" && tail -20 /tmp/dashboard-whatsapp.log 2>/dev/null || echo "No WhatsApp logs"
 
+# --- Checkpoint ---
+
+checkpoint:
+	git add -A
+	git commit -m "Checkpoint $$(date '+%Y-%m-%d %H:%M')"
+	git push origin main
+
 # --- Lint & Format ---
 
 lint:

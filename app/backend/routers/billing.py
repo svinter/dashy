@@ -111,22 +111,62 @@ def _build_update(fields: dict, allowed: set) -> tuple[str, list]:
 class BillingSettingsUpdate(BaseModel):
     invoice_output_dir: Optional[str] = None
     provider_name: Optional[str] = None
-    provider_address: Optional[str] = None
+    provider_address1: Optional[str] = None
+    provider_address2: Optional[str] = None
+    provider_city_state_zip: Optional[str] = None
     provider_phone: Optional[str] = None
     provider_email: Optional[str] = None
+
+
+PROVIDER_COLS = {
+    "provider_name", "provider_address1", "provider_address2",
+    "provider_city_state_zip", "provider_phone", "provider_email",
+}
+
+
+def _get_provider_settings() -> dict:
+    """Read provider contact info from billing_provider_settings (single row)."""
+    with get_db_connection(readonly=True) as db:
+        row = db.execute(
+            "SELECT * FROM billing_provider_settings WHERE id = 1"
+        ).fetchone()
+    if row:
+        return {c: row[c] or "" for c in PROVIDER_COLS}
+    return {c: "" for c in PROVIDER_COLS}
+
+
+def _update_provider_settings(fields: dict) -> None:
+    """Write provider contact fields to the billing_provider_settings row."""
+    filtered = {k: v for k, v in fields.items() if k in PROVIDER_COLS and v is not None}
+    if not filtered:
+        return
+    clause = ", ".join(f"{k} = ?" for k in filtered)
+    params = list(filtered.values())
+    with get_write_db() as db:
+        db.execute(
+            f"UPDATE billing_provider_settings SET {clause} WHERE id = 1", params
+        )
+        db.commit()
 
 
 @router.get("/settings")
 def get_billing_settings_endpoint():
     from app_config import get_billing_settings
-    return get_billing_settings()
+    return {**get_billing_settings(), **_get_provider_settings()}
 
 
 @router.post("/settings")
 def update_billing_settings_endpoint(body: BillingSettingsUpdate):
     from app_config import update_billing_settings
-    updates = {k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None}
-    return update_billing_settings(updates)
+    data = body.model_dump(exclude_unset=True)
+    config_fields = {k: v for k, v in data.items() if k not in PROVIDER_COLS and v is not None}
+    provider_fields = {k: v for k, v in data.items() if k in PROVIDER_COLS}
+    if config_fields:
+        update_billing_settings(config_fields)
+    if provider_fields:
+        _update_provider_settings(provider_fields)
+    from app_config import get_billing_settings
+    return {**get_billing_settings(), **_get_provider_settings()}
 
 
 # ---------------------------------------------------------------------------
@@ -300,6 +340,7 @@ def import_seed(force: bool = False):
     seed = json.loads(SEED_PATH.read_text())
     companies_data = seed.get("companies", [])
     clients_data = seed.get("clients", [])
+    provider_data = seed.get("provider", {})
 
     # Build a name→id map for employees for optional cross-referencing
     with get_db_connection(readonly=True) as db:
@@ -362,11 +403,16 @@ def import_seed(force: bool = False):
         db.commit()
         relinked = _relink_sessions_after_import(db)
 
+    # Upsert provider settings from seed (always, regardless of force flag)
+    if provider_data:
+        _update_provider_settings({k: provider_data.get(k, "") for k in PROVIDER_COLS})
+
     return {
         "ok": True,
         "companies_imported": inserted_companies,
         "clients_imported": inserted_clients,
         "sessions_relinked": relinked,
+        "provider_imported": bool(provider_data),
     }
 
 

@@ -1436,12 +1436,20 @@ function BillingTab() {
               <input value={settingsVal('provider_email')} onChange={e => setSettingsDraft(d => ({ ...d, provider_email: e.target.value }))} placeholder="you@example.com" style={{ fontSize: 'var(--text-sm)' }} />
             </label>
             <label style={{ fontSize: 'var(--text-sm)', display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <span style={{ color: 'var(--color-text-light)' }}>Provider address</span>
-              <input value={settingsVal('provider_address')} onChange={e => setSettingsDraft(d => ({ ...d, provider_address: e.target.value }))} placeholder="123 Main St, Boston MA 02116" style={{ fontSize: 'var(--text-sm)' }} />
+              <span style={{ color: 'var(--color-text-light)' }}>Address line 1</span>
+              <input value={settingsVal('provider_address1')} onChange={e => setSettingsDraft(d => ({ ...d, provider_address1: e.target.value }))} placeholder="123 Main St" style={{ fontSize: 'var(--text-sm)' }} />
             </label>
             <label style={{ fontSize: 'var(--text-sm)', display: 'flex', flexDirection: 'column', gap: 2 }}>
               <span style={{ color: 'var(--color-text-light)' }}>Provider phone</span>
               <input value={settingsVal('provider_phone')} onChange={e => setSettingsDraft(d => ({ ...d, provider_phone: e.target.value }))} placeholder="555-555-5555" style={{ fontSize: 'var(--text-sm)' }} />
+            </label>
+            <label style={{ fontSize: 'var(--text-sm)', display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <span style={{ color: 'var(--color-text-light)' }}>Address line 2</span>
+              <input value={settingsVal('provider_address2')} onChange={e => setSettingsDraft(d => ({ ...d, provider_address2: e.target.value }))} placeholder="Suite 400" style={{ fontSize: 'var(--text-sm)' }} />
+            </label>
+            <label style={{ fontSize: 'var(--text-sm)', display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <span style={{ color: 'var(--color-text-light)' }}>City, State, ZIP</span>
+              <input value={settingsVal('provider_city_state_zip')} onChange={e => setSettingsDraft(d => ({ ...d, provider_city_state_zip: e.target.value }))} placeholder="Boston, MA 02116" style={{ fontSize: 'var(--text-sm)' }} />
             </label>
           </div>
           <div style={{ display: 'flex', gap: 'var(--space-sm)', alignItems: 'center', marginTop: 4 }}>

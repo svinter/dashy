@@ -1,10 +1,10 @@
 """PDF invoice generation for billing module.
 
-Generates a standard Vantage Insights invoice PDF using reportlab.
-Provider info and invoice output directory are read from config.json
-(billing settings). Per-company payment instructions are stored in
-billing_companies.payment_instructions; a sensible fallback is derived
-from billing_method / payment_method if the field is empty.
+Generates an invoice PDF using reportlab.
+Provider contact info is read from billing_provider_settings (single DB row).
+Invoice output directory is read from config.json billing settings.
+Per-company payment instructions are stored in billing_companies.payment_instructions;
+a fallback is derived from billing_method / payment_method if the field is empty.
 """
 
 import base64
@@ -23,6 +23,27 @@ from database import get_db_connection, get_write_db
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/billing", tags=["billing"])
+
+
+def _get_provider() -> dict:
+    """Read provider contact info from billing_provider_settings."""
+    with get_db_connection(readonly=True) as db:
+        row = db.execute(
+            "SELECT * FROM billing_provider_settings WHERE id = 1"
+        ).fetchone()
+    if row:
+        return {
+            "provider_name":          (row["provider_name"]          or "").strip(),
+            "provider_address1":      (row["provider_address1"]      or "").strip(),
+            "provider_address2":      (row["provider_address2"]      or "").strip(),
+            "provider_city_state_zip": (row["provider_city_state_zip"] or "").strip(),
+            "provider_phone":         (row["provider_phone"]         or "").strip(),
+            "provider_email":         (row["provider_email"]         or "").strip(),
+        }
+    return {
+        "provider_name": "", "provider_address1": "", "provider_address2": "",
+        "provider_city_state_zip": "", "provider_phone": "", "provider_email": "",
+    }
 
 
 def _invoices_dir() -> Path:
@@ -76,8 +97,7 @@ def _generate_pdf(invoice_id: int) -> Path:
     except ImportError as e:
         raise RuntimeError(f"reportlab not installed: {e}") from e
 
-    from app_config import get_billing_settings
-    bsettings = get_billing_settings()
+    provider = _get_provider()
 
     with get_db_connection(readonly=True) as db:
         inv = db.execute(
@@ -106,7 +126,8 @@ def _generate_pdf(invoice_id: int) -> Path:
         pdf_month = datetime.strptime(period, "%Y-%m").strftime("%B %Y")
     except ValueError:
         pdf_month = period
-    pdf_name = f"Vantage Insights Invoice {safe_num}{' ' + pdf_month if pdf_month else ''}.pdf"
+    pdf_provider = provider["provider_name"] or "Invoice"
+    pdf_name = f"{pdf_provider} Invoice {safe_num}{' ' + pdf_month if pdf_month else ''}.pdf"
     out_path = out_dir / pdf_name
 
     # --- Color palette ---
@@ -137,13 +158,8 @@ def _generate_pdf(invoice_id: int) -> Path:
     story = []
 
     # ---- Provider / company name block ----
-    provider_name    = (bsettings.get("provider_name")    or "Vantage Insights").strip()
-    provider_address = (bsettings.get("provider_address") or "").strip()
-    provider_phone   = (bsettings.get("provider_phone")   or "").strip()
-    provider_email   = (bsettings.get("provider_email")   or "").strip()
-
     story.append(Paragraph(
-        provider_name.upper(),
+        (provider["provider_name"] or "Invoice").upper(),
         sty(fontSize=22, fontName="Helvetica-Bold", textColor=BRAND_GREEN, spaceAfter=16),
     ))
     story.append(Paragraph(
@@ -151,13 +167,17 @@ def _generate_pdf(invoice_id: int) -> Path:
         sty(fontSize=10, fontName="Helvetica", textColor=MID, spaceAfter=2),
     ))
 
-    # Provider contact lines (only rendered if configured)
-    if provider_address:
+    # Provider contact lines — render each non-empty address field on its own line
+    for addr_line in filter(None, [
+        provider["provider_address1"],
+        provider["provider_address2"],
+        provider["provider_city_state_zip"],
+    ]):
         story.append(Paragraph(
-            provider_address,
+            addr_line,
             sty(fontSize=8, fontName="Helvetica", textColor=LIGHT, spaceAfter=1),
         ))
-    phone_email = "  ·  ".join(filter(None, [provider_phone, provider_email]))
+    phone_email = "  ·  ".join(filter(None, [provider["provider_phone"], provider["provider_email"]]))
     if phone_email:
         story.append(Paragraph(
             phone_email,
@@ -356,7 +376,8 @@ def download_invoice_pdf(invoice_id: int):
         dl_month = datetime.strptime(row["period_month"] or "", "%Y-%m").strftime("%B %Y")
     except ValueError:
         dl_month = row["period_month"] or ""
-    dl_filename = f"Vantage Insights Invoice {inv_num}{' ' + dl_month if dl_month else ''}.pdf"
+    dl_provider = (_get_provider()["provider_name"] or "Invoice")
+    dl_filename = f"{dl_provider} Invoice {inv_num}{' ' + dl_month if dl_month else ''}.pdf"
     return FileResponse(
         path=pdf_path,
         media_type="application/pdf",
@@ -368,13 +389,13 @@ def download_invoice_pdf(invoice_id: int):
 # Email compose / send / draft
 # ---------------------------------------------------------------------------
 
-_DEFAULT_EMAIL_SUBJECT = "Invoice {{invoice_number}} from Vantage Insights for services for {{month}}"
+_DEFAULT_EMAIL_SUBJECT = "Invoice {{invoice_number}} from {{provider_name}} for services for {{month}}"
 _DEFAULT_EMAIL_BODY = (
     "Hi,\n\n"
     "Please find attached invoice {{invoice_number}} for services through {{month}}.\n\n"
     "Amount due: {{total_amount}}\n"
     "Due date: {{due_date}}\n\n"
-    "Thank you,\nSteve Vinter\nVantage Insights"
+    "Thank you,\n{{sender_name}}\n{{provider_name}}"
 )
 
 
@@ -422,6 +443,15 @@ def _compose_invoice_email(invoice_id: int) -> dict:
     company = inv["company_name"] or ""
     clients_str = ", ".join(client_names) if client_names else company
 
+    provider = _get_provider()
+    provider_name = provider["provider_name"] or "Invoice"
+
+    try:
+        from app_config import load_config
+        sender_name = load_config().get("profile", {}).get("user_name", "") or provider_name
+    except Exception:
+        sender_name = provider_name
+
     variables = {
         "invoice_number": inv_num,
         "month": month_str,
@@ -429,6 +459,8 @@ def _compose_invoice_email(invoice_id: int) -> dict:
         "company_name": company,
         "total_amount": total_str,
         "due_date": due,
+        "provider_name": provider_name,
+        "sender_name": sender_name,
     }
 
     subject_tpl = (inv["email_subject"] or "").strip() or _DEFAULT_EMAIL_SUBJECT
@@ -442,7 +474,7 @@ def _compose_invoice_email(invoice_id: int) -> dict:
         "cc": inv["cc_email"] or "",
         "subject": _substitute(subject_tpl, variables),
         "body": _substitute(body_tpl, variables),
-        "pdf_filename": f"Vantage Insights Invoice {safe_num}{' ' + month_str if month_str else ''}.pdf",
+        "pdf_filename": f"{provider_name} Invoice {safe_num}{' ' + month_str if month_str else ''}.pdf",
         "pdf_path": inv["pdf_path"] or None,
     }
 
@@ -520,7 +552,8 @@ def save_invoice_draft(invoice_id: int, payload: InvoiceSendBody):
         send_month = datetime.strptime(row["period_month"] or "", "%Y-%m").strftime("%B %Y")
     except ValueError:
         send_month = row["period_month"] or ""
-    send_pdf_filename = f"Vantage Insights Invoice {inv_num}{' ' + send_month if send_month else ''}.pdf"
+    send_provider = (_get_provider()["provider_name"] or "Invoice")
+    send_pdf_filename = f"{send_provider} Invoice {inv_num}{' ' + send_month if send_month else ''}.pdf"
 
     raw = _build_mime_with_attachment(
         to=payload.to,
@@ -578,7 +611,8 @@ def send_invoice_email(invoice_id: int, payload: InvoiceSendBody):
         send_month = datetime.strptime(row["period_month"] or "", "%Y-%m").strftime("%B %Y")
     except ValueError:
         send_month = row["period_month"] or ""
-    send_pdf_filename = f"Vantage Insights Invoice {inv_num}{' ' + send_month if send_month else ''}.pdf"
+    send_provider = (_get_provider()["provider_name"] or "Invoice")
+    send_pdf_filename = f"{send_provider} Invoice {inv_num}{' ' + send_month if send_month else ''}.pdf"
 
     raw = _build_mime_with_attachment(
         to=payload.to,

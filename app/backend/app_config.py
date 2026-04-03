@@ -206,15 +206,11 @@ def get_prompt_context() -> str:
 
 DEFAULT_BILLING_SETTINGS: dict = {
     "invoice_output_dir": "",   # empty → DATA_DIR / "invoices"
-    "provider_name": "Vantage Insights",
-    "provider_address": "",
-    "provider_phone": "",
-    "provider_email": "",
 }
 
 
 def get_billing_settings() -> dict:
-    """Return billing configuration (invoice output dir, provider info) from config.json."""
+    """Return billing configuration (invoice output dir) from config.json."""
     stored = load_config().get("billing", {})
     return {**DEFAULT_BILLING_SETTINGS, **stored}
 

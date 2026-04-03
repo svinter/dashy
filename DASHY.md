@@ -35,6 +35,20 @@ When the user says "read the spec" or "from the spec, do step N", locate it via 
 
 ---
 
+## Saving work to GitHub
+
+Run `make checkpoint` periodically during a session to commit and push all current changes:
+
+```bash
+make checkpoint
+```
+
+This runs `git add -A && git commit -m "Checkpoint YYYY-MM-DD HH:MM" && git push origin main`.
+
+**Never commit `app/backend/dashy_billing_seed.json`** — it contains private client and rate data. If it appears in `git status`, exclude it before committing (it is already in `.gitignore`; verify with `git check-ignore -v app/backend/dashy_billing_seed.json`).
+
+---
+
 ## Seed data import
 
 The billing seed file lives at `app/backend/dashy_billing_seed.json`.
