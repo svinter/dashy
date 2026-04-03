@@ -8,9 +8,13 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     ...options,
   });
   if (!res.ok) {
-    const msg = `${res.status} ${res.statusText} — ${options?.method ?? 'GET'} ${path}`;
-    addError('api', msg);
-    throw new Error(`API error: ${res.status} ${res.statusText}`);
+    let detail = `${res.status} ${res.statusText}`;
+    try {
+      const errJson = await res.clone().json();
+      if (errJson?.detail) detail = String(errJson.detail);
+    } catch { /* ignore – body may not be JSON */ }
+    addError('api', `${detail} — ${options?.method ?? 'GET'} ${path}`);
+    throw new Error(detail);
   }
   return res.json();
 }

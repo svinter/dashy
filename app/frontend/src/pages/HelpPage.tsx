@@ -19,7 +19,7 @@ export function HelpPage() {
           team, and your own thoughts&mdash;all in one quiet place.
         </p>
         <button className="help-cta" onClick={goToDashboard}>
-          Go to Dashboard
+          Go to Dashy
         </button>
         <p className="help-hint">
           Press <kbd>h</kbd> to come back here anytime

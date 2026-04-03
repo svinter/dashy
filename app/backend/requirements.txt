@@ -19,3 +19,5 @@ trafilatura>=2.0.0
 pypandoc>=1.13
 markdown>=3.5.0
 nh3>=0.2.0
+lunchable>=1.4.0
+reportlab>=4.0.0

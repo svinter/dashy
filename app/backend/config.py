@@ -52,6 +52,8 @@ GCLOUD_CREDENTIALS_PATH = Path.home() / ".config" / "gcloud" / "application_defa
 
 GOOGLE_SCOPES_READONLY = [
     "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/gmail.send",
+    "https://www.googleapis.com/auth/gmail.compose",
     "https://www.googleapis.com/auth/calendar.readonly",
     "https://www.googleapis.com/auth/drive.readonly",
     "https://www.googleapis.com/auth/spreadsheets.readonly",
@@ -80,7 +82,7 @@ def get_google_scopes() -> list[str]:
 GOOGLE_SCOPES = GOOGLE_SCOPES_READONLY
 
 GMAIL_MAX_RESULTS = 50
-CALENDAR_DAYS_AHEAD = 14
+CALENDAR_DAYS_AHEAD = 60
 CALENDAR_DAYS_BEHIND = 90
 SLACK_MESSAGE_LIMIT = 100
 

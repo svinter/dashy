@@ -101,6 +101,26 @@ def get_briefing():
             "AND payment_status != ''"
         ).fetchone()["c"]
 
+        billing_queue = db.execute(
+            """SELECT COUNT(*) as c FROM calendar_events
+               WHERE color_id IN ('3', '5')
+               AND date(start_time) < date('now')
+               AND id NOT IN (
+                   SELECT calendar_event_id FROM billing_sessions
+                   WHERE calendar_event_id IS NOT NULL
+                   AND (dismissed = 1 OR is_confirmed = 1)
+               )"""
+        ).fetchone()["c"]
+
+        billing_unmatched_payments = db.execute(
+            """SELECT COUNT(*) as c FROM billing_payments
+               WHERE company_id IS NOT NULL
+               AND date >= date('now', '-90 days')
+               AND NOT EXISTS (
+                   SELECT 1 FROM billing_invoice_payments WHERE payment_id = billing_payments.id
+               )"""
+        ).fetchone()["c"]
+
         # --- Overnight digest (last 12 hours) ---
         dismissed_email = {
             r["item_id"]
@@ -232,6 +252,8 @@ def get_briefing():
             "pr_reviews": pr_reviews,
             "open_notes": open_notes,
             "overdue_bills": overdue_bills,
+            "billing_queue": billing_queue,
+            "billing_unmatched_payments": billing_unmatched_payments,
         },
         "overnight": overnight,
     }

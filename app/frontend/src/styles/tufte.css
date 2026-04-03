@@ -2106,6 +2106,25 @@ tbody tr:last-child td {
   color: var(--color-text-light);
 }
 
+/* Red badge for nav items (queue / payment counts) */
+.nav-count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  margin-left: 5px;
+  border-radius: 8px;
+  background: var(--color-danger, #c0392b);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  line-height: 1;
+  vertical-align: middle;
+}
+
 .priority-score-badge {
   display: inline-flex;
   align-items: center;

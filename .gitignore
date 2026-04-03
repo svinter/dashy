@@ -55,4 +55,4 @@ app/backend/.google_token.json
 app/backend/__pycache__/
 app/backend/**/__pycache__/
 app/frontend/node_modules/
-app/frontend/dist/
+app/frontend/dist/app/backend/billing_seed.json

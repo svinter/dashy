@@ -229,6 +229,18 @@ export function BriefingPage() {
               overdue bill{pulse.overdue_bills !== 1 ? 's' : ''}
             </Link>
           )}
+          {(pulse.billing_queue > 0 || pulse.billing_unmatched_payments > 0) && (
+            <Link to="/billing" className="briefing-pulse-item">
+              Billing:
+              {pulse.billing_queue > 0 && (
+                <><span className="briefing-pulse-count" style={{ marginLeft: 4 }}>{pulse.billing_queue}</span> to process</>
+              )}
+              {pulse.billing_queue > 0 && pulse.billing_unmatched_payments > 0 && ', '}
+              {pulse.billing_unmatched_payments > 0 && (
+                <><span className="briefing-pulse-count" style={{ marginLeft: 4 }}>{pulse.billing_unmatched_payments}</span> to match</>
+              )}
+            </Link>
+          )}
         </section>
       )}
 

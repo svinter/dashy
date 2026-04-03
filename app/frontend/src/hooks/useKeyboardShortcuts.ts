@@ -26,6 +26,7 @@ export const SHORTCUT_DEFINITIONS: ShortcutDef[] = [
   { keys: 'g o', description: 'Go to Notion', category: 'navigation' },
   { keys: 'g f', description: 'Go to Drive (files)', category: 'navigation' },
   { keys: 'g x', description: 'Go to Ramp (expenses)', category: 'navigation' },
+  { keys: 'g b', description: 'Go to Billing', category: 'navigation' },
   { keys: 'g s', description: 'Go to Settings', category: 'navigation' },
 
   // Actions
@@ -91,6 +92,7 @@ const GO_ROUTES: Record<string, string> = {
   o: '/notion',
   f: '/drive',
   x: '/ramp',
+  b: '/billing',
   s: '/settings',
 };
 

@@ -207,6 +207,16 @@ def sync_calendar():
 
         count = sync_calendar_events()
         _update_sync_state("calendar", "success", None, count, elapsed=time.monotonic() - t0)
+
+        # After calendar sync, promote any billing sessions whose events changed banana→grape
+        try:
+            from routers.billing import _promote_banana_sessions
+            with get_write_db() as db:
+                promoted = _promote_banana_sessions(db)
+            if promoted:
+                logger.info("Calendar sync promoted %d banana→grape billing sessions", promoted)
+        except Exception as promote_err:
+            logger.warning("banana→grape promotion after calendar sync failed: %s", promote_err)
     except ImportError:
         _update_sync_state("calendar", "error", "Calendar connector not yet implemented", 0)
     except Exception as e:

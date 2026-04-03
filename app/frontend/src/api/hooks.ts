@@ -70,6 +70,24 @@ import type {
   AgentConversation,
   AgentMessage,
   SandboxApp,
+  BillingCompany,
+  BillingClient,
+  BillingSettings,
+  BillingSeedStatus,
+  BillingUnprocessedEvent,
+  BillingSession,
+  BillingInvoice,
+  BillingInvoiceDetail,
+  InvoiceCreate,
+  InvoiceBulkImportRow,
+  InvoiceBulkImportResult,
+  InvoiceCompose,
+  BillingPrepData,
+  BillingGenerateResult,
+  BillingSummaryData,
+  BillingPayment,
+  BillingBadgeCounts,
+  BillingLunchMoneySyncResult,
 } from './types';
 
 export function usePeople(filters?: { is_coworker?: boolean; group?: string }) {
@@ -173,6 +191,14 @@ export function useBriefing() {
     queryKey: ['briefing'],
     queryFn: () => api.get<BriefingData>('/briefing'),
     refetchInterval: 5 * 60 * 1000,
+  });
+}
+
+export function useVersion() {
+  return useQuery({
+    queryKey: ['version'],
+    queryFn: () => api.get<{ version: string }>('/version'),
+    staleTime: Infinity,
   });
 }
 
@@ -2076,6 +2102,472 @@ export function useDeleteSandboxApp() {
     mutationFn: (id: string) => api.delete(`/sandbox/apps/${id}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['sandbox-apps'] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Billing
+// ---------------------------------------------------------------------------
+
+export function useBillingCompanies(activeOnly = false) {
+  return useQuery({
+    queryKey: ['billing-companies', activeOnly],
+    queryFn: () => api.get<BillingCompany[]>(`/billing/companies${activeOnly ? '?active_only=true' : ''}`),
+  });
+}
+
+export function useCreateBillingCompany() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Partial<BillingCompany>) => api.post<BillingCompany>('/billing/companies', body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['billing-companies'] }),
+  });
+}
+
+export function useUpdateBillingCompany() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...update }: { id: number } & Partial<BillingCompany>) =>
+      api.patch<BillingCompany>(`/billing/companies/${id}`, update),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['billing-companies'] }),
+  });
+}
+
+export function useDeleteBillingCompany() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.delete(`/billing/companies/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['billing-companies'] }),
+  });
+}
+
+export function useCreateBillingClient() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Partial<BillingClient> & { company_id: number }) =>
+      api.post<BillingClient>('/billing/clients', body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['billing-companies'] }),
+  });
+}
+
+export function useUpdateBillingClient() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...update }: { id: number } & Partial<BillingClient>) =>
+      api.patch<BillingClient>(`/billing/clients/${id}`, update),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['billing-companies'] }),
+  });
+}
+
+export function useDeleteBillingClient() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.delete(`/billing/clients/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['billing-companies'] }),
+  });
+}
+
+export function useBillingSettings() {
+  return useQuery({
+    queryKey: ['billing-settings'],
+    queryFn: () => api.get<BillingSettings>('/billing/settings'),
+  });
+}
+
+export function useUpdateBillingSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Partial<BillingSettings>) => api.post<BillingSettings>('/billing/settings', body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['billing-settings'] }),
+  });
+}
+
+export function useBillingSeedStatus() {
+  return useQuery({
+    queryKey: ['billing-seed-status'],
+    queryFn: () => api.get<BillingSeedStatus>('/billing/seed/status'),
+  });
+}
+
+export function useImportBillingSeed() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (force = false) => api.post(`/billing/seed/import${force ? '?force=true' : ''}`, {}),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['billing-companies'] });
+      qc.invalidateQueries({ queryKey: ['billing-seed-status'] });
+    },
+  });
+}
+
+export function useBillingUnprocessed() {
+  return useQuery({
+    queryKey: ['billing-unprocessed'],
+    queryFn: () => api.get<{ events: BillingUnprocessedEvent[]; count: number }>('/billing/sessions/unprocessed'),
+    staleTime: 30_000,
+  });
+}
+
+export function useBillingBadgeCounts(enabled = true) {
+  return useQuery({
+    queryKey: ['billing-badge-counts'],
+    queryFn: () => api.get<BillingBadgeCounts>('/billing/badge-counts'),
+    staleTime: 60_000,
+    enabled,
+  });
+}
+
+export function useConfirmBillingSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: {
+      calendar_event_id: string;
+      client_id?: number | null;
+      company_id?: number | null;
+      duration_hours: number;
+      notes?: string;
+    }) => api.post<BillingSession>('/billing/sessions/confirm', body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['billing-unprocessed'] });
+      qc.invalidateQueries({ queryKey: ['billing-badge-counts'] });
+      qc.invalidateQueries({ queryKey: ['billing-sessions'] });
+    },
+  });
+}
+
+export function useUnprocessBillingSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.post(`/billing/sessions/${id}/unprocess`, {}),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['billing-sessions'] });
+      qc.invalidateQueries({ queryKey: ['billing-unprocessed'] });
+      qc.invalidateQueries({ queryKey: ['billing-badge-counts'] });
+    },
+  });
+}
+
+export function useDismissBillingEvent() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (calendar_event_id: string) =>
+      api.post('/billing/sessions/dismiss', { calendar_event_id }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['billing-unprocessed'] });
+      qc.invalidateQueries({ queryKey: ['billing-badge-counts'] });
+    },
+  });
+}
+
+export function useBillingSessions(filters?: { company_id?: number; client_id?: number; month?: string; confirmed_only?: boolean; unconfirmed_only?: boolean }) {
+  const params = new URLSearchParams();
+  if (filters?.company_id) params.set('company_id', String(filters.company_id));
+  if (filters?.client_id) params.set('client_id', String(filters.client_id));
+  if (filters?.month) params.set('month', filters.month);
+  if (filters?.confirmed_only) params.set('confirmed_only', 'true');
+  if (filters?.unconfirmed_only) params.set('unconfirmed_only', 'true');
+  const qs = params.toString();
+  return useQuery({
+    queryKey: ['billing-sessions', filters],
+    queryFn: () => api.get<BillingSession[]>(`/billing/sessions${qs ? `?${qs}` : ''}`),
+  });
+}
+
+export function useCreateBillingSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: {
+      date: string;
+      client_id?: number | null;
+      company_id?: number | null;
+      duration_hours: number;
+      rate?: number | null;
+      notes?: string | null;
+      is_confirmed: boolean;
+    }) => api.post<BillingSession>('/billing/sessions', body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['billing-sessions'] }),
+  });
+}
+
+export function useUpdateBillingSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...update }: { id: number } & Partial<BillingSession>) =>
+      api.patch<BillingSession>(`/billing/sessions/${id}`, update),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['billing-sessions'] });
+      qc.invalidateQueries({ queryKey: ['billing-unprocessed'] });
+    },
+  });
+}
+
+export function useRefreshSessionsFromCalendar() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<{ promoted: number }>('/billing/sessions/refresh-from-calendar', {}),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['billing-sessions'] });
+      qc.invalidateQueries({ queryKey: ['billing-unprocessed'] });
+    },
+  });
+}
+
+export function useDeleteBillingSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.delete(`/billing/sessions/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['billing-sessions'] });
+      qc.invalidateQueries({ queryKey: ['billing-unprocessed'] });
+    },
+  });
+}
+
+export function useBillingPrepData(year: number, month: number) {
+  return useQuery({
+    queryKey: ['billing-prep', year, month],
+    queryFn: () => api.get<BillingPrepData>(`/billing/prepare/${year}/${month}`),
+    enabled: year > 0 && month > 0,
+    staleTime: 0,
+  });
+}
+
+export function useGenerateInvoices() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: {
+      invoice_date: string;
+      services_date: string;
+      companies: Array<{
+        company_id: number;
+        invoice_number?: string;
+        lines: Array<{
+          type: string;
+          description: string;
+          date_range: string | null;
+          unit_cost: number | null;
+          quantity: number | null;
+          amount: number;
+          sort_order: number;
+          session_ids: number[];
+        }>;
+      }>;
+      year: number;
+      month: number;
+    }) => {
+      const { year, month, ...payload } = body;
+      return api.post<BillingGenerateResult>(`/billing/prepare/${year}/${month}/generate`, payload);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['billing-prep'] });
+      qc.invalidateQueries({ queryKey: ['billing-sessions'] });
+      qc.invalidateQueries({ queryKey: ['billing-invoices'] });
+      qc.invalidateQueries({ queryKey: ['billing-summary'] });
+    },
+  });
+}
+
+export function useBillingInvoices(filters?: { company_id?: number; status?: string; period_month?: string; period_year?: number }) {
+  const qs = filters
+    ? new URLSearchParams(
+        Object.entries(filters)
+          .filter(([, v]) => v != null)
+          .map(([k, v]) => [k, String(v)])
+      ).toString()
+    : '';
+  return useQuery({
+    queryKey: ['billing-invoices', filters],
+    queryFn: () => api.get<BillingInvoice[]>(`/billing/invoices${qs ? `?${qs}` : ''}`),
+  });
+}
+
+export function useBillingInvoice(id: number | null) {
+  return useQuery({
+    queryKey: ['billing-invoice', id],
+    queryFn: () => api.get<BillingInvoiceDetail>(`/billing/invoices/${id}`),
+    enabled: id != null,
+  });
+}
+
+export function useUpdateBillingInvoice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...update }: { id: number } & Partial<BillingInvoice>) =>
+      api.patch<BillingInvoice>(`/billing/invoices/${id}`, update),
+    onSuccess: (_, { id }) => {
+      qc.invalidateQueries({ queryKey: ['billing-invoices'] });
+      qc.invalidateQueries({ queryKey: ['billing-invoice', id] });
+    },
+  });
+}
+
+export function useDeleteBillingInvoice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.delete<{ ok: boolean }>(`/billing/invoices/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['billing-invoices'] });
+      qc.invalidateQueries({ queryKey: ['billing-sessions'] });
+    },
+  });
+}
+
+export function useDeleteBillingInvoicesBulk() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (ids: number[]) => {
+      // Delete sequentially, tolerating individual failures
+      const results = await Promise.allSettled(
+        ids.map(id => api.delete<{ ok: boolean }>(`/billing/invoices/${id}`))
+      );
+      const failed = results.filter(r => r.status === 'rejected').length;
+      if (failed > 0 && failed === ids.length) throw new Error(`All ${failed} deletes failed`);
+      return { deleted: ids.length - failed, failed };
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['billing-invoices'] });
+      qc.invalidateQueries({ queryKey: ['billing-sessions'] });
+    },
+  });
+}
+
+export function useBillingInvoicesDir() {
+  return useQuery({
+    queryKey: ['billing-invoices-dir'],
+    queryFn: () => api.get<{ path: string }>('/billing/invoices/dir'),
+    staleTime: 60_000,
+  });
+}
+
+export function useBillingGeneratePdf() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (invoiceId: number) =>
+      api.post<{ ok: boolean; pdf_path: string }>(`/billing/invoices/${invoiceId}/pdf`, {}),
+    onSuccess: (_, invoiceId) => {
+      qc.invalidateQueries({ queryKey: ['billing-invoice', invoiceId] });
+      qc.invalidateQueries({ queryKey: ['billing-invoices'] });
+    },
+  });
+}
+
+export function useBulkImportInvoices() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (rows: InvoiceBulkImportRow[]) =>
+      api.post<InvoiceBulkImportResult>('/billing/invoices/bulk-import', { rows }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['billing-invoices'] });
+    },
+  });
+}
+
+export function useCreateBillingInvoice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: InvoiceCreate) => api.post<BillingInvoice>('/billing/invoices', body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['billing-invoices'] });
+    },
+  });
+}
+
+export function useComposeInvoiceEmail(invoiceId: number | null) {
+  return useQuery({
+    queryKey: ['billing-invoice-compose', invoiceId],
+    queryFn: () => api.get<InvoiceCompose>(`/billing/invoices/${invoiceId}/compose`),
+    enabled: invoiceId != null,
+    staleTime: 0,
+  });
+}
+
+export function useSaveInvoiceDraft() {
+  return useMutation({
+    mutationFn: ({ invoiceId, ...body }: { invoiceId: number; to: string; cc: string; subject: string; body: string }) =>
+      api.post<{ ok: boolean; draft_id: string }>(`/billing/invoices/${invoiceId}/send-draft`, body),
+  });
+}
+
+export function useSendInvoiceEmail() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ invoiceId, ...body }: { invoiceId: number; to: string; cc: string; subject: string; body: string }) =>
+      api.post<{ ok: boolean; sent_at: string }>(`/billing/invoices/${invoiceId}/send-email`, body),
+    onSuccess: (_, { invoiceId }) => {
+      qc.invalidateQueries({ queryKey: ['billing-invoices'] });
+      qc.invalidateQueries({ queryKey: ['billing-invoice', invoiceId] });
+    },
+  });
+}
+
+export function useBillingSummary(year: number) {
+  return useQuery({
+    queryKey: ['billing-summary', year],
+    queryFn: () => api.get<BillingSummaryData>(`/billing/summary?year=${year}`),
+    staleTime: 0,
+    gcTime: Infinity, // never drop from cache — prevents blank on Prepare→Summary when session > 5 min
+  });
+}
+
+export function useUpdateBillingPayment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...body }: { id: number; company_id?: number | null }) =>
+      api.patch<{ ok: boolean }>(`/billing/payments/${id}`, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['billing-payments'] });
+      qc.invalidateQueries({ queryKey: ['billing-summary'] });
+    },
+  });
+}
+
+export function useBillingPayments(unmatchedOnly = false) {
+  return useQuery({
+    queryKey: ['billing-payments', unmatchedOnly],
+    queryFn: () => api.get<BillingPayment[]>(`/billing/payments${unmatchedOnly ? '?unmatched_only=true' : ''}`),
+    staleTime: 0,
+  });
+}
+
+export function useSyncLunchMoney() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ daysBack = 365, clear = false }: { daysBack?: number; clear?: boolean } = {}) =>
+      api.post<BillingLunchMoneySyncResult>(`/billing/lunchmoney/sync?days_back=${daysBack}&clear=${clear}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['billing-payments'] });
+      qc.invalidateQueries({ queryKey: ['billing-summary'] });
+      qc.invalidateQueries({ queryKey: ['billing-badge-counts'] });
+    },
+  });
+}
+
+export function useAssignBillingPayment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ paymentId, invoiceId, amountApplied }: { paymentId: number; invoiceId: number; amountApplied: number }) =>
+      api.post<{ ok: boolean }>(`/billing/payments/${paymentId}/assign`, {
+        invoice_id: invoiceId,
+        amount_applied: amountApplied,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['billing-payments'] });
+      qc.invalidateQueries({ queryKey: ['billing-summary'] });
+      qc.invalidateQueries({ queryKey: ['billing-badge-counts'] });
+    },
+  });
+}
+
+export function useRemoveBillingPaymentAssignment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (assignmentId: number) =>
+      api.delete<{ ok: boolean }>(`/billing/invoice-payments/${assignmentId}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['billing-payments'] });
+      qc.invalidateQueries({ queryKey: ['billing-summary'] });
+      qc.invalidateQueries({ queryKey: ['billing-badge-counts'] });
     },
   });
 }

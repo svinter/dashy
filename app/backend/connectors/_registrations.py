@@ -333,6 +333,27 @@ register(
     )
 )
 
+# --- LunchMoney ---
+register(
+    ConnectorInfo(
+        id="lunchmoney",
+        name="LunchMoney",
+        description="Personal finance transactions for billing payment matching",
+        category="token",
+        secret_keys=["LUNCHMONEY_API_KEY"],
+        help_steps=[
+            "Go to my.lunchmoney.app/developers",
+            "Create an Access Token",
+            "Copy the token",
+        ],
+        help_url="https://my.lunchmoney.app/developers",
+        sync_sources=["lunchmoney"],
+        default_enabled=False,
+        sync_fn="connectors.lunchmoney.sync_lunchmoney_transactions",
+        check_fn="connectors.lunchmoney.check_lunchmoney",
+    )
+)
+
 # --- WhatsApp ---
 register(
     ConnectorInfo(

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { usePeople, useSync, useAuthStatus, useConnectors, useCreatePerson, useUpdatePerson, usePersonas, useGroups, useRenameGroup } from '../../api/hooks';
+import { usePeople, useSync, useAuthStatus, useConnectors, useCreatePerson, useUpdatePerson, usePersonas, useGroups, useRenameGroup, useVersion, useBillingBadgeCounts } from '../../api/hooks';
 import { useSyncProgress } from '../../hooks/useSyncProgress';
 import { SyncDetailModal } from '../SyncProgressOverlay';
 import type { SyncSourceInfo } from '../../api/types';
@@ -19,6 +19,10 @@ export function Sidebar() {
   const { pathname } = useLocation();
   const onRampPage = pathname.startsWith('/ramp');
   const onClaudePage = pathname.startsWith('/claude');
+  const onBillingPage = pathname.startsWith('/billing');
+  const { data: badgeCounts } = useBillingBadgeCounts(onBillingPage);
+  const queueCount = badgeCounts?.queue_count ?? 0;
+  const unmatchedCount = badgeCounts?.unmatched_payments_count ?? 0;
   const { data: personas } = usePersonas();
   const { data: employees } = usePeople();
   const { data: groups } = useGroups();
@@ -27,6 +31,7 @@ export function Sidebar() {
   const syncProgress = useSyncProgress();
   const { data: authStatus } = useAuthStatus();
   const [syncDetailOpen, setSyncDetailOpen] = useState(false);
+  const { data: versionData } = useVersion();
 
   const enabled = new Set(connectors?.filter(c => c.enabled).map(c => c.id));
 
@@ -125,7 +130,12 @@ export function Sidebar() {
   return (
     <aside className="sidebar">
       <div className="sidebar-top">
-        <NavLink to="/" className="sidebar-title sidebar-title-link">Dashboard</NavLink>
+        <NavLink to="/" className="sidebar-title sidebar-title-link">Dashy</NavLink>
+        {versionData?.version && (
+          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)', marginBottom: 'var(--space-sm)' }}>
+            {versionData.version}
+          </div>
+        )}
 
         <div className="sidebar-section-label">work</div>
         <nav>
@@ -133,6 +143,20 @@ export function Sidebar() {
           <NavLink to="/issues">Issues</NavLink>
           <NavLink to="/docs">Docs</NavLink>
           {(active.has('google') || active.has('granola')) && <NavLink to="/meetings">Meetings</NavLink>}
+          <NavLink to="/billing">
+            Billing
+            {!onBillingPage && (queueCount > 0 || unmatchedCount > 0) && (
+              <span className="nav-count-badge">{queueCount + unmatchedCount}</span>
+            )}
+          </NavLink>
+          {onBillingPage && <>
+            <NavLink to="/billing" end className="sidebar-sub-link">
+              Queue{queueCount > 0 && <span className="nav-count-badge">{queueCount}</span>}
+            </NavLink>
+            <NavLink to="/billing/payments" className="sidebar-sub-link">
+              Payments{unmatchedCount > 0 && <span className="nav-count-badge">{unmatchedCount}</span>}
+            </NavLink>
+          </>}
         </nav>
 
         {(active.has('google') || active.has('slack') || active.has('notion') || active.has('github') || active.has('ramp') || active.has('news') || active.has('google_drive') || active.has('obsidian')) && (

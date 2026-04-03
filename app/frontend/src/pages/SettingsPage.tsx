@@ -26,8 +26,20 @@ import {
   useBackupDatabase,
   useDashboardIssues,
   useCreateDashboardIssue,
+  useVersion,
+  useBillingCompanies,
+  useCreateBillingCompany,
+  useUpdateBillingCompany,
+  useDeleteBillingCompany,
+  useCreateBillingClient,
+  useUpdateBillingClient,
+  useDeleteBillingClient,
+  useBillingSeedStatus,
+  useImportBillingSeed,
+  useBillingSettings,
+  useUpdateBillingSettings,
 } from '../api/hooks';
-import type { ServiceAuthStatus, SyncSourceInfo, ConnectorInfo, UserProfile, DashboardIssue } from '../api/types';
+import type { ServiceAuthStatus, SyncSourceInfo, ConnectorInfo, UserProfile, DashboardIssue, BillingCompany, BillingClient, BillingSettings } from '../api/types';
 
 function StatusBadge({ status }: { status: ServiceAuthStatus }) {
   const hasSyncErrors = Object.values(status.sync || {}).some(
@@ -1009,18 +1021,19 @@ const CONNECTOR_GROUPS: { label: string; description: string; ids: string[] }[] 
   { label: 'Communication', description: 'Search and sync messages from your team tools.', ids: ['slack'] },
   { label: 'Meeting Transcripts', description: 'Import meeting notes and transcripts.', ids: ['granola'] },
   { label: 'Development', description: 'Pull requests, issues, and AI-assisted coding.', ids: ['github', 'claude_code'] },
-  { label: 'Finance', description: 'Transactions, bills, and vendor data from Ramp.', ids: ['ramp'] },
+  { label: 'Finance', description: 'Transactions, bills, and vendor data from Ramp and LunchMoney.', ids: ['ramp', 'lunchmoney'] },
   { label: 'Experimental', description: 'Features still in development.', ids: ['whatsapp', 'news'] },
 ];
 
 const AI_CONNECTOR_IDS = new Set(['gemini', 'anthropic', 'openai']);
 
-type SettingsTab = 'connections' | 'ai' | 'sync' | 'profile' | 'advanced' | 'feedback';
+type SettingsTab = 'connections' | 'ai' | 'sync' | 'profile' | 'advanced' | 'feedback' | 'billing';
 
 export function SettingsPage() {
   const { data: authData, isLoading: authLoading, refetch } = useAuthStatus();
   const { data: connectors, isLoading: connectorsLoading } = useConnectors();
   const { data: setupStatus } = useSetupStatus();
+  const { data: versionData } = useVersion();
   const triggerSync = useSync();
   const [activeTab, setActiveTab] = useState<SettingsTab>('connections');
   const [activeGroup, setActiveGroup] = useState<string | null>(null);
@@ -1037,6 +1050,11 @@ export function SettingsPage() {
   return (
     <div>
       <h1>Settings</h1>
+      {versionData?.version && (
+        <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-light)', marginTop: 0 }}>
+          {versionData.version}
+        </p>
+      )}
 
       <div className="tab-bar">
         <button
@@ -1077,6 +1095,12 @@ export function SettingsPage() {
             Feedback
           </button>
         )}
+        <button
+          className={`tab ${activeTab === 'billing' ? 'active' : ''}`}
+          onClick={() => setActiveTab('billing')}
+        >
+          Billing
+        </button>
       </div>
 
       {activeTab === 'connections' && (
@@ -1175,6 +1199,7 @@ export function SettingsPage() {
       )}
 
       {activeTab === 'feedback' && <FeedbackTab />}
+      {activeTab === 'billing' && <BillingTab />}
     </div>
   );
 }
@@ -1327,5 +1352,334 @@ function FeedbackTab() {
         </div>
       </section>
     </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// BillingTab
+// ---------------------------------------------------------------------------
+
+function BillingTab() {
+  const { data: companies, isLoading } = useBillingCompanies();
+  const { data: seedStatus } = useBillingSeedStatus();
+  const { data: billingSettings } = useBillingSettings();
+  const updateBillingSettings = useUpdateBillingSettings();
+  const [settingsDraft, setSettingsDraft] = useState<Partial<BillingSettings>>({});
+  const [settingsSaved, setSettingsSaved] = useState(false);
+  const importSeed = useImportBillingSeed();
+  const createCompany = useCreateBillingCompany();
+  const updateCompany = useUpdateBillingCompany();
+  const deleteCompany = useDeleteBillingCompany();
+  const createClient = useCreateBillingClient();
+  const updateClient = useUpdateBillingClient();
+  const deleteClient = useDeleteBillingClient();
+
+  const [expandedCompanies, setExpandedCompanies] = useState<Set<number>>(new Set());
+  const [editingCompany, setEditingCompany] = useState<number | null>(null);
+  const [editingClient, setEditingClient] = useState<number | null>(null);
+  const [addingClientTo, setAddingClientTo] = useState<number | null>(null);
+  const [addingCompany, setAddingCompany] = useState(false);
+  const [showInactive, setShowInactive] = useState(false);
+
+  // New company form state
+  const [newCo, setNewCo] = useState({ name: '', abbrev: '', default_rate: '', billing_method: 'invoice', payment_method: '', ap_email: '', invoice_prefix: '' });
+  // New client form state
+  const [newCl, setNewCl] = useState({ name: '', obsidian_name: '', rate_override: '', prepaid: false });
+  // Inline edit state (company)
+  const [editCoData, setEditCoData] = useState<Partial<BillingCompany>>({});
+  // Inline edit state (client)
+  const [editClData, setEditClData] = useState<Partial<BillingClient>>({});
+
+  const toggleCompany = (id: number) => {
+    setExpandedCompanies(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const visibleCompanies = (companies ?? []).filter(co => showInactive || co.active);
+
+  if (isLoading) return <p className="empty-state">Loading billing data…</p>;
+
+  const settingsVal = (key: keyof BillingSettings) =>
+    settingsDraft[key] ?? billingSettings?.[key] ?? '';
+
+  function saveSettings() {
+    updateBillingSettings.mutate(settingsDraft, {
+      onSuccess: () => { setSettingsDraft({}); setSettingsSaved(true); setTimeout(() => setSettingsSaved(false), 2500); },
+    });
+  }
+
+  return (
+    <div>
+      {/* Invoice & Provider settings */}
+      <section style={{ marginBottom: 'var(--space-xl)', padding: 'var(--space-md)', border: '1px solid var(--color-border)', borderRadius: 4 }}>
+        <strong>Invoice Settings</strong>
+        <div style={{ marginTop: 'var(--space-sm)', display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
+          <label style={{ fontSize: 'var(--text-sm)', display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <span style={{ color: 'var(--color-text-light)' }}>Invoice output directory</span>
+            <input
+              value={settingsVal('invoice_output_dir')}
+              onChange={e => setSettingsDraft(d => ({ ...d, invoice_output_dir: e.target.value }))}
+              placeholder="~/.personal-dashboard/invoices/"
+              style={{ fontSize: 'var(--text-sm)', width: '100%', maxWidth: 420 }}
+            />
+          </label>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-sm)', maxWidth: 660 }}>
+            <label style={{ fontSize: 'var(--text-sm)', display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <span style={{ color: 'var(--color-text-light)' }}>Provider name</span>
+              <input value={settingsVal('provider_name')} onChange={e => setSettingsDraft(d => ({ ...d, provider_name: e.target.value }))} placeholder="Vantage Insights" style={{ fontSize: 'var(--text-sm)' }} />
+            </label>
+            <label style={{ fontSize: 'var(--text-sm)', display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <span style={{ color: 'var(--color-text-light)' }}>Provider email</span>
+              <input value={settingsVal('provider_email')} onChange={e => setSettingsDraft(d => ({ ...d, provider_email: e.target.value }))} placeholder="you@example.com" style={{ fontSize: 'var(--text-sm)' }} />
+            </label>
+            <label style={{ fontSize: 'var(--text-sm)', display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <span style={{ color: 'var(--color-text-light)' }}>Provider address</span>
+              <input value={settingsVal('provider_address')} onChange={e => setSettingsDraft(d => ({ ...d, provider_address: e.target.value }))} placeholder="123 Main St, Boston MA 02116" style={{ fontSize: 'var(--text-sm)' }} />
+            </label>
+            <label style={{ fontSize: 'var(--text-sm)', display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <span style={{ color: 'var(--color-text-light)' }}>Provider phone</span>
+              <input value={settingsVal('provider_phone')} onChange={e => setSettingsDraft(d => ({ ...d, provider_phone: e.target.value }))} placeholder="555-555-5555" style={{ fontSize: 'var(--text-sm)' }} />
+            </label>
+          </div>
+          <div style={{ display: 'flex', gap: 'var(--space-sm)', alignItems: 'center', marginTop: 4 }}>
+            <button className="btn-primary" disabled={Object.keys(settingsDraft).length === 0 || updateBillingSettings.isPending} onClick={saveSettings}>
+              {updateBillingSettings.isPending ? 'Saving…' : 'Save Settings'}
+            </button>
+            {settingsSaved && <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-success, #1a6631)' }}>✓ Saved</span>}
+          </div>
+        </div>
+      </section>
+
+      {/* Seed import section — always visible when seed file exists */}
+      {seedStatus?.seed_file_exists && (
+        <section style={{ marginBottom: 'var(--space-xl)', padding: 'var(--space-md)', border: '1px solid var(--color-border)', borderRadius: 4 }}>
+          <strong>Seed Data</strong>
+          <p style={{ margin: '4px 0 10px', fontSize: 'var(--text-sm)', color: 'var(--color-text-light)' }}>
+            Import companies and clients from <code>dashy_billing_seed.json</code>.
+            {seedStatus.seeded
+              ? ` Currently ${seedStatus.company_count} companies and ${seedStatus.client_count} clients. Re-importing will clear and replace all existing companies and clients.`
+              : ' No billing data exists yet.'}
+          </p>
+          <div style={{ display: 'flex', gap: 'var(--space-sm)', alignItems: 'center', flexWrap: 'wrap' }}>
+            {!seedStatus.seeded ? (
+              <button
+                className="btn-primary"
+                disabled={importSeed.isPending}
+                onClick={() => importSeed.mutate(false)}
+              >
+                {importSeed.isPending ? 'Importing…' : 'Import Seed Data'}
+              </button>
+            ) : (
+              <button
+                className="btn-primary"
+                disabled={importSeed.isPending}
+                onClick={() => {
+                  if (window.confirm(`Re-import seed data? This will delete all ${seedStatus.company_count} existing companies and their clients, then re-import from the seed file.`))
+                    importSeed.mutate(true);
+                }}
+              >
+                {importSeed.isPending ? 'Re-importing…' : 'Re-import Seed Data'}
+              </button>
+            )}
+            {importSeed.isSuccess && (importSeed.data as { companies_imported?: number; clients_imported?: number }) && (
+              <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-success, #1a6631)' }}>
+                ✓ Imported {(importSeed.data as { companies_imported: number }).companies_imported} companies and {(importSeed.data as { clients_imported: number }).clients_imported} clients
+              </span>
+            )}
+            {importSeed.isError && (
+              <span style={{ color: 'var(--color-error)', fontSize: 'var(--text-sm)' }}>
+                {String((importSeed.error as Error)?.message ?? 'Import failed')}
+              </span>
+            )}
+          </div>
+        </section>
+      )}
+
+      <section>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-md)', marginBottom: 'var(--space-md)' }}>
+          <h2 style={{ margin: 0 }}>Companies &amp; Clients</h2>
+          <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-light)' }}>
+            {seedStatus?.company_count ?? 0} companies · {seedStatus?.client_count ?? 0} clients
+          </span>
+          <label style={{ marginLeft: 'auto', fontSize: 'var(--text-sm)', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} />
+            Show inactive
+          </label>
+        </div>
+
+        {visibleCompanies.length === 0 && (
+          <p className="empty-state">No companies yet.</p>
+        )}
+
+        {visibleCompanies.map(co => (
+          <div key={co.id} style={{ marginBottom: 'var(--space-sm)', border: '1px solid var(--color-border)', borderRadius: 4 }}>
+            {/* Company header row */}
+            {editingCompany === co.id ? (
+              <div style={{ padding: 'var(--space-sm)', display: 'flex', flexWrap: 'wrap', gap: 'var(--space-sm)' }}>
+                <input value={editCoData.name ?? co.name} onChange={e => setEditCoData(d => ({ ...d, name: e.target.value }))} placeholder="Name" style={{ flex: '1 1 140px' }} />
+                <input value={editCoData.abbrev ?? co.abbrev ?? ''} onChange={e => setEditCoData(d => ({ ...d, abbrev: e.target.value }))} placeholder="Abbrev" style={{ width: 70 }} />
+                <input type="number" value={editCoData.default_rate ?? co.default_rate ?? ''} onChange={e => setEditCoData(d => ({ ...d, default_rate: parseFloat(e.target.value) || undefined }))} placeholder="Rate" style={{ width: 70 }} />
+                <select value={editCoData.billing_method ?? co.billing_method ?? ''} onChange={e => setEditCoData(d => ({ ...d, billing_method: e.target.value }))}>
+                  <option value="invoice">invoice</option>
+                  <option value="bill.com">bill.com</option>
+                  <option value="payasgo">payasgo</option>
+                </select>
+                <input value={editCoData.ap_email ?? co.ap_email ?? ''} onChange={e => setEditCoData(d => ({ ...d, ap_email: e.target.value }))} placeholder="AP email" style={{ flex: '1 1 180px' }} />
+                <input value={editCoData.payment_method ?? co.payment_method ?? ''} onChange={e => setEditCoData(d => ({ ...d, payment_method: e.target.value }))} placeholder="Payment method" style={{ width: 120 }} />
+                <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 'var(--text-sm)' }}>
+                  <input type="checkbox" checked={editCoData.active ?? co.active} onChange={e => setEditCoData(d => ({ ...d, active: e.target.checked }))} /> Active
+                </label>
+                <textarea
+                  value={editCoData.payment_instructions ?? co.payment_instructions ?? ''}
+                  onChange={e => setEditCoData(d => ({ ...d, payment_instructions: e.target.value }))}
+                  placeholder="Payment instructions (printed on invoice)"
+                  rows={2}
+                  style={{ width: '100%', fontSize: 'var(--text-sm)', resize: 'vertical' }}
+                />
+                <input
+                  value={editCoData.email_subject ?? co.email_subject ?? ''}
+                  onChange={e => setEditCoData(d => ({ ...d, email_subject: e.target.value }))}
+                  placeholder="Email subject template (e.g. Invoice {{invoice_number}} — {{company_name}})"
+                  style={{ width: '100%', fontSize: 'var(--text-sm)' }}
+                />
+                <textarea
+                  value={editCoData.email_body ?? co.email_body ?? ''}
+                  onChange={e => setEditCoData(d => ({ ...d, email_body: e.target.value }))}
+                  placeholder="Email body template — variables: {{invoice_number}}, {{month}}, {{client_names}}, {{company_name}}, {{total_amount}}, {{due_date}}"
+                  rows={5}
+                  style={{ width: '100%', fontSize: 'var(--text-sm)', resize: 'vertical', fontFamily: 'monospace' }}
+                />
+                <button className="btn-primary" onClick={() => {
+                  updateCompany.mutate({ id: co.id, ...editCoData });
+                  setEditingCompany(null);
+                  setEditCoData({});
+                }}>Save</button>
+                <button className="btn-link" onClick={() => { setEditingCompany(null); setEditCoData({}); }}>Cancel</button>
+              </div>
+            ) : (
+              <div
+                style={{ padding: 'var(--space-sm) var(--space-md)', display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', cursor: 'pointer', background: !co.active ? 'var(--color-bg-subtle)' : undefined }}
+                onClick={() => toggleCompany(co.id)}
+              >
+                <span style={{ fontSize: '0.7em', opacity: 0.5 }}>{expandedCompanies.has(co.id) ? '▾' : '▸'}</span>
+                <strong style={{ flex: 1, opacity: co.active ? 1 : 0.5 }}>{co.name}</strong>
+                {co.abbrev && <code style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)' }}>{co.abbrev}</code>}
+                {co.default_rate && <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-light)' }}>${co.default_rate}/hr</span>}
+                <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)' }}>{co.billing_method}</span>
+                <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)' }}>{co.clients.length} clients</span>
+                {!co.active && <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)' }}>inactive</span>}
+                <button className="btn-link" style={{ fontSize: 'var(--text-xs)' }} onClick={e => { e.stopPropagation(); setEditingCompany(co.id); setEditCoData({}); }}>edit</button>
+                <button className="btn-link" style={{ fontSize: 'var(--text-xs)', color: 'var(--color-error)' }} onClick={e => { e.stopPropagation(); if (confirm(`Delete ${co.name}?`)) deleteCompany.mutate(co.id); }}>delete</button>
+              </div>
+            )}
+
+            {/* Clients list */}
+            {expandedCompanies.has(co.id) && (
+              <div style={{ borderTop: '1px solid var(--color-border)', padding: 'var(--space-sm) var(--space-md)' }}>
+                {co.clients.length === 0 && <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-light)', margin: 0 }}>No clients</p>}
+                {co.clients.map(cl => (
+                  <div key={cl.id} style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', padding: '3px 0', opacity: cl.active ? 1 : 0.5 }}>
+                    {editingClient === cl.id ? (
+                      <>
+                        <input value={editClData.name ?? cl.name} onChange={e => setEditClData(d => ({ ...d, name: e.target.value }))} style={{ flex: 1 }} />
+                        <input value={editClData.obsidian_name ?? cl.obsidian_name ?? ''} onChange={e => setEditClData(d => ({ ...d, obsidian_name: e.target.value }))} placeholder="Obsidian name" style={{ flex: 1 }} />
+                        <input type="number" value={editClData.rate_override ?? cl.rate_override ?? ''} onChange={e => setEditClData(d => ({ ...d, rate_override: parseFloat(e.target.value) || null }))} placeholder="Rate override" style={{ width: 80 }} />
+                        <label style={{ fontSize: 'var(--text-xs)', display: 'flex', gap: 3 }}>
+                          <input type="checkbox" checked={editClData.prepaid ?? cl.prepaid} onChange={e => setEditClData(d => ({ ...d, prepaid: e.target.checked }))} /> prepaid
+                        </label>
+                        <label style={{ fontSize: 'var(--text-xs)', display: 'flex', gap: 3 }}>
+                          <input type="checkbox" checked={editClData.active ?? cl.active} onChange={e => setEditClData(d => ({ ...d, active: e.target.checked }))} /> active
+                        </label>
+                        <button className="btn-primary" style={{ fontSize: 'var(--text-xs)' }} onClick={() => {
+                          updateClient.mutate({ id: cl.id, ...editClData });
+                          setEditingClient(null);
+                          setEditClData({});
+                        }}>Save</button>
+                        <button className="btn-link" style={{ fontSize: 'var(--text-xs)' }} onClick={() => { setEditingClient(null); setEditClData({}); }}>Cancel</button>
+                      </>
+                    ) : (
+                      <>
+                        <span style={{ flex: 1, fontSize: 'var(--text-sm)' }}>{cl.name}</span>
+                        {cl.prepaid && <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)' }}>prepaid</span>}
+                        {cl.rate_override && <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)' }}>${cl.rate_override}/hr</span>}
+                        <button className="btn-link" style={{ fontSize: 'var(--text-xs)' }} onClick={() => { setEditingClient(cl.id); setEditClData({}); }}>edit</button>
+                        <button className="btn-link" style={{ fontSize: 'var(--text-xs)', color: 'var(--color-error)' }} onClick={() => { if (confirm(`Remove ${cl.name}?`)) deleteClient.mutate(cl.id); }}>×</button>
+                      </>
+                    )}
+                  </div>
+                ))}
+
+                {/* Add client inline form */}
+                {addingClientTo === co.id ? (
+                  <div style={{ display: 'flex', gap: 'var(--space-sm)', marginTop: 'var(--space-xs)', flexWrap: 'wrap' }}>
+                    <input autoFocus value={newCl.name} onChange={e => setNewCl(d => ({ ...d, name: e.target.value, obsidian_name: e.target.value }))} placeholder="Client name" style={{ flex: '1 1 140px' }} />
+                    <input value={newCl.obsidian_name} onChange={e => setNewCl(d => ({ ...d, obsidian_name: e.target.value }))} placeholder="Obsidian name" style={{ flex: '1 1 140px' }} />
+                    <input type="number" value={newCl.rate_override} onChange={e => setNewCl(d => ({ ...d, rate_override: e.target.value }))} placeholder="Rate override" style={{ width: 80 }} />
+                    <label style={{ fontSize: 'var(--text-xs)', display: 'flex', gap: 3, alignItems: 'center' }}>
+                      <input type="checkbox" checked={newCl.prepaid} onChange={e => setNewCl(d => ({ ...d, prepaid: e.target.checked }))} /> prepaid
+                    </label>
+                    <button className="btn-primary" style={{ fontSize: 'var(--text-xs)' }} onClick={() => {
+                      if (!newCl.name.trim()) return;
+                      createClient.mutate({
+                        name: newCl.name.trim(),
+                        company_id: co.id,
+                        obsidian_name: newCl.obsidian_name.trim() || newCl.name.trim(),
+                        rate_override: parseFloat(newCl.rate_override) || undefined,
+                        prepaid: newCl.prepaid,
+                      });
+                      setNewCl({ name: '', obsidian_name: '', rate_override: '', prepaid: false });
+                      setAddingClientTo(null);
+                    }}>Add</button>
+                    <button className="btn-link" style={{ fontSize: 'var(--text-xs)' }} onClick={() => setAddingClientTo(null)}>Cancel</button>
+                  </div>
+                ) : (
+                  <button className="btn-link" style={{ fontSize: 'var(--text-xs)', marginTop: 'var(--space-xs)' }} onClick={() => setAddingClientTo(co.id)}>
+                    + add client
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+
+        {/* Add company form */}
+        {addingCompany ? (
+          <div style={{ marginTop: 'var(--space-md)', border: '1px solid var(--color-border)', borderRadius: 4, padding: 'var(--space-sm)', display: 'flex', flexWrap: 'wrap', gap: 'var(--space-sm)' }}>
+            <input autoFocus value={newCo.name} onChange={e => setNewCo(d => ({ ...d, name: e.target.value }))} placeholder="Company name" style={{ flex: '1 1 160px' }} />
+            <input value={newCo.abbrev} onChange={e => setNewCo(d => ({ ...d, abbrev: e.target.value }))} placeholder="Abbrev (e.g. ARB)" style={{ width: 80 }} />
+            <input type="number" value={newCo.default_rate} onChange={e => setNewCo(d => ({ ...d, default_rate: e.target.value }))} placeholder="Rate/hr" style={{ width: 70 }} />
+            <select value={newCo.billing_method} onChange={e => setNewCo(d => ({ ...d, billing_method: e.target.value }))}>
+              <option value="invoice">invoice</option>
+              <option value="bill.com">bill.com</option>
+              <option value="payasgo">payasgo</option>
+            </select>
+            <input value={newCo.ap_email} onChange={e => setNewCo(d => ({ ...d, ap_email: e.target.value }))} placeholder="AP email" style={{ flex: '1 1 200px' }} />
+            <input value={newCo.payment_method} onChange={e => setNewCo(d => ({ ...d, payment_method: e.target.value }))} placeholder="Payment method" style={{ width: 120 }} />
+            <button className="btn-primary" onClick={() => {
+              if (!newCo.name.trim()) return;
+              createCompany.mutate({
+                name: newCo.name.trim(),
+                abbrev: newCo.abbrev.trim() || undefined,
+                default_rate: parseFloat(newCo.default_rate) || undefined,
+                billing_method: newCo.billing_method || undefined,
+                payment_method: newCo.payment_method.trim() || undefined,
+                ap_email: newCo.ap_email.trim() || undefined,
+                invoice_prefix: newCo.abbrev.trim() || undefined,
+              });
+              setNewCo({ name: '', abbrev: '', default_rate: '', billing_method: 'invoice', payment_method: '', ap_email: '', invoice_prefix: '' });
+              setAddingCompany(false);
+            }}>Add Company</button>
+            <button className="btn-link" onClick={() => setAddingCompany(false)}>Cancel</button>
+          </div>
+        ) : (
+          <button className="btn-link" style={{ marginTop: 'var(--space-md)' }} onClick={() => setAddingCompany(true)}>
+            + add company
+          </button>
+        )}
+      </section>
+    </div>
   );
 }

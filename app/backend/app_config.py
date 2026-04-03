@@ -27,6 +27,7 @@ ALLOWED_SECRET_KEYS = frozenset(
         "MICROSOFT_CLIENT_ID",
         "MICROSOFT_CLIENT_SECRET",
         "MICROSOFT_TENANT_ID",
+        "LUNCHMONEY_API_KEY",
     }
 )
 
@@ -197,3 +198,28 @@ def get_prompt_context() -> str:
         parts.append(f"at {company}")
 
     return ", ".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Billing settings
+# ---------------------------------------------------------------------------
+
+DEFAULT_BILLING_SETTINGS: dict = {
+    "invoice_output_dir": "",   # empty → DATA_DIR / "invoices"
+    "provider_name": "Vantage Insights",
+    "provider_address": "",
+    "provider_phone": "",
+    "provider_email": "",
+}
+
+
+def get_billing_settings() -> dict:
+    """Return billing configuration (invoice output dir, provider info) from config.json."""
+    stored = load_config().get("billing", {})
+    return {**DEFAULT_BILLING_SETTINGS, **stored}
+
+
+def update_billing_settings(updates: dict) -> dict:
+    """Merge updates into the billing section of config.json."""
+    save_config({"billing": updates})
+    return get_billing_settings()

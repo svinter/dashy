@@ -35,6 +35,8 @@ from database import init_db
 from routers import (
     agent_chat,
     auth,
+    billing,
+    billing_pdf,
     briefing,
     calendar_api,
     changes,
@@ -71,7 +73,7 @@ from routers import (
 from routers.sync import sync_granola, sync_meeting_files
 from utils.person_matching import rebuild_from_db
 
-app = FastAPI(title="Personal Dashboard")
+app = FastAPI(title="Dashy")
 
 app.add_middleware(
     CORSMiddleware,
@@ -135,6 +137,8 @@ if is_demo_mode():
     log.info("[demo] Demo mode enabled — live API calls will return fixture data")
 
 # API routes (must be registered before the SPA catch-all)
+app.include_router(billing.router)
+app.include_router(billing_pdf.router)
 app.include_router(dashboard.router)
 app.include_router(people.router)
 app.include_router(notes.router)
@@ -181,6 +185,14 @@ def health():
     return {"status": "ok"}
 
 
+@app.get("/api/version")
+def version():
+    from config import REPO_ROOT
+    version_file = REPO_ROOT / "VERSION"
+    text = version_file.read_text().strip() if version_file.exists() else "unknown"
+    return {"version": text}
+
+
 _frontend_log = logging.getLogger("frontend")
 
 
@@ -210,6 +222,26 @@ def open_url(body: dict):
             subprocess.Popen(["open", url])
             return {"status": "ok"}
     return {"status": "invalid_url"}
+
+
+@app.post("/api/open-folder")
+def open_folder(body: dict):
+    """Open a local directory in macOS Finder."""
+    import subprocess
+    from pathlib import Path
+
+    path = body.get("path", "").strip()
+    if not path:
+        return {"status": "invalid_path"}
+    resolved = Path(path).expanduser().resolve()
+    if resolved.exists():
+        subprocess.Popen(["open", str(resolved)])
+        return {"status": "ok", "path": str(resolved)}
+    # Try opening the parent if the path itself doesn't exist yet
+    if resolved.parent.exists():
+        subprocess.Popen(["open", str(resolved.parent)])
+        return {"status": "ok", "path": str(resolved.parent)}
+    return {"status": "not_found"}
 
 
 @app.post("/api/restart")

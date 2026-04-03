@@ -21,7 +21,7 @@ type Step = 'welcome' | 'profile' | 'meeting_notes' | 'connectors' | 'done';
 function WelcomeStep({ onNext }: { onNext: () => void }) {
   return (
     <div className="setup-step">
-      <h1>Welcome to Personal Dashboard</h1>
+      <h1>Welcome to Dashy</h1>
       <p className="setup-subtitle">
         Your personal command center &mdash; email, Slack, calendar, team, and
         your own thoughts, all in one quiet place.
@@ -419,7 +419,7 @@ function DoneStep({ onFinish }: { onFinish: () => void }) {
         <li>Press <kbd>c</kbd> to capture a quick note</li>
       </ul>
       <button className="btn-primary setup-cta" onClick={onFinish}>
-        Go to Dashboard
+        Go to Dashy
       </button>
     </div>
   );

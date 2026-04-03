@@ -1,0 +1,1295 @@
+{
+  "_comment": "Dashy billing seed data \u2014 generated 2026-03-31 from invoice.dat and master ledger. Review before importing: (1) verify obsidian_name matches actual note filenames, (2) confirm active flags, (3) add missing CIC individual client names, (4) verify Osmo client last names for Versha and Wesley.",
+  "_review_notes": {
+    "CIC": "All 12 individual CIC clients added.",
+    "Osmo_Versha_Wesley": "Full names confirmed: Wesley Qian, Versha Prakash.",
+    "Heena_Mutha_dual": "Appears as both a standalone inactive company (Heena Mutha) and as a prepaid CFS client. Both are included.",
+    "Anthony_Philippakis_dual": "Removed from Google Ventures; active only under Arboretum. Google Ventures marked inactive.",
+    "Engine_Ventures_abbrev": "Ledger used MVN abbrev for Engine Ventures (shared with Maven AGI) \u2014 changed to EV to avoid collision.",
+    "Lila_Sciences_abbrev": "Ledger used JH (Jon Hennek) as abbrev \u2014 retained as is since that matches existing invoice numbers like 2025-JH-01."
+  },
+  "companies": [
+    {
+      "name": "Arboretum",
+      "abbrev": "ARB",
+      "default_rate": 300,
+      "billing_method": "invoice",
+      "payment_method": "ETrade",
+      "ap_email": "accountspayable@arboretum.bio",
+      "cc_email": "",
+      "tax_tool": "mail",
+      "invoice_prefix": "ARB",
+      "notes": "",
+      "active": true,
+      "payment_instructions": "Arranged previously through Bill.com",
+      "email_subject": "Invoice {{invoice_number}} from Vantage Insights for coaching services for the month of {{month}}",
+      "email_body": "Hi,\n\nI've attached invoice {{invoice_number}} for coaching services for Clare Bernard and Anthony Philippakis for {{month}}.\n\nBest,\n\nSteve"
+    },
+    {
+      "name": "CFS",
+      "abbrev": "CFS",
+      "default_rate": 250,
+      "billing_method": "bill.com",
+      "payment_method": "ETrade",
+      "ap_email": "bill.com",
+      "cc_email": "",
+      "tax_tool": "Zenwork",
+      "invoice_prefix": "CFS",
+      "notes": "",
+      "active": true,
+      "payment_instructions": "Arranged previously through Bill.com",
+      "email_subject": "",
+      "email_body": ""
+    },
+    {
+      "name": "CIC",
+      "abbrev": "CIC",
+      "default_rate": 250,
+      "billing_method": "bill.com",
+      "payment_method": "ETrade",
+      "ap_email": "bill.com",
+      "cc_email": "",
+      "tax_tool": "email",
+      "invoice_prefix": "CIC",
+      "notes": "",
+      "active": true,
+      "payment_instructions": "Arranged previously through Bill.com",
+      "email_subject": "",
+      "email_body": ""
+    },
+    {
+      "name": "Continua",
+      "abbrev": "CAI",
+      "default_rate": 300,
+      "billing_method": "invoice",
+      "payment_method": "ETrade",
+      "ap_email": "accounts-payable@continua.ai",
+      "cc_email": "",
+      "tax_tool": "mail",
+      "invoice_prefix": "CAI",
+      "notes": "",
+      "active": true,
+      "payment_instructions": "Payment via E*TRADE (ACH or wire transfer)",
+      "email_subject": "",
+      "email_body": ""
+    },
+    {
+      "name": "Engine Ventures",
+      "abbrev": "EV",
+      "default_rate": 400,
+      "billing_method": "invoice",
+      "payment_method": "ETrade",
+      "ap_email": "ap@engineventures.com",
+      "cc_email": "",
+      "tax_tool": null,
+      "invoice_prefix": "EV",
+      "notes": "",
+      "active": true,
+      "payment_instructions": "Arranged previously through Bill.com",
+      "email_subject": "Invoice {{invoice_number}} from Vantage Insights for advising services",
+      "email_body": "Hi,\n\nI've attached the invoice for my advising services for Katie Rae and team for {{month}}.\n\nBest,\n\nSteve"
+    },
+    {
+      "name": "Fourth Economy",
+      "abbrev": "SG",
+      "default_rate": 300,
+      "billing_method": "invoice",
+      "payment_method": "Paypal",
+      "ap_email": "pia.bernardini@fourtheconomy.com, sally.guzik@fourtheconomy.com",
+      "cc_email": "",
+      "tax_tool": null,
+      "invoice_prefix": "SG",
+      "notes": "",
+      "active": true,
+      "payment_instructions": "Payment via PayPal",
+      "email_subject": "Invoice {{invoice_number}} from Vantage Insights for coaching services for the month of {{month}}",
+      "email_body": "Hi,\n\nI've attached invoice {{invoice_number}} from Vantage Insights for services provided in {{month}}.\n\nBest,\n\nSteve"
+    },
+    {
+      "name": "Google Ventures",
+      "abbrev": "GV",
+      "default_rate": 500,
+      "billing_method": "invoice",
+      "payment_method": "ETrade",
+      "ap_email": "p2pinvoice@google.com",
+      "cc_email": "",
+      "tax_tool": null,
+      "invoice_prefix": "GV",
+      "notes": "",
+      "active": false,
+      "payment_instructions": "Payment via E*TRADE (ACH or wire transfer)",
+      "email_subject": "",
+      "email_body": ""
+    },
+    {
+      "name": "Lila Sciences",
+      "abbrev": "JH",
+      "default_rate": 300,
+      "billing_method": "invoice",
+      "payment_method": "ETrade",
+      "ap_email": "apinvoices@lila.ai",
+      "cc_email": "",
+      "tax_tool": "email",
+      "invoice_prefix": "JH",
+      "notes": "",
+      "active": true,
+      "payment_instructions": "Payment via E*TRADE (ACH or wire transfer)",
+      "email_subject": "Invoice {{invoice_number}} from Vantage Insights for coaching services for the month of {{month}}",
+      "email_body": "Hi,\n\nI've attached the invoice for coaching services for Jon Hennek for {{month}}.\n\nBest,\n\nSteve"
+    },
+    {
+      "name": "LabCentral",
+      "abbrev": "LAB",
+      "default_rate": 250,
+      "billing_method": "invoice",
+      "payment_method": "ETrade",
+      "ap_email": "ap@labcentral.org",
+      "cc_email": "",
+      "tax_tool": "Zenwork",
+      "invoice_prefix": "LAB",
+      "notes": "",
+      "active": true,
+      "payment_instructions": "Payment previously arranged via ACH transfer",
+      "email_subject": "",
+      "email_body": ""
+    },
+    {
+      "name": "Maven AGI",
+      "abbrev": "MVN",
+      "default_rate": 300,
+      "billing_method": "invoice",
+      "payment_method": "ETrade",
+      "ap_email": "accountspayable@mavenagi.com",
+      "cc_email": "",
+      "tax_tool": "mail",
+      "invoice_prefix": "MVN",
+      "notes": "",
+      "active": true,
+      "payment_instructions": "Payment previously arranged via ACH transfer",
+      "email_subject": "Invoice {{invoice_number}} from Vantage Insights for coaching services for the month of {{month}}",
+      "email_body": "Hi,\n\nI've attached invoice {{invoice_number}} for coaching services for {{month}}.\n\nBest,\n\nSteve"
+    },
+    {
+      "name": "Osmo",
+      "abbrev": "AW",
+      "default_rate": 300,
+      "billing_method": "invoice",
+      "payment_method": "ETrade",
+      "ap_email": "ap@osmo.ai",
+      "cc_email": "",
+      "tax_tool": "email",
+      "invoice_prefix": "AW",
+      "notes": "",
+      "active": true,
+      "payment_instructions": "Payment previously arranged via ACH transfer",
+      "email_subject": "Invoice {{invoice_number}} from Vantage Insights for coaching services for the month of {{month}}",
+      "email_body": "Hi,\n\nI've attached invoice {{invoice_number}} from Vantage Insights for services provided in {{month}}.\n\nBest,\n\nSteve"
+    },
+    {
+      "name": "Arc Institute",
+      "abbrev": "ARC",
+      "default_rate": 350,
+      "billing_method": "bill.com",
+      "payment_method": "ETrade",
+      "ap_email": "bill.com",
+      "cc_email": "",
+      "tax_tool": "Zenwork",
+      "invoice_prefix": "ARC",
+      "notes": "",
+      "active": true,
+      "payment_instructions": "Arranged previously through Bill.com",
+      "email_subject": "",
+      "email_body": ""
+    },
+    {
+      "name": "Oko Labs",
+      "abbrev": "OKO",
+      "default_rate": 250,
+      "billing_method": "invoice",
+      "payment_method": "ETrade",
+      "ap_email": "matt.miller@okolabs.ai",
+      "cc_email": "",
+      "tax_tool": "Zenwork",
+      "invoice_prefix": "OKO",
+      "notes": "",
+      "active": true,
+      "payment_instructions": "Payment previously arranged via ACH transfer",
+      "email_subject": "Invoice {{invoice_number}} from Vantage Insights for coaching services",
+      "email_body": "Hi,\n\nI've attached the invoice {{invoice_number}} for five coaching sessions.\n\nBest,\n\nSteve"
+    },
+    {
+      "name": "Highland Electric Fleets",
+      "abbrev": "HEF",
+      "default_rate": 300,
+      "billing_method": "invoice",
+      "payment_method": "Tipalti",
+      "ap_email": "invoice_submission@highlandfleets.com",
+      "cc_email": "",
+      "tax_tool": null,
+      "invoice_prefix": "HEF",
+      "notes": "",
+      "active": true,
+      "payment_instructions": "Payment previously arranged via Tipalti",
+      "email_subject": "",
+      "email_body": ""
+    },
+    {
+      "name": "Todd Underwood",
+      "abbrev": "TU",
+      "default_rate": 300,
+      "billing_method": "invoice",
+      "payment_method": "Venmo",
+      "ap_email": "",
+      "cc_email": "",
+      "tax_tool": null,
+      "invoice_prefix": "TU",
+      "notes": "",
+      "active": true,
+      "payment_instructions": "Payment via Venmo",
+      "email_subject": "",
+      "email_body": ""
+    },
+    {
+      "name": "Adelia Risk",
+      "abbrev": "JA",
+      "default_rate": 300,
+      "billing_method": "invoice",
+      "payment_method": "Venmo",
+      "ap_email": "",
+      "cc_email": "",
+      "tax_tool": null,
+      "invoice_prefix": "JA",
+      "notes": "",
+      "active": true,
+      "payment_instructions": "Payment via Paypal",
+      "email_subject": "",
+      "email_body": ""
+    },
+    {
+      "name": "Melissa Ablett",
+      "abbrev": "MA",
+      "default_rate": 150,
+      "billing_method": "invoice",
+      "payment_method": "Venmo",
+      "ap_email": "",
+      "cc_email": "",
+      "tax_tool": null,
+      "invoice_prefix": "MA",
+      "notes": "",
+      "active": true,
+      "payment_instructions": "Payment via Venmo",
+      "email_subject": "",
+      "email_body": ""
+    },
+    {
+      "name": "Joshua Mindel",
+      "abbrev": "JM",
+      "default_rate": 300,
+      "billing_method": "payasgo",
+      "payment_method": "Venmo",
+      "ap_email": "",
+      "cc_email": "",
+      "tax_tool": null,
+      "invoice_prefix": "JM",
+      "notes": "",
+      "active": true,
+      "payment_instructions": "Payment via Venmo",
+      "email_subject": "",
+      "email_body": ""
+    },
+    {
+      "name": "Andrii Dzynia",
+      "abbrev": "AD",
+      "default_rate": 250,
+      "billing_method": "payasgo",
+      "payment_method": "Paypal",
+      "ap_email": "",
+      "cc_email": "",
+      "tax_tool": null,
+      "invoice_prefix": "AD",
+      "notes": "",
+      "active": true,
+      "payment_instructions": "Payment via PayPal",
+      "email_subject": "",
+      "email_body": ""
+    },
+    {
+      "name": "YeSeul Kim",
+      "abbrev": "YK",
+      "default_rate": 150,
+      "billing_method": "invoice",
+      "payment_method": "Venmo",
+      "ap_email": "",
+      "cc_email": "",
+      "tax_tool": null,
+      "invoice_prefix": "YK",
+      "notes": "",
+      "active": false,
+      "payment_instructions": "Payment via Venmo",
+      "email_subject": "",
+      "email_body": ""
+    },
+    {
+      "name": "Kelsey Holden",
+      "abbrev": "KH",
+      "default_rate": 100,
+      "billing_method": "invoice",
+      "payment_method": null,
+      "ap_email": "",
+      "cc_email": "",
+      "tax_tool": null,
+      "invoice_prefix": "KH",
+      "notes": "",
+      "active": false,
+      "payment_instructions": "Payment via Venmo",
+      "email_subject": "",
+      "email_body": ""
+    },
+    {
+      "name": "Layer Health",
+      "abbrev": "LH",
+      "default_rate": 400,
+      "billing_method": "invoice",
+      "payment_method": "check",
+      "ap_email": "",
+      "cc_email": "",
+      "tax_tool": "email",
+      "invoice_prefix": "LH",
+      "notes": "",
+      "active": false,
+      "payment_instructions": "Payment via check",
+      "email_subject": "",
+      "email_body": ""
+    },
+    {
+      "name": "InspireCorps",
+      "abbrev": "IC",
+      "default_rate": null,
+      "billing_method": "invoice",
+      "payment_method": "ETrade",
+      "ap_email": "",
+      "cc_email": "",
+      "tax_tool": "mail",
+      "invoice_prefix": "IC",
+      "notes": "",
+      "active": false,
+      "payment_instructions": "Payment via E*TRADE (ACH or wire transfer)",
+      "email_subject": "",
+      "email_body": ""
+    },
+    {
+      "name": "Artyfact",
+      "abbrev": "ART",
+      "default_rate": 250,
+      "billing_method": "invoice",
+      "payment_method": "Paypal",
+      "ap_email": "melanie@artyfactco.com",
+      "cc_email": "",
+      "tax_tool": "mail",
+      "invoice_prefix": "ART",
+      "notes": "",
+      "active": true,
+      "payment_instructions": "Payment via PayPal",
+      "email_subject": "",
+      "email_body": ""
+    },
+    {
+      "name": "Camilla Jensen",
+      "abbrev": "CJ",
+      "default_rate": null,
+      "billing_method": "invoice",
+      "payment_method": null,
+      "ap_email": "",
+      "cc_email": "",
+      "tax_tool": null,
+      "invoice_prefix": "CJ",
+      "notes": "",
+      "active": false,
+      "payment_instructions": "Payment via Venmo",
+      "email_subject": "",
+      "email_body": ""
+    },
+    {
+      "name": "The Trustees",
+      "abbrev": "TRU",
+      "default_rate": 300,
+      "billing_method": "invoice",
+      "payment_method": null,
+      "ap_email": "nhutto@thetrustees.org",
+      "cc_email": "",
+      "tax_tool": null,
+      "invoice_prefix": "TRU",
+      "notes": "",
+      "active": true,
+      "payment_instructions": "Payment via check",
+      "email_subject": "Invoice {{invoice_number}} from Vantage Insights for coaching services for the month of {{month}}",
+      "email_body": "Hi,\n\nI've attached the invoice for coaching services for Nathan Hutto for {{month}}.\n\nBest,\n\nSteve"
+    },
+    {
+      "name": "Evan Rapoport",
+      "abbrev": "ER",
+      "default_rate": 300,
+      "billing_method": "invoice",
+      "payment_method": "Venmo",
+      "ap_email": "",
+      "cc_email": "",
+      "tax_tool": null,
+      "invoice_prefix": "ER",
+      "notes": "",
+      "active": false,
+      "payment_instructions": "Payment via Venmo",
+      "email_subject": "",
+      "email_body": ""
+    },
+    {
+      "name": "Kuba Szwacki",
+      "abbrev": "KS",
+      "default_rate": 250,
+      "billing_method": "invoice",
+      "payment_method": "Venmo",
+      "ap_email": "",
+      "cc_email": "",
+      "tax_tool": null,
+      "invoice_prefix": "KS",
+      "notes": "",
+      "active": false,
+      "payment_instructions": "Payment via Venmo",
+      "email_subject": "",
+      "email_body": ""
+    },
+    {
+      "name": "Heena Mutha",
+      "abbrev": "HM",
+      "default_rate": 250,
+      "billing_method": "invoice",
+      "payment_method": "bill.com",
+      "ap_email": "",
+      "cc_email": "",
+      "tax_tool": null,
+      "invoice_prefix": "HM",
+      "notes": "",
+      "active": false,
+      "payment_instructions": "Payment via bill.com",
+      "email_subject": "",
+      "email_body": ""
+    },
+    {
+      "name": "Google",
+      "abbrev": "TT",
+      "default_rate": 300,
+      "billing_method": "invoice",
+      "payment_method": "Paypal",
+      "ap_email": "",
+      "cc_email": "",
+      "tax_tool": null,
+      "invoice_prefix": "TT",
+      "notes": "",
+      "active": false,
+      "payment_instructions": "Payment via PayPal",
+      "email_subject": "",
+      "email_body": ""
+    },
+    {
+      "name": "Jeff Whelpley",
+      "abbrev": "JW",
+      "default_rate": 300,
+      "billing_method": "invoice",
+      "payment_method": "Venmo",
+      "ap_email": "",
+      "cc_email": "",
+      "tax_tool": null,
+      "invoice_prefix": "JW",
+      "notes": "",
+      "active": true,
+      "payment_instructions": "Payment via Venmo",
+      "email_subject": "Invoice {{invoice_number}} from Vantage Insights for coaching services for the month of {{month}}",
+      "email_body": "Hi,\n\nI've attached the invoice for coaching services for Jeff Whelpley for {{month}}.\n\nBest,\n\nSteve"
+    },
+    {
+      "name": "Kat Voit",
+      "abbrev": "KV",
+      "default_rate": 200,
+      "billing_method": "invoice",
+      "payment_method": "Venmo",
+      "ap_email": "kichristian@gmail.com",
+      "cc_email": "",
+      "tax_tool": null,
+      "invoice_prefix": "KV",
+      "notes": "",
+      "active": true,
+      "payment_instructions": "Payment via Venmo",
+      "email_subject": "",
+      "email_body": ""
+    },
+    {
+      "name": "Community Charter School of Cambridge",
+      "abbrev": "CCSC",
+      "default_rate": null,
+      "billing_method": null,
+      "payment_method": null,
+      "ap_email": "",
+      "cc_email": "",
+      "tax_tool": null,
+      "invoice_prefix": "CCSC",
+      "notes": "Pro bono. Also known as CCSC.",
+      "active": true,
+      "payment_instructions": "",
+      "email_subject": "",
+      "email_body": ""
+    }
+  ],
+  "clients": [
+    {
+      "name": "Clare Bernard",
+      "company": "Arboretum",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Clare Bernard",
+      "active": true
+    },
+    {
+      "name": "Anthony Philippakis",
+      "company": "Arboretum",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Anthony Philippakis",
+      "active": true
+    },
+    {
+      "name": "CFS",
+      "company": "CFS",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "CFS",
+      "active": true
+    },
+    {
+      "name": "Alex Creely",
+      "company": "CFS",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Alex Creely",
+      "active": true
+    },
+    {
+      "name": "Alex Mozdzanowska",
+      "company": "CFS",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Alex Mozdzanowska",
+      "active": true
+    },
+    {
+      "name": "Bob Mumgaard",
+      "company": "CFS",
+      "rate_override": 500,
+      "prepaid": false,
+      "obsidian_name": "Bob Mumgaard",
+      "active": true
+    },
+    {
+      "name": "Brandon Sorbom",
+      "company": "CFS",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Brandon Sorbom",
+      "active": true
+    },
+    {
+      "name": "Brian Moeckly",
+      "company": "CFS",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Brian Moeckly",
+      "active": true
+    },
+    {
+      "name": "Ant Hollingsworth",
+      "company": "CFS",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Ant Hollingsworth",
+      "active": true
+    },
+    {
+      "name": "Cody Dennett",
+      "company": "CFS",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Cody Dennett",
+      "active": true
+    },
+    {
+      "name": "Heena Mutha",
+      "company": "CFS",
+      "rate_override": null,
+      "prepaid": true,
+      "obsidian_name": "Heena Mutha",
+      "active": true
+    },
+    {
+      "name": "Jeremy Hollman",
+      "company": "CFS",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Jeremy Hollman",
+      "active": true
+    },
+    {
+      "name": "Corinne Mitchell",
+      "company": "CFS",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Corinne Mitchell",
+      "active": true
+    },
+    {
+      "name": "Matt Platano",
+      "company": "CFS",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Matt Platano",
+      "active": true
+    },
+    {
+      "name": "Steve Renter",
+      "company": "CFS",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Steve Renter",
+      "active": true
+    },
+    {
+      "name": "Ted Wyeth",
+      "company": "CFS",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Ted Wyeth",
+      "active": true
+    },
+    {
+      "name": "Tanya Abikoff",
+      "company": "CFS",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Tanya Abikoff",
+      "active": true
+    },
+    {
+      "name": "Sara Ostrovitz",
+      "company": "CFS",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Sara Ostrovitz",
+      "active": true
+    },
+    {
+      "name": "Chad Schepel",
+      "company": "CFS",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Chad Schepel",
+      "active": true
+    },
+    {
+      "name": "Gina D'Achiradi",
+      "company": "CIC",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Gina D'Achiradi",
+      "active": true
+    },
+    {
+      "name": "Sarajane Blair",
+      "company": "CIC",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Sarajane Blair",
+      "active": true
+    },
+    {
+      "name": "Kelly Sullivan",
+      "company": "CIC",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Kelly Sullivan",
+      "active": true
+    },
+    {
+      "name": "Brian Dacey",
+      "company": "CIC",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Brian Dacey",
+      "active": true
+    },
+    {
+      "name": "Denyse Medlenka",
+      "company": "CIC",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Denyse Medlenka",
+      "active": true
+    },
+    {
+      "name": "Karina Wo\u017aniak",
+      "company": "CIC",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Karina Wo\u017aniak",
+      "active": true
+    },
+    {
+      "name": "Joyce Kornet-Vreugdenhil",
+      "company": "CIC",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Joyce Kornet-Vreugdenhil",
+      "active": true
+    },
+    {
+      "name": "Victor Mulas",
+      "company": "CIC",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Victor Mulas",
+      "active": true
+    },
+    {
+      "name": "Meredith McSorley",
+      "company": "CIC",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Meredith McSorley",
+      "active": true
+    },
+    {
+      "name": "Michelle Ottey",
+      "company": "CIC",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Michelle Ottey",
+      "active": true
+    },
+    {
+      "name": "John Land",
+      "company": "CIC",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "John Land",
+      "active": true
+    },
+    {
+      "name": "Stacy Messier",
+      "company": "CIC",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Stacy Messier",
+      "active": true
+    },
+    {
+      "name": "Continua",
+      "company": "Continua",
+      "rate_override": null,
+      "prepaid": true,
+      "obsidian_name": "Continua",
+      "active": true
+    },
+    {
+      "name": "David Petrou",
+      "company": "Continua",
+      "rate_override": null,
+      "prepaid": true,
+      "obsidian_name": "David Petrou",
+      "active": true
+    },
+    {
+      "name": "Marvin Wu",
+      "company": "Continua",
+      "rate_override": null,
+      "prepaid": true,
+      "obsidian_name": "Marvin Wu",
+      "active": true
+    },
+    {
+      "name": "Yixin Li",
+      "company": "Continua",
+      "rate_override": null,
+      "prepaid": true,
+      "obsidian_name": "Yixin Li",
+      "active": true
+    },
+    {
+      "name": "Joseph Higgins",
+      "company": "Continua",
+      "rate_override": null,
+      "prepaid": true,
+      "obsidian_name": "Joseph Higgins",
+      "active": true
+    },
+    {
+      "name": "Olga Dorabiala",
+      "company": "Continua",
+      "rate_override": null,
+      "prepaid": true,
+      "obsidian_name": "Olga Dorabiala",
+      "active": true
+    },
+    {
+      "name": "Ken Bowden",
+      "company": "Continua",
+      "rate_override": null,
+      "prepaid": true,
+      "obsidian_name": "Ken Bowden",
+      "active": true
+    },
+    {
+      "name": "Davis Yoshida",
+      "company": "Continua",
+      "rate_override": null,
+      "prepaid": true,
+      "obsidian_name": "Davis Yoshida",
+      "active": true
+    },
+    {
+      "name": "Shane Hulse",
+      "company": "Continua",
+      "rate_override": null,
+      "prepaid": true,
+      "obsidian_name": "Shane Hulse",
+      "active": true
+    },
+    {
+      "name": "Katie Rae",
+      "company": "Engine Ventures",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Katie Rae",
+      "active": true
+    },
+    {
+      "name": "Israel Ruiz",
+      "company": "Engine Ventures",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Israel Ruiz",
+      "active": true
+    },
+    {
+      "name": "Michael Kearney",
+      "company": "Engine Ventures",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Michael Kearney",
+      "active": true
+    },
+    {
+      "name": "Reed Sturtevant",
+      "company": "Engine Ventures",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Reed Sturtevant",
+      "active": true
+    },
+    {
+      "name": "Ann DeWitt",
+      "company": "Engine Ventures",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Ann DeWitt",
+      "active": true
+    },
+    {
+      "name": "Colleen Calhoun",
+      "company": "Engine Ventures",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Colleen Calhoun",
+      "active": true
+    },
+    {
+      "name": "Vinny Beranek",
+      "company": "Engine Ventures",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Vinny Beranek",
+      "active": true
+    },
+    {
+      "name": "Madeleine Laitz",
+      "company": "Engine Ventures",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Madeleine Laitz",
+      "active": true
+    },
+    {
+      "name": "Rachel Field",
+      "company": "Engine Ventures",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Rachel Field",
+      "active": true
+    },
+    {
+      "name": "Dan Resnicow",
+      "company": "Engine Ventures",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Dan Resnicow",
+      "active": true
+    },
+    {
+      "name": "Streeter Phillips",
+      "company": "Engine Ventures",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Streeter Phillips",
+      "active": true
+    },
+    {
+      "name": "Richard Collins",
+      "company": "Engine Ventures",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Richard Collins",
+      "active": true
+    },
+    {
+      "name": "Jen Lichtman",
+      "company": "Engine Ventures",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Jen Lichtman",
+      "active": true
+    },
+    {
+      "name": "Bettina Metais",
+      "company": "Engine Ventures",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Bettina Metais",
+      "active": true
+    },
+    {
+      "name": "David Bradwell",
+      "company": "Engine Ventures",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "David Bradwell",
+      "active": true
+    },
+    {
+      "name": "Sally Guzik",
+      "company": "Fourth Economy",
+      "rate_override": null,
+      "prepaid": true,
+      "obsidian_name": "Sally Guzik",
+      "active": true
+    },
+    {
+      "name": "Maya Haptas",
+      "company": "Fourth Economy",
+      "rate_override": null,
+      "prepaid": true,
+      "obsidian_name": "Maya Haptas",
+      "active": true
+    },
+    {
+      "name": "Jeff Whelpley",
+      "company": "Jeff Whelpley",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Jeff Whelpley",
+      "active": true
+    },
+    {
+      "name": "Kat Voit",
+      "company": "Kat Voit",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Kat Voit",
+      "active": true
+    },
+    {
+      "name": "Jon Hennek",
+      "company": "Lila Sciences",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Jon Hennek",
+      "active": true
+    },
+    {
+      "name": "LabCentral",
+      "company": "LabCentral",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "LabCentral",
+      "active": true
+    },
+    {
+      "name": "Celina Chang",
+      "company": "LabCentral",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Celina Chang",
+      "active": true
+    },
+    {
+      "name": "Abby Johnson",
+      "company": "LabCentral",
+      "rate_override": null,
+      "prepaid": true,
+      "obsidian_name": "Abby Johnson",
+      "active": true
+    },
+    {
+      "name": "Maven AGI",
+      "company": "Maven AGI",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Maven AGI",
+      "active": true
+    },
+    {
+      "name": "Maven Team",
+      "company": "Maven AGI",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Maven Team",
+      "active": true
+    },
+    {
+      "name": "Stacey Scott",
+      "company": "Maven AGI",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Stacey Scott",
+      "active": true
+    },
+    {
+      "name": "Sami Shalabi",
+      "company": "Maven AGI",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Sami Shalabi",
+      "active": true
+    },
+    {
+      "name": "Lauren Murphy",
+      "company": "Maven AGI",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Lauren Murphy",
+      "active": true
+    },
+    {
+      "name": "Jonathan Corbin",
+      "company": "Maven AGI",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Jonathan Corbin",
+      "active": true
+    },
+    {
+      "name": "Eugene Mann",
+      "company": "Maven AGI",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Eugene Mann",
+      "active": true
+    },
+    {
+      "name": "Alex Wiltschko",
+      "company": "Osmo",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Alex Wiltschko",
+      "active": true
+    },
+    {
+      "name": "Rich Whitcomb",
+      "company": "Osmo",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Rich Whitcomb",
+      "active": true
+    },
+    {
+      "name": "Kate Hajash",
+      "company": "Osmo",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Kate Hajash",
+      "active": true
+    },
+    {
+      "name": "Versha Prakash",
+      "company": "Osmo",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Versha Prakash",
+      "active": true
+    },
+    {
+      "name": "Wesley Qian",
+      "company": "Osmo",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Wesley Qian",
+      "active": true
+    },
+    {
+      "name": "Patrick Hsu",
+      "company": "Arc Institute",
+      "rate_override": null,
+      "prepaid": true,
+      "obsidian_name": "Patrick Hsu",
+      "active": true
+    },
+    {
+      "name": "Matt Miller",
+      "company": "Oko Labs",
+      "rate_override": null,
+      "prepaid": true,
+      "obsidian_name": "Matt Miller",
+      "active": true
+    },
+    {
+      "name": "Mahour Rahimi",
+      "company": "Highland Electric Fleets",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Mahour Rahimi",
+      "active": true
+    },
+    {
+      "name": "Todd Underwood",
+      "company": "Todd Underwood",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Todd Underwood",
+      "active": true
+    },
+    {
+      "name": "Josh Ablett",
+      "company": "Adelia Risk",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Josh Ablett",
+      "active": true
+    },
+    {
+      "name": "Melissa Ablett",
+      "company": "Melissa Ablett",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Melissa Ablett",
+      "active": true
+    },
+    {
+      "name": "Joshua Mindel",
+      "company": "Joshua Mindel",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Joshua Mindel",
+      "active": true
+    },
+    {
+      "name": "Andrii Dzynia",
+      "company": "Andrii Dzynia",
+      "rate_override": null,
+      "prepaid": true,
+      "obsidian_name": "Andrii Dzynia",
+      "active": true
+    },
+    {
+      "name": "YeSeul Kim",
+      "company": "YeSeul Kim",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "YeSeul Kim",
+      "active": false
+    },
+    {
+      "name": "Kelsey Holden",
+      "company": "Kelsey Holden",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Kelsey Holden",
+      "active": false
+    },
+    {
+      "name": "Layer Health",
+      "company": "Layer Health",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Layer Health",
+      "active": true
+    },
+    {
+      "name": "InspireCorps",
+      "company": "InspireCorps",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "InspireCorps",
+      "active": false
+    },
+    {
+      "name": "Artyfact",
+      "company": "Artyfact",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Artyfact",
+      "active": true
+    },
+    {
+      "name": "Melanie",
+      "company": "Artyfact",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Melanie",
+      "active": true
+    },
+    {
+      "name": "Nathan Hutto",
+      "company": "The Trustees",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Nathan Hutto",
+      "active": true
+    },
+    {
+      "name": "Evan Rapoport",
+      "company": "Evan Rapoport",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Evan Rapoport",
+      "active": false
+    },
+    {
+      "name": "Kuba Szwacki",
+      "company": "Kuba Szwacki",
+      "rate_override": null,
+      "prepaid": true,
+      "obsidian_name": "Kuba Szwacki",
+      "active": false
+    },
+    {
+      "name": "Tom Taylor",
+      "company": "Google",
+      "rate_override": null,
+      "prepaid": false,
+      "obsidian_name": "Tom Taylor",
+      "active": false
+    },
+    {
+      "name": "Becki Norris",
+      "company": "Community Charter School of Cambridge",
+      "rate_override": null,
+      "prepaid": true,
+      "obsidian_name": "Becki Norris",
+      "active": true
+    }
+  ]
+}

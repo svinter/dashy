@@ -330,6 +330,25 @@ def _check_openai() -> dict:
     return result
 
 
+def _check_lunchmoney() -> dict:
+    result = {"configured": False, "connected": False, "error": None, "detail": None}
+    token = get_secret("LUNCHMONEY_API_KEY") or ""
+    if not token:
+        result["detail"] = "LUNCHMONEY_API_KEY not configured"
+        return result
+    result["configured"] = True
+    try:
+        from lunchable import LunchMoney  # type: ignore
+        client = LunchMoney(access_token=token)
+        client.get_user()
+        result["connected"] = True
+    except ImportError:
+        result["error"] = "lunchable not installed — run: pip install lunchable"
+    except Exception as e:
+        result["error"] = str(e)
+    return result
+
+
 def _get_sync_states() -> dict:
     """Fetch last sync state per source from the database."""
     from database import get_db_connection
@@ -420,6 +439,7 @@ def auth_status():
         "ramp": _check_ramp(),
         "claude_code": _check_claude_code(),
         "obsidian": _check_obsidian(),
+        "lunchmoney": _check_lunchmoney(),
     }
 
     # Attach sync state to each service
@@ -547,6 +567,7 @@ def test_connection(service: str):
         "gemini": _check_gemini,
         "anthropic": _check_anthropic,
         "openai": _check_openai,
+        "lunchmoney": _check_lunchmoney,
     }
     # Lazy import to avoid circular deps
     from routers.whatsapp import _check_whatsapp

@@ -1,0 +1,2107 @@
+"""Billing module — Companies & Clients CRUD, session discovery/confirmation, seed import."""
+
+import json
+import logging
+import re
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Optional
+from urllib.parse import quote
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+
+from database import get_db_connection, get_write_db
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/api/billing", tags=["billing"])
+
+SEED_PATH = Path(__file__).resolve().parent.parent / "dashy_billing_seed.json"
+
+
+# ---------------------------------------------------------------------------
+# Pydantic models
+# ---------------------------------------------------------------------------
+
+class CompanyCreate(BaseModel):
+    name: str
+    abbrev: Optional[str] = None
+    default_rate: Optional[float] = None
+    billing_method: Optional[str] = None
+    payment_method: Optional[str] = None
+    payment_instructions: Optional[str] = None
+    ap_email: Optional[str] = None
+    cc_email: Optional[str] = None
+    tax_tool: Optional[str] = None
+    invoice_prefix: Optional[str] = None
+    notes: Optional[str] = None
+    email_subject: Optional[str] = None
+    email_body: Optional[str] = None
+    active: bool = True
+
+
+class CompanyUpdate(BaseModel):
+    name: Optional[str] = None
+    abbrev: Optional[str] = None
+    default_rate: Optional[float] = None
+    billing_method: Optional[str] = None
+    payment_method: Optional[str] = None
+    payment_instructions: Optional[str] = None
+    ap_email: Optional[str] = None
+    cc_email: Optional[str] = None
+    tax_tool: Optional[str] = None
+    invoice_prefix: Optional[str] = None
+    notes: Optional[str] = None
+    email_subject: Optional[str] = None
+    email_body: Optional[str] = None
+    active: Optional[bool] = None
+
+
+class ClientCreate(BaseModel):
+    name: str
+    company_id: int
+    rate_override: Optional[float] = None
+    prepaid: bool = False
+    obsidian_name: Optional[str] = None
+    employee_id: Optional[int] = None
+    active: bool = True
+
+
+class ClientUpdate(BaseModel):
+    name: Optional[str] = None
+    company_id: Optional[int] = None
+    rate_override: Optional[float] = None
+    prepaid: Optional[bool] = None
+    obsidian_name: Optional[str] = None
+    employee_id: Optional[int] = None
+    active: Optional[bool] = None
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+COMPANY_COLS = {"name", "abbrev", "default_rate", "billing_method", "payment_method",
+                "payment_instructions", "ap_email", "cc_email", "tax_tool",
+                "invoice_prefix", "notes", "email_subject", "email_body", "active"}
+
+CLIENT_COLS = {"name", "company_id", "rate_override", "prepaid", "obsidian_name",
+               "employee_id", "active"}
+
+
+def _row_to_dict(row) -> dict:
+    return dict(row)
+
+
+def _build_update(fields: dict, allowed: set) -> tuple[str, list]:
+    """Build SET clause and params for an UPDATE, filtering to allowed columns."""
+    pairs = [(k, v) for k, v in fields.items() if k in allowed]
+    if not pairs:
+        return "", []
+    clause = ", ".join(f"{k} = ?" for k, _ in pairs)
+    params = [v for _, v in pairs]
+    return clause, params
+
+
+# ---------------------------------------------------------------------------
+# Billing settings (invoice output dir, provider info)
+# ---------------------------------------------------------------------------
+
+class BillingSettingsUpdate(BaseModel):
+    invoice_output_dir: Optional[str] = None
+    provider_name: Optional[str] = None
+    provider_address: Optional[str] = None
+    provider_phone: Optional[str] = None
+    provider_email: Optional[str] = None
+
+
+@router.get("/settings")
+def get_billing_settings_endpoint():
+    from app_config import get_billing_settings
+    return get_billing_settings()
+
+
+@router.post("/settings")
+def update_billing_settings_endpoint(body: BillingSettingsUpdate):
+    from app_config import update_billing_settings
+    updates = {k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None}
+    return update_billing_settings(updates)
+
+
+# ---------------------------------------------------------------------------
+# Companies
+# ---------------------------------------------------------------------------
+
+@router.get("/companies")
+def list_companies(active_only: bool = False):
+    with get_db_connection(readonly=True) as db:
+        q = "SELECT * FROM billing_companies"
+        if active_only:
+            q += " WHERE active = 1"
+        q += " ORDER BY name"
+        companies = [_row_to_dict(r) for r in db.execute(q).fetchall()]
+        for co in companies:
+            clients = db.execute(
+                "SELECT * FROM billing_clients WHERE company_id = ? ORDER BY name",
+                (co["id"],),
+            ).fetchall()
+            co["clients"] = [_row_to_dict(c) for c in clients]
+    return companies
+
+
+@router.post("/companies", status_code=201)
+def create_company(body: CompanyCreate):
+    with get_write_db() as db:
+        cur = db.execute(
+            """INSERT INTO billing_companies
+               (name, abbrev, default_rate, billing_method, payment_method,
+                ap_email, cc_email, tax_tool, invoice_prefix, notes, active)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (body.name, body.abbrev, body.default_rate, body.billing_method,
+             body.payment_method, body.ap_email, body.cc_email, body.tax_tool,
+             body.invoice_prefix, body.notes, int(body.active)),
+        )
+        db.commit()
+        row = db.execute("SELECT * FROM billing_companies WHERE id = ?", (cur.lastrowid,)).fetchone()
+    return _row_to_dict(row)
+
+
+@router.patch("/companies/{company_id}")
+def update_company(company_id: int, body: CompanyUpdate):
+    fields = {k: v for k, v in body.model_dump(exclude_unset=True).items()}
+    if "active" in fields and fields["active"] is not None:
+        fields["active"] = int(fields["active"])
+    clause, params = _build_update(fields, COMPANY_COLS)
+    if not clause:
+        raise HTTPException(status_code=400, detail="No valid fields to update")
+    params.append(company_id)
+    with get_write_db() as db:
+        db.execute(f"UPDATE billing_companies SET {clause} WHERE id = ?", params)
+        db.commit()
+        row = db.execute("SELECT * FROM billing_companies WHERE id = ?", (company_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Company not found")
+    return _row_to_dict(row)
+
+
+@router.delete("/companies/{company_id}")
+def delete_company(company_id: int):
+    with get_write_db() as db:
+        db.execute("DELETE FROM billing_companies WHERE id = ?", (company_id,))
+        db.commit()
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Clients
+# ---------------------------------------------------------------------------
+
+@router.get("/clients")
+def list_clients(company_id: Optional[int] = None, active_only: bool = False):
+    with get_db_connection(readonly=True) as db:
+        q = "SELECT * FROM billing_clients WHERE 1=1"
+        params: list = []
+        if company_id is not None:
+            q += " AND company_id = ?"
+            params.append(company_id)
+        if active_only:
+            q += " AND active = 1"
+        q += " ORDER BY name"
+        rows = db.execute(q, params).fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+@router.post("/clients", status_code=201)
+def create_client(body: ClientCreate):
+    with get_write_db() as db:
+        cur = db.execute(
+            """INSERT INTO billing_clients
+               (name, company_id, rate_override, prepaid, obsidian_name, employee_id, active)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (body.name, body.company_id, body.rate_override, int(body.prepaid),
+             body.obsidian_name, body.employee_id, int(body.active)),
+        )
+        db.commit()
+        row = db.execute("SELECT * FROM billing_clients WHERE id = ?", (cur.lastrowid,)).fetchone()
+    return _row_to_dict(row)
+
+
+@router.patch("/clients/{client_id}")
+def update_client(client_id: int, body: ClientUpdate):
+    fields = {k: v for k, v in body.model_dump(exclude_unset=True).items()}
+    for bool_col in ("prepaid", "active"):
+        if bool_col in fields and fields[bool_col] is not None:
+            fields[bool_col] = int(fields[bool_col])
+    clause, params = _build_update(fields, CLIENT_COLS)
+    if not clause:
+        raise HTTPException(status_code=400, detail="No valid fields to update")
+    params.append(client_id)
+    with get_write_db() as db:
+        db.execute(f"UPDATE billing_clients SET {clause} WHERE id = ?", params)
+        db.commit()
+        row = db.execute("SELECT * FROM billing_clients WHERE id = ?", (client_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Client not found")
+    return _row_to_dict(row)
+
+
+@router.delete("/clients/{client_id}")
+def delete_client(client_id: int):
+    with get_write_db() as db:
+        db.execute("DELETE FROM billing_clients WHERE id = ?", (client_id,))
+        db.commit()
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Seed import
+# ---------------------------------------------------------------------------
+
+@router.get("/seed/status")
+def seed_status():
+    with get_db_connection(readonly=True) as db:
+        company_count = db.execute("SELECT COUNT(*) FROM billing_companies").fetchone()[0]
+        client_count = db.execute("SELECT COUNT(*) FROM billing_clients").fetchone()[0]
+    return {
+        "seeded": company_count > 0,
+        "company_count": company_count,
+        "client_count": client_count,
+        "seed_file_exists": SEED_PATH.exists(),
+    }
+
+
+@router.post("/seed/import")
+def import_seed(force: bool = False):
+    if not SEED_PATH.exists():
+        raise HTTPException(status_code=404, detail=f"Seed file not found: {SEED_PATH}")
+
+    with get_db_connection(readonly=True) as db:
+        existing = db.execute("SELECT COUNT(*) FROM billing_companies").fetchone()[0]
+    if existing > 0 and not force:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Billing data already exists ({existing} companies). Delete all first or use force=true.",
+        )
+
+    if force and existing > 0:
+        with get_write_db() as db:
+            # Disable FK checks so we can clear only master-data tables
+            # without touching sessions, invoices, or payments.
+            db.execute("PRAGMA foreign_keys=OFF")
+            db.execute("DELETE FROM billing_clients")
+            db.execute("DELETE FROM billing_companies")
+            # Reset autoincrement sequences so re-imported rows get the same
+            # IDs they had before, keeping billing_sessions FK references valid.
+            db.execute("DELETE FROM sqlite_sequence WHERE name IN ('billing_clients', 'billing_companies')")
+            db.execute("PRAGMA foreign_keys=ON")
+            db.commit()
+
+    seed = json.loads(SEED_PATH.read_text())
+    companies_data = seed.get("companies", [])
+    clients_data = seed.get("clients", [])
+
+    # Build a name→id map for employees for optional cross-referencing
+    with get_db_connection(readonly=True) as db:
+        emp_rows = db.execute("SELECT id, name FROM people").fetchall()
+    emp_by_name = {r["name"].lower(): r["id"] for r in emp_rows}
+
+    company_by_name: dict[str, int] = {}
+    inserted_companies = 0
+    inserted_clients = 0
+
+    with get_write_db() as db:
+        for co in companies_data:
+            cur = db.execute(
+                """INSERT INTO billing_companies
+                   (name, abbrev, default_rate, billing_method, payment_method,
+                    ap_email, cc_email, tax_tool, invoice_prefix, notes, active)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    co["name"],
+                    co.get("abbrev"),
+                    co.get("default_rate"),
+                    co.get("billing_method"),
+                    co.get("payment_method"),
+                    co.get("ap_email", ""),
+                    co.get("cc_email", ""),
+                    co.get("tax_tool"),
+                    co.get("invoice_prefix"),
+                    co.get("notes", ""),
+                    int(co.get("active", True)),
+                ),
+            )
+            company_by_name[co["name"]] = cur.lastrowid
+            inserted_companies += 1
+
+        for cl in clients_data:
+            company_name = cl.get("company", "")
+            company_id = company_by_name.get(company_name)
+            if company_id is None:
+                logger.warning("Seed client %r references unknown company %r — skipping", cl["name"], company_name)
+                continue
+
+            employee_id = emp_by_name.get(cl["name"].lower())
+
+            db.execute(
+                """INSERT INTO billing_clients
+                   (name, company_id, rate_override, prepaid, obsidian_name, employee_id, active)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    cl["name"],
+                    company_id,
+                    cl.get("rate_override"),
+                    int(cl.get("prepaid", False)),
+                    cl.get("obsidian_name", cl["name"]),
+                    employee_id,
+                    int(cl.get("active", True)),
+                ),
+            )
+            inserted_clients += 1
+
+        db.commit()
+        relinked = _relink_sessions_after_import(db)
+
+    return {
+        "ok": True,
+        "companies_imported": inserted_companies,
+        "clients_imported": inserted_clients,
+        "sessions_relinked": relinked,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Session discovery helpers
+# ---------------------------------------------------------------------------
+
+def _slot_hours(start_time: str, end_time: str) -> float:
+    """Return calendar slot duration rounded up to the nearest half hour.
+
+    Examples: 25 min → 0.5, 30 min → 0.5, 55 min → 1.0, 75 min → 1.5
+    """
+    import math
+
+    def _parse(s: str) -> datetime:
+        s = s.replace("Z", "+00:00")
+        return datetime.fromisoformat(s)
+    try:
+        raw = (_parse(end_time) - _parse(start_time)).total_seconds() / 3600
+        return math.ceil(raw * 2) / 2
+    except Exception:
+        return 1.0
+
+
+def _lookup_obsidian_note(date_str: str, obsidian_name: str) -> dict | None:
+    """Try to find and parse an Obsidian meeting note for a given date and client name.
+
+    Checks in order:
+      1. 8 Meetings/YYYY-MM-DD - {obsidian_name}.md  (session note — preferred)
+      2. 9 Daily/YYYY-MM-DD.md                        (daily note — fallback)
+
+    Returns dict with keys: found, path, duration_hours, obsidian_link, duration_source.
+    Returns None if the vault is not configured.
+    """
+    try:
+        from connectors.obsidian import get_vault_path, get_vault_name, _parse_frontmatter
+    except ImportError:
+        return None
+
+    vault = get_vault_path()
+    if not vault:
+        return None
+
+    vault_name = get_vault_name() or ""
+
+    def _make_link(rel: str) -> str:
+        return f"obsidian://open?vault={quote(vault_name)}&file={quote(rel, safe='')}"
+
+    def _parse_duration(content: str) -> float | None:
+        meta, _ = _parse_frontmatter(content)
+        raw = meta.get("duration")
+        if not raw:
+            return None
+        try:
+            return float(str(raw).strip().strip('"').strip("'")) / 60
+        except (ValueError, TypeError):
+            return None
+
+    # 1. Session note in 8 Meetings/
+    session_filename = f"{date_str} - {obsidian_name}.md"
+    session_rel = f"8 Meetings/{session_filename}"
+    session_path = vault / "8 Meetings" / session_filename
+
+    if session_path.exists():
+        try:
+            duration_hours = _parse_duration(session_path.read_text(encoding="utf-8", errors="replace"))
+            return {
+                "found": True,
+                "path": session_rel,
+                "duration_hours": round(duration_hours, 4) if duration_hours else None,
+                "obsidian_link": _make_link(session_rel),
+                "duration_source": "obsidian" if duration_hours else "note_found_no_duration",
+            }
+        except Exception as e:
+            logger.warning("Error reading obsidian session note %s: %s", session_path, e)
+
+    # 2. Daily note fallback in 9 Daily/
+    daily_rel = f"9 Daily/{date_str}.md"
+    daily_path = vault / "9 Daily" / f"{date_str}.md"
+
+    if daily_path.exists():
+        try:
+            duration_hours = _parse_duration(daily_path.read_text(encoding="utf-8", errors="replace"))
+            return {
+                "found": True,
+                "path": daily_rel,
+                "duration_hours": round(duration_hours, 4) if duration_hours else None,
+                "obsidian_link": _make_link(daily_rel),
+                "duration_source": "daily_note" if duration_hours else "daily_note_found_no_duration",
+            }
+        except Exception as e:
+            logger.warning("Error reading obsidian daily note %s: %s", daily_path, e)
+
+    # Neither found — return not-found with the session note as the intended target
+    return {
+        "found": False,
+        "path": session_rel,
+        "duration_hours": None,
+        "obsidian_link": _make_link(session_rel),
+        "duration_source": None,
+    }
+
+
+def _get_user_email() -> str:
+    """Return the user's own email from profile config, lowercased."""
+    try:
+        from app_config import load_config
+        cfg = load_config()
+        return cfg.get("profile", {}).get("user_email", "").lower()
+    except Exception:
+        return ""
+
+
+def _get_user_name_parts() -> set[str]:
+    """Return lowercased parts of the user's own name (to exclude from client title matching)."""
+    try:
+        from app_config import load_config
+        cfg = load_config()
+        name = cfg.get("profile", {}).get("user_name", "")
+        if name:
+            return {p.lower() for p in name.split() if p}
+    except Exception:
+        pass
+    return set()
+
+
+def _infer_client(summary: str, attendees_json: str, clients: list[dict]) -> tuple[int | None, str | None, float]:
+    """Infer the most likely client from calendar event title and attendees.
+
+    Returns (client_id, client_name, confidence) where confidence is 0.0–1.0.
+    """
+    summary_lower = summary.lower()
+    user_email = _get_user_email()
+    user_name_parts = _get_user_name_parts()
+
+    # Parse attendees — exclude room resources and the user themselves
+    all_attendees = []
+    try:
+        all_attendees = json.loads(attendees_json) if attendees_json else []
+    except Exception:
+        pass
+
+    attendees = [
+        a for a in all_attendees
+        if a.get("email", "").lower() != user_email
+        and not a.get("email", "").lower().endswith("@resource.calendar.google.com")
+    ]
+
+    attendee_names = [a.get("name", "").lower() for a in attendees if a.get("name")]
+    attendee_emails = [a.get("email", "").lower() for a in attendees if a.get("email")]
+    # Email local parts (before @) and dot-separated parts
+    email_parts: set[str] = set()
+    for email in attendee_emails:
+        local = email.split("@")[0]
+        email_parts.add(local)
+        for part in re.split(r"[._]", local):
+            if part:
+                email_parts.add(part)
+
+    best_id: int | None = None
+    best_name: str | None = None
+    best_score: float = 0.0
+
+    for cl in clients:
+        name: str = cl["name"]
+        parts = name.split()
+        first = parts[0].lower() if parts else ""
+        last = parts[-1].lower() if len(parts) > 1 else ""
+        name_lower = name.lower()
+        score = 0.0
+
+        # Skip matching on the user's own name parts — they appear in every event title
+        if first in user_name_parts or (last and last in user_name_parts):
+            pass  # don't score title matches for the user themselves
+        else:
+            # Full name in title
+            if name_lower in summary_lower:
+                score = max(score, 1.0)
+
+            # Last name in title (word boundary)
+            if last and re.search(r"\b" + re.escape(last) + r"\b", summary_lower):
+                score = max(score, 0.75)
+
+            # First name in title (word boundary)
+            if first and re.search(r"\b" + re.escape(first) + r"\b", summary_lower):
+                score = max(score, 0.55)
+
+        # Attendee display name match
+        for aname in attendee_names:
+            if name_lower == aname:
+                score = max(score, 0.95)
+            elif first in aname or (last and last in aname):
+                score = max(score, 0.70)
+
+        # Email parts match
+        if first and first in email_parts:
+            score = max(score, 0.60)
+        if last and last in email_parts:
+            score = max(score, 0.65)
+        # dot-separated full match e.g. "stacey.scott" in email
+        for ep in email_parts:
+            if first and last and f"{first}.{last}" == ep:
+                score = max(score, 0.85)
+            if first and last and f"{last}.{first}" == ep:
+                score = max(score, 0.85)
+
+        if score > best_score:
+            best_score = score
+            best_id = cl["id"]
+            best_name = cl["name"]
+
+    if best_score < 0.3:
+        return None, None, 0.0
+
+    return best_id, best_name, round(best_score, 2)
+
+
+def _promote_banana_sessions(db) -> int:
+    """Update billing_sessions where calendar event has since turned from banana→grape.
+
+    Returns count of sessions promoted.
+    """
+    rows = db.execute("""
+        SELECT bs.id, bs.calendar_event_id, ce.start_time, bc.obsidian_name,
+               bs.rate, bs.client_id
+        FROM billing_sessions bs
+        JOIN calendar_events ce ON ce.id = bs.calendar_event_id
+        LEFT JOIN billing_clients bc ON bc.id = bs.client_id
+        WHERE bs.color_id = '5' AND ce.color_id = '3' AND bs.dismissed = 0
+    """).fetchall()
+
+    promoted = 0
+    for row in rows:
+        date_str = row["start_time"][:10]
+        note_info = _lookup_obsidian_note(date_str, row["obsidian_name"])
+        update_parts = ["color_id = '3'", "is_confirmed = 1"]
+        params: list = []
+        if note_info and note_info.get("duration_hours"):
+            dh = note_info["duration_hours"]
+            amt = round(dh * (row["rate"] or 0), 2)
+            update_parts += ["duration_hours = ?", "amount = ?",
+                              "obsidian_note_path = ?"]
+            params += [dh, amt, note_info["path"]]
+        params.append(row["id"])
+        db.execute(
+            f"UPDATE billing_sessions SET {', '.join(update_parts)} WHERE id = ?",
+            params,
+        )
+        promoted += 1
+
+    if promoted:
+        db.commit()
+    return promoted
+
+
+def _relink_sessions_after_import(db) -> int:
+    """Re-link billing_sessions.client_id after a seed re-import, and re-apply rates.
+
+    Matches obsidian_note_path (format '8 Meetings/YYYY-MM-DD - {name}.md')
+    to billing_clients.obsidian_name (or name) to restore FK references that
+    become stale when billing_clients rows are deleted and re-inserted with
+    new autoincrement IDs.  Also re-applies the effective rate (client
+    rate_override if set, otherwise company default_rate) to any session whose
+    stored rate no longer matches, recalculating amount accordingly.
+
+    Returns count of sessions updated.
+    """
+    # Build lookup maps keyed by normalised name
+    clients = db.execute(
+        "SELECT bc.id, bc.name, bc.obsidian_name, bc.company_id, bc.rate_override, "
+        "bco.default_rate "
+        "FROM billing_clients bc "
+        "JOIN billing_companies bco ON bco.id = bc.company_id"
+    ).fetchall()
+
+    # (client_id, company_id, effective_rate)
+    by_obsidian: dict[str, tuple[int, int, float | None]] = {}
+    by_name: dict[str, tuple[int, int, float | None]] = {}
+    for cl in clients:
+        eff_rate = cl["rate_override"] if cl["rate_override"] is not None else cl["default_rate"]
+        val = (cl["id"], cl["company_id"], eff_rate)
+        obs = (cl["obsidian_name"] or cl["name"]).lower().strip()
+        by_obsidian[obs] = val
+        by_name[cl["name"].lower().strip()] = val
+
+    sessions = db.execute(
+        "SELECT id, client_id, company_id, rate, duration_hours, obsidian_note_path "
+        "FROM billing_sessions WHERE dismissed = 0"
+    ).fetchall()
+
+    updated = 0
+    for sess in sessions:
+        path = sess["obsidian_note_path"]
+        match: tuple[int, int, float | None] | None = None
+
+        if path:
+            dash_pos = path.find(" - ")
+            if dash_pos != -1:
+                name_part = path[dash_pos + 3:]
+                if name_part.endswith(".md"):
+                    name_part = name_part[:-3]
+                name_key = name_part.lower().strip()
+                match = by_obsidian.get(name_key) or by_name.get(name_key)
+
+        if match:
+            new_client_id, new_company_id, eff_rate = match
+        elif sess["company_id"] is not None:
+            # No path match — still re-apply rate if company default changed
+            company_rate = db.execute(
+                "SELECT default_rate FROM billing_companies WHERE id = ?",
+                (sess["company_id"],),
+            ).fetchone()
+            if company_rate is None:
+                continue
+            eff_rate = company_rate["default_rate"]
+            new_client_id = sess["client_id"]
+            new_company_id = sess["company_id"]
+        else:
+            continue
+
+        need_relink = (new_client_id != sess["client_id"])
+        need_rerate = (eff_rate is not None and eff_rate != sess["rate"])
+
+        if not need_relink and not need_rerate:
+            continue
+
+        new_rate = eff_rate if need_rerate else sess["rate"]
+        new_amount = round(sess["duration_hours"] * new_rate, 2) if need_rerate else None
+        update_sql = "UPDATE billing_sessions SET client_id = ?, company_id = ?, rate = ?"
+        params: list = [new_client_id, new_company_id, new_rate]
+        if new_amount is not None:
+            update_sql += ", amount = ?"
+            params.append(new_amount)
+        update_sql += " WHERE id = ?"
+        params.append(sess["id"])
+        db.execute(update_sql, params)
+        updated += 1
+
+    if updated:
+        db.commit()
+    return updated
+
+
+def _session_to_dict(row) -> dict:
+    d = dict(row)
+    d["is_confirmed"] = bool(d.get("is_confirmed"))
+    d["dismissed"] = bool(d.get("dismissed"))
+    d["prepaid"] = bool(d.get("prepaid"))
+    # Compute obsidian_link from stored path if available
+    path = d.get("obsidian_note_path")
+    if path:
+        try:
+            from connectors.obsidian import get_vault_name
+            vault_name = get_vault_name() or ""
+            encoded_rel = quote(path, safe="")
+            d["obsidian_link"] = f"obsidian://open?vault={quote(vault_name)}&file={encoded_rel}"
+        except Exception:
+            d["obsidian_link"] = None
+    else:
+        d["obsidian_link"] = None
+    return d
+
+
+# ---------------------------------------------------------------------------
+# Session Pydantic models
+# ---------------------------------------------------------------------------
+
+class SessionConfirm(BaseModel):
+    calendar_event_id: str
+    client_id: Optional[int] = None   # null for "no specific client"
+    company_id: Optional[int] = None  # required when client_id is null
+    duration_hours: float
+    notes: Optional[str] = None       # used as invoice description when no client
+
+
+class SessionDismiss(BaseModel):
+    calendar_event_id: str
+
+
+class SessionUpdate(BaseModel):
+    client_id: Optional[int] = None
+    company_id: Optional[int] = None
+    date: Optional[str] = None
+    duration_hours: Optional[float] = None
+    rate: Optional[float] = None
+    amount: Optional[float] = None
+    notes: Optional[str] = None
+    obsidian_note_path: Optional[str] = None
+    is_confirmed: Optional[bool] = None
+    dismissed: Optional[bool] = None
+
+
+class SessionCreate(BaseModel):
+    date: str                           # YYYY-MM-DD
+    client_id: Optional[int] = None
+    company_id: Optional[int] = None    # required when client_id is null
+    duration_hours: float
+    rate: Optional[float] = None        # overrides client/company rate if provided
+    notes: Optional[str] = None
+    is_confirmed: bool = True
+
+
+SESSION_ALLOWED = {"client_id", "company_id", "date", "duration_hours", "rate", "amount",
+                   "notes", "obsidian_note_path", "is_confirmed", "dismissed"}
+
+
+# ---------------------------------------------------------------------------
+# Badge counts — lightweight endpoint for sidebar indicators
+# ---------------------------------------------------------------------------
+
+@router.get("/badge-counts")
+def get_badge_counts():
+    """Return queue and unmatched-payment counts for sidebar badges."""
+    with get_db_connection(readonly=True) as db:
+        queue_count = db.execute(
+            """SELECT COUNT(*) as c FROM calendar_events
+               WHERE color_id IN ('3', '5')
+               AND date(start_time) < date('now')
+               AND id NOT IN (
+                   SELECT calendar_event_id FROM billing_sessions
+                   WHERE calendar_event_id IS NOT NULL
+                   AND (dismissed = 1 OR is_confirmed = 1)
+               )"""
+        ).fetchone()["c"]
+
+        unmatched_payments_count = db.execute(
+            """SELECT COUNT(*) as c FROM billing_payments
+               WHERE company_id IS NOT NULL
+               AND date >= date('now', '-90 days')
+               AND NOT EXISTS (
+                   SELECT 1 FROM billing_invoice_payments WHERE payment_id = billing_payments.id
+               )"""
+        ).fetchone()["c"]
+
+    return {"queue_count": queue_count, "unmatched_payments_count": unmatched_payments_count}
+
+
+# ---------------------------------------------------------------------------
+# Session endpoints
+# ---------------------------------------------------------------------------
+
+@router.get("/sessions/unprocessed")
+def get_unprocessed_sessions():
+    """Return calendar events with color_id 3 or 5 not yet in billing_sessions,
+    with client inference and Obsidian note lookup for each.
+    Also triggers banana→grape promotion for existing sessions.
+    """
+    with get_db_connection(readonly=True) as db:
+        # Get all clients with company info for inference
+        clients = [dict(r) for r in db.execute(
+            "SELECT bc.*, bco.default_rate FROM billing_clients bc "
+            "JOIN billing_companies bco ON bco.id = bc.company_id "
+            "WHERE bc.active = 1"
+        ).fetchall()]
+
+        # IDs already handled: dismissed stubs OR confirmed sessions.
+        # Unconfirmed sessions (is_confirmed=0, dismissed=0) are re-shown in Queue
+        # so they can be confirmed from either view.
+        existing_ids = {
+            r[0] for r in db.execute(
+                "SELECT calendar_event_id FROM billing_sessions "
+                "WHERE calendar_event_id IS NOT NULL AND (dismissed = 1 OR is_confirmed = 1)"
+            ).fetchall()
+        }
+
+        events = db.execute("""
+            SELECT id, summary, start_time, end_time, attendees_json, color_id
+            FROM calendar_events
+            WHERE color_id IN ('3', '5')
+            ORDER BY start_time DESC
+        """).fetchall()
+
+    # Promote banana→grape in a write connection
+    with get_write_db() as wdb:
+        promoted = _promote_banana_sessions(wdb)
+    if promoted:
+        logger.info("Promoted %d banana→grape sessions", promoted)
+
+    result = []
+    for ev in events:
+        if ev["id"] in existing_ids:
+            continue
+
+        slot_hrs = round(_slot_hours(ev["start_time"], ev["end_time"]), 4)
+        is_grape = ev["color_id"] == "3"
+        date_str = ev["start_time"][:10]
+
+        # Client inference
+        client_id, client_name, confidence = _infer_client(
+            ev["summary"] or "", ev["attendees_json"] or "[]", clients
+        )
+
+        # Obsidian note lookup (only when we have a client)
+        obsidian: dict | None = None
+        if client_id and is_grape:
+            cl = next((c for c in clients if c["id"] == client_id), None)
+            if cl:
+                obsidian = _lookup_obsidian_note(date_str, cl["obsidian_name"] or cl["name"])
+
+        # Best duration estimate
+        if obsidian and obsidian.get("duration_hours"):
+            duration_hours = obsidian["duration_hours"]
+            duration_source = "obsidian"
+        else:
+            duration_hours = slot_hrs
+            duration_source = "calendar_slot"
+
+        # Resolve inferred company_id from inferred client
+        inferred_company_id: int | None = None
+        if client_id:
+            cl_row = next((c for c in clients if c["id"] == client_id), None)
+            if cl_row:
+                inferred_company_id = cl_row.get("company_id")
+
+        result.append({
+            "calendar_event_id": ev["id"],
+            "summary": ev["summary"],
+            "start_time": ev["start_time"],
+            "end_time": ev["end_time"],
+            "color_id": ev["color_id"],
+            "is_grape": is_grape,
+            "slot_hours": slot_hrs,
+            "duration_hours": duration_hours,
+            "duration_source": duration_source,
+            "inferred_client_id": client_id,
+            "inferred_client_name": client_name,
+            "inferred_company_id": inferred_company_id,
+            "inferred_confidence": confidence,
+            "obsidian": obsidian,
+        })
+
+    return {"events": result, "count": len(result)}
+
+
+@router.post("/sessions/confirm", status_code=201)
+def confirm_session(body: SessionConfirm):
+    """Confirm an unprocessed calendar event as a billing session.
+
+    Two modes:
+      - client_id set: normal path — looks up client for rate/obsidian_name/company
+      - client_id null + company_id set: company-only session; notes used as description
+    """
+    if not body.client_id and not body.company_id:
+        raise HTTPException(status_code=422, detail="Either client_id or company_id is required")
+
+    with get_write_db() as db:
+        ev = db.execute(
+            "SELECT start_time, end_time, color_id FROM calendar_events WHERE id = ?",
+            (body.calendar_event_id,)
+        ).fetchone()
+        if not ev:
+            raise HTTPException(status_code=404, detail="Calendar event not found")
+
+        is_confirmed = ev["color_id"] == "3"
+        date_str = ev["start_time"][:10]
+
+        if body.client_id:
+            # Normal path: look up client for rate, company, obsidian name
+            cl = db.execute(
+                "SELECT bc.*, bco.default_rate, bco.id as co_id "
+                "FROM billing_clients bc JOIN billing_companies bco ON bco.id = bc.company_id "
+                "WHERE bc.id = ?", (body.client_id,)
+            ).fetchone()
+            if not cl:
+                raise HTTPException(status_code=404, detail="Client not found")
+
+            rate = cl["rate_override"] if cl["rate_override"] is not None else cl["default_rate"]
+            is_prepaid = bool(cl["prepaid"])
+            amount = 0.0 if is_prepaid else round(body.duration_hours * (rate or 0), 2)
+            company_id = cl["co_id"]
+
+            obsidian_name = cl["obsidian_name"] or cl["name"]
+            note_info = _lookup_obsidian_note(date_str, obsidian_name)
+            note_path = note_info["path"] if note_info else f"8 Meetings/{date_str} - {obsidian_name}.md"
+        else:
+            # Company-only path: no client, use company default rate, no obsidian note
+            co = db.execute(
+                "SELECT * FROM billing_companies WHERE id = ?", (body.company_id,)
+            ).fetchone()
+            if not co:
+                raise HTTPException(status_code=404, detail="Company not found")
+
+            rate = co["default_rate"]
+            amount = round(body.duration_hours * (rate or 0), 2)
+            company_id = body.company_id
+            note_path = None
+
+        # If an unconfirmed session already exists for this calendar event, UPDATE it
+        existing = db.execute(
+            "SELECT id FROM billing_sessions WHERE calendar_event_id = ? AND dismissed = 0",
+            (body.calendar_event_id,)
+        ).fetchone()
+
+        if existing:
+            db.execute(
+                """UPDATE billing_sessions SET
+                   client_id=?, company_id=?, duration_hours=?, rate=?, amount=?,
+                   is_confirmed=?, color_id=?, obsidian_note_path=?, notes=?
+                   WHERE id=?""",
+                (body.client_id, company_id, body.duration_hours, rate, amount,
+                 int(is_confirmed), ev["color_id"],
+                 note_path if body.client_id else None,
+                 body.notes or "", existing["id"]),
+            )
+            session_id = existing["id"]
+        else:
+            cur = db.execute(
+                """INSERT INTO billing_sessions
+                   (date, client_id, company_id, duration_hours, rate, amount,
+                    is_confirmed, calendar_event_id, color_id, obsidian_note_path, notes, dismissed)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)""",
+                (date_str, body.client_id, company_id, body.duration_hours,
+                 rate, amount, int(is_confirmed), body.calendar_event_id,
+                 ev["color_id"], note_path if body.client_id else None, body.notes or ""),
+            )
+            session_id = cur.lastrowid
+
+        db.commit()
+        row = db.execute(
+            "SELECT bs.*, bc.name as client_name, bc.prepaid, bco.name as company_name, bco.abbrev as company_abbrev "
+            "FROM billing_sessions bs "
+            "LEFT JOIN billing_clients bc ON bc.id = bs.client_id "
+            "LEFT JOIN billing_companies bco ON bco.id = bs.company_id "
+            "WHERE bs.id = ?", (session_id,)
+        ).fetchone()
+
+    return _session_to_dict(row)
+
+
+@router.post("/sessions/dismiss")
+def dismiss_session(body: SessionDismiss):
+    """Mark a calendar event as dismissed — removes it from the unprocessed queue."""
+    with get_write_db() as db:
+        ev = db.execute(
+            "SELECT start_time, color_id FROM calendar_events WHERE id = ?",
+            (body.calendar_event_id,)
+        ).fetchone()
+        if not ev:
+            raise HTTPException(status_code=404, detail="Calendar event not found")
+
+        existing = db.execute(
+            "SELECT id FROM billing_sessions WHERE calendar_event_id = ?",
+            (body.calendar_event_id,)
+        ).fetchone()
+        if existing:
+            db.execute("UPDATE billing_sessions SET dismissed=1 WHERE id=?", (existing["id"],))
+        else:
+            # Insert a stub session with dismissed=1 to remove from queue
+            db.execute(
+                """INSERT INTO billing_sessions
+                   (date, calendar_event_id, color_id, dismissed,
+                    is_confirmed, duration_hours, rate, amount)
+                   VALUES (?, ?, ?, 1, 0, 0, 0, 0)""",
+                (ev["start_time"][:10], body.calendar_event_id, ev["color_id"]),
+            )
+        db.commit()
+    return {"ok": True}
+
+
+@router.get("/sessions")
+def list_sessions(
+    company_id: Optional[int] = None,
+    client_id: Optional[int] = None,
+    month: Optional[str] = None,  # YYYY-MM
+    confirmed_only: bool = False,
+    unconfirmed_only: bool = False,
+):
+    """Return confirmed (non-dismissed) billing sessions with client/company info."""
+    with get_db_connection(readonly=True) as db:
+        q = """
+            SELECT bs.*,
+                   bc.name  AS client_name,
+                   bc.prepaid AS prepaid,
+                   bco.name AS company_name,
+                   bco.abbrev AS company_abbrev,
+                   bil.invoice_id AS invoice_id
+            FROM billing_sessions bs
+            LEFT JOIN billing_clients bc  ON bc.id  = bs.client_id
+            LEFT JOIN billing_companies bco ON bco.id = bs.company_id
+            LEFT JOIN billing_invoice_lines bil ON bil.id = bs.invoice_line_id
+            WHERE bs.dismissed = 0 AND (bs.client_id IS NOT NULL OR bs.company_id IS NOT NULL)
+        """
+        params: list = []
+        if company_id:
+            q += " AND bs.company_id = ?"
+            params.append(company_id)
+        if client_id:
+            q += " AND bs.client_id = ?"
+            params.append(client_id)
+        if month:
+            q += " AND bs.date LIKE ?"
+            params.append(f"{month}%")
+        if confirmed_only:
+            q += " AND bs.is_confirmed = 1"
+        if unconfirmed_only:
+            q += " AND bs.is_confirmed = 0"
+        q += " ORDER BY bs.date DESC"
+        rows = db.execute(q, params).fetchall()
+    return [_session_to_dict(r) for r in rows]
+
+
+@router.post("/sessions", status_code=201)
+def create_session(body: SessionCreate):
+    """Manually create a billing session without a calendar event."""
+    if not body.client_id and not body.company_id:
+        raise HTTPException(status_code=422, detail="Either client_id or company_id is required")
+
+    with get_write_db() as db:
+        rate = body.rate
+        company_id = body.company_id
+        is_prepaid = False
+
+        if body.client_id:
+            cl = db.execute(
+                "SELECT bc.*, bco.default_rate, bco.id as co_id "
+                "FROM billing_clients bc JOIN billing_companies bco ON bco.id = bc.company_id "
+                "WHERE bc.id = ?", (body.client_id,)
+            ).fetchone()
+            if not cl:
+                raise HTTPException(status_code=404, detail="Client not found")
+            if rate is None:
+                rate = cl["rate_override"] if cl["rate_override"] is not None else cl["default_rate"]
+            company_id = cl["co_id"]
+            is_prepaid = bool(cl["prepaid"])
+        else:
+            co = db.execute(
+                "SELECT * FROM billing_companies WHERE id = ?", (body.company_id,)
+            ).fetchone()
+            if not co:
+                raise HTTPException(status_code=404, detail="Company not found")
+            if rate is None:
+                rate = co["default_rate"]
+
+        amount = 0.0 if is_prepaid else round(body.duration_hours * (rate or 0), 2)
+        color_id = "3" if body.is_confirmed else "5"
+
+        cur = db.execute(
+            """INSERT INTO billing_sessions
+               (date, client_id, company_id, duration_hours, rate, amount,
+                is_confirmed, color_id, notes, dismissed)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)""",
+            (body.date, body.client_id, company_id, body.duration_hours,
+             rate, amount, int(body.is_confirmed), color_id, body.notes or ""),
+        )
+        db.commit()
+        row = db.execute(
+            "SELECT bs.*, bc.name as client_name, bc.prepaid, bco.name as company_name, bco.abbrev as company_abbrev "
+            "FROM billing_sessions bs "
+            "LEFT JOIN billing_clients bc ON bc.id = bs.client_id "
+            "LEFT JOIN billing_companies bco ON bco.id = bs.company_id "
+            "WHERE bs.id = ?", (cur.lastrowid,)
+        ).fetchone()
+    return _session_to_dict(row)
+
+
+@router.post("/sessions/refresh-from-calendar")
+def refresh_sessions_from_calendar():
+    """Promote banana→grape sessions whose calendar event color has since changed to grape.
+    Returns the number of sessions promoted.
+    """
+    with get_write_db() as db:
+        promoted = _promote_banana_sessions(db)
+    return {"promoted": promoted}
+
+
+@router.post("/sessions/relink")
+def relink_sessions():
+    """Re-link billing_sessions.client_id after a seed re-import.
+
+    Matches obsidian_note_path to billing_clients.obsidian_name to restore
+    client FK references that became stale when clients were re-inserted with
+    new autoincrement IDs.
+    """
+    with get_write_db() as db:
+        relinked = _relink_sessions_after_import(db)
+    return {"relinked": relinked}
+
+
+@router.get("/sessions/{session_id}")
+def get_session(session_id: int):
+    with get_db_connection(readonly=True) as db:
+        row = db.execute(
+            "SELECT bs.*, bc.name AS client_name, bc.prepaid AS prepaid, "
+            "bco.name AS company_name, bco.abbrev AS company_abbrev, bil.invoice_id AS invoice_id "
+            "FROM billing_sessions bs "
+            "LEFT JOIN billing_clients bc ON bc.id = bs.client_id "
+            "LEFT JOIN billing_companies bco ON bco.id = bs.company_id "
+            "LEFT JOIN billing_invoice_lines bil ON bil.id = bs.invoice_line_id "
+            "WHERE bs.id = ?", (session_id,)
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return _session_to_dict(row)
+
+
+@router.patch("/sessions/{session_id}")
+def update_session(session_id: int, body: SessionUpdate):
+    fields = {k: v for k, v in body.model_dump(exclude_unset=True).items()}
+
+    # When client_id is being set, auto-derive company_id from the client
+    # unless the caller explicitly supplied a company_id too.
+    if "client_id" in fields and fields["client_id"] is not None and "company_id" not in fields:
+        with get_db_connection(readonly=True) as _db:
+            cl_row = _db.execute(
+                "SELECT company_id FROM billing_clients WHERE id = ?", (fields["client_id"],)
+            ).fetchone()
+        if cl_row:
+            fields["company_id"] = cl_row["company_id"]
+
+    clause, params = _build_update(fields, SESSION_ALLOWED)
+    if not clause:
+        raise HTTPException(status_code=400, detail="No valid fields")
+    params.append(session_id)
+    with get_write_db() as db:
+        db.execute(f"UPDATE billing_sessions SET {clause} WHERE id = ?", params)
+        db.commit()
+        row = db.execute(
+            "SELECT bs.*, bc.name AS client_name, bc.prepaid AS prepaid, "
+            "bco.name AS company_name, bco.abbrev AS company_abbrev, bil.invoice_id AS invoice_id "
+            "FROM billing_sessions bs "
+            "LEFT JOIN billing_clients bc ON bc.id = bs.client_id "
+            "LEFT JOIN billing_companies bco ON bco.id = bs.company_id "
+            "LEFT JOIN billing_invoice_lines bil ON bil.id = bs.invoice_line_id "
+            "WHERE bs.id = ?", (session_id,)
+        ).fetchone()
+    return _session_to_dict(row)
+
+
+@router.delete("/sessions/{session_id}")
+def delete_session(session_id: int):
+    with get_write_db() as db:
+        db.execute("DELETE FROM billing_sessions WHERE id = ?", (session_id,))
+        db.commit()
+    return {"ok": True}
+
+
+@router.post("/sessions/{session_id}/unprocess")
+def unprocess_session(session_id: int):
+    """Move a confirmed session back to the unprocessed queue.
+
+    Clears invoice_line_id (if any), resets is_confirmed=0 and dismissed=0,
+    restores color_id='5' (projected) so it re-appears in the queue.
+    The calendar_event_id must still be present for the event to show up.
+    """
+    with get_write_db() as db:
+        row = db.execute(
+            "SELECT id, invoice_line_id, calendar_event_id FROM billing_sessions WHERE id = ?",
+            (session_id,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Session not found")
+        if not row["calendar_event_id"]:
+            raise HTTPException(status_code=400, detail="Session has no calendar_event_id — cannot unprocess")
+
+        # If linked to an invoice line, clear that link (don't delete the line)
+        db.execute(
+            "UPDATE billing_sessions SET is_confirmed=0, dismissed=0, color_id='5', invoice_line_id=NULL "
+            "WHERE id=?",
+            (session_id,)
+        )
+        db.commit()
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Invoice prep — models
+# ---------------------------------------------------------------------------
+
+class PrepareInvoiceLine(BaseModel):
+    type: str                          # sessions | expense | correction
+    description: str
+    date_range: Optional[str] = None
+    unit_cost: Optional[float] = None
+    quantity: Optional[float] = None
+    amount: float
+    sort_order: int = 0
+    session_ids: list[int] = []        # billing_sessions to back-link
+
+
+class PrepareCompanyRequest(BaseModel):
+    company_id: int
+    lines: list[PrepareInvoiceLine]
+    invoice_number: Optional[str] = None   # override auto-generated value
+
+
+class PrepareGenerateRequest(BaseModel):
+    invoice_date: str   # YYYY-MM-DD
+    services_date: str  # YYYY-MM-DD
+    companies: list[PrepareCompanyRequest]
+
+
+# ---------------------------------------------------------------------------
+# Invoice prep — helpers
+# ---------------------------------------------------------------------------
+
+def _invoice_number_for_period(year: int, month: int, abbrev: str) -> str:
+    """Return the canonical invoice number for a company + billing period.
+
+    Format: YYYY-{ABBREV}-{MM}  e.g. 2026-ARB-03
+    """
+    return f"{year}-{abbrev}-{month:02d}"
+
+
+def _prep_session_to_dict(row) -> dict:
+    """Minimal session dict for prep view (already has client/company names joined)."""
+    d = _session_to_dict(row)
+    return d
+
+
+# ---------------------------------------------------------------------------
+# Invoice prep — GET /prepare/{year}/{month}
+# ---------------------------------------------------------------------------
+
+@router.get("/prepare/{year}/{month}")
+def get_prepare_data(year: int, month: int):
+    """Return session + company data needed to build the invoice prep UI."""
+    period = f"{year}-{month:02d}"
+
+    with get_db_connection(readonly=True) as db:
+        companies_rows = db.execute(
+            "SELECT * FROM billing_companies WHERE billing_method IS NOT NULL ORDER BY name"
+        ).fetchall()
+
+        result_companies = []
+        for co in companies_rows:
+            sessions_rows = db.execute(
+                """
+                SELECT bs.*, bc.name AS client_name, bc.prepaid,
+                       bco.name AS company_name, bco.abbrev AS company_abbrev
+                FROM billing_sessions bs
+                LEFT JOIN billing_clients bc  ON bc.id  = bs.client_id
+                LEFT JOIN billing_companies bco ON bco.id = bs.company_id
+                WHERE bs.company_id = ? AND bs.date LIKE ?
+                  AND bs.dismissed = 0
+                ORDER BY bs.date
+                """,
+                (co["id"], f"{period}%"),
+            ).fetchall()
+
+            if not sessions_rows:
+                continue  # skip companies with no activity this period
+
+            confirmed = [_prep_session_to_dict(s) for s in sessions_rows if s["is_confirmed"]]
+            projected = [_prep_session_to_dict(s) for s in sessions_rows if not s["is_confirmed"]]
+
+            existing_inv = db.execute(
+                "SELECT id, invoice_number, status FROM billing_invoices "
+                "WHERE company_id = ? AND period_month = ?",
+                (co["id"], period),
+            ).fetchone()
+
+            result_companies.append({
+                "id": co["id"],
+                "name": co["name"],
+                "abbrev": co["abbrev"],
+                "billing_method": co["billing_method"],
+                "default_rate": co["default_rate"],
+                "confirmed_sessions": confirmed,
+                "projected_sessions": projected,
+                "confirmed_total_hours": sum(s["duration_hours"] for s in sessions_rows if s["is_confirmed"]),
+                "confirmed_total_amount": sum(s["amount"] for s in sessions_rows if s["is_confirmed"]),
+                "projected_total_hours": sum(s["duration_hours"] for s in sessions_rows if not s["is_confirmed"]),
+                "projected_total_amount": sum(s["amount"] for s in sessions_rows if not s["is_confirmed"]),
+                "existing_invoice": dict(existing_inv) if existing_inv else None,
+            })
+
+    return {
+        "year": year,
+        "month": month,
+        "period_month": period,
+        "companies": result_companies,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Invoice prep — POST /prepare/{year}/{month}/generate
+# ---------------------------------------------------------------------------
+
+@router.post("/prepare/{year}/{month}/generate", status_code=201)
+def generate_invoices(year: int, month: int, body: PrepareGenerateRequest):
+    """Create draft billing_invoices + billing_invoice_lines for the given period."""
+    period = f"{year}-{month:02d}"
+    created = []
+
+    with get_write_db() as db:
+        for co_req in body.companies:
+            if not co_req.lines:
+                continue
+
+            company = db.execute(
+                "SELECT * FROM billing_companies WHERE id = ?", (co_req.company_id,)
+            ).fetchone()
+            if not company or not company["billing_method"]:
+                continue
+
+            # Skip companies with zero billable amount
+            total_amount = round(sum(line.amount for line in co_req.lines), 2)
+            if total_amount == 0:
+                continue
+
+            # Skip companies that already have an invoice for this period
+            if db.execute(
+                "SELECT 1 FROM billing_invoices WHERE company_id = ? AND period_month = ?",
+                (co_req.company_id, period),
+            ).fetchone():
+                continue
+
+            # Resolve invoice number — use override if provided, else derive from period
+            if co_req.invoice_number and co_req.invoice_number.strip():
+                invoice_number = co_req.invoice_number.strip()
+            else:
+                abbrev = (
+                    company["abbrev"]
+                    or company["invoice_prefix"]
+                    or company["name"][:3].upper()
+                )
+                invoice_number = _invoice_number_for_period(year, month, abbrev)
+
+            # Dates
+            try:
+                inv_date = datetime.strptime(body.invoice_date, "%Y-%m-%d")
+            except ValueError:
+                inv_date = datetime.now()
+            due_date = (inv_date + timedelta(days=30)).strftime("%Y-%m-%d")
+
+            # Insert invoice
+            cur = db.execute(
+                """
+                INSERT INTO billing_invoices
+                    (invoice_number, company_id, period_month, invoice_date,
+                     services_date, due_date, status, total_amount)
+                VALUES (?, ?, ?, ?, ?, ?, 'draft', ?)
+                """,
+                (
+                    invoice_number, co_req.company_id, period,
+                    body.invoice_date, body.services_date, due_date, total_amount,
+                ),
+            )
+            invoice_id = cur.lastrowid
+
+            # Insert lines + back-link sessions
+            for line in sorted(co_req.lines, key=lambda x: x.sort_order):
+                cur2 = db.execute(
+                    """
+                    INSERT INTO billing_invoice_lines
+                        (invoice_id, type, description, date_range,
+                         unit_cost, quantity, amount, sort_order)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        invoice_id, line.type, line.description, line.date_range,
+                        line.unit_cost, line.quantity, round(line.amount, 2), line.sort_order,
+                    ),
+                )
+                line_id = cur2.lastrowid
+
+                if line.type == "sessions" and line.session_ids:
+                    for sid in line.session_ids:
+                        db.execute(
+                            "UPDATE billing_sessions SET invoice_line_id = ? WHERE id = ?",
+                            (line_id, sid),
+                        )
+
+        db.commit()
+
+        # Re-fetch created invoices for response
+        for co_req in body.companies:
+            if not co_req.lines:
+                continue
+            row = db.execute(
+                "SELECT bi.*, bco.name AS company_name "
+                "FROM billing_invoices bi "
+                "JOIN billing_companies bco ON bco.id = bi.company_id "
+                "WHERE bi.company_id = ? AND bi.period_month = ? "
+                "ORDER BY bi.id DESC LIMIT 1",
+                (co_req.company_id, period),
+            ).fetchone()
+            if row:
+                created.append({
+                    "company_id": co_req.company_id,
+                    "company_name": row["company_name"],
+                    "invoice_number": row["invoice_number"],
+                    "total_amount": row["total_amount"],
+                    "status": row["status"],
+                })
+
+    return {"ok": True, "invoices": created}
+
+
+# ---------------------------------------------------------------------------
+# Invoice list / detail / update
+# ---------------------------------------------------------------------------
+
+class InvoiceLineInput(BaseModel):
+    description: str
+    amount: float
+    date_range: Optional[str] = None
+
+
+class InvoiceCreate(BaseModel):
+    company_id: int
+    invoice_number: str
+    period_month: str            # YYYY-MM
+    invoice_date: Optional[str] = None
+    services_date: Optional[str] = None
+    due_date: Optional[str] = None
+    status: str = "sent"
+    total_amount: float
+    notes: Optional[str] = None
+    lines: Optional[list[InvoiceLineInput]] = None
+
+
+class InvoiceUpdate(BaseModel):
+    status: Optional[str] = None
+    notes: Optional[str] = None
+    invoice_date: Optional[str] = None
+    due_date: Optional[str] = None
+    services_date: Optional[str] = None
+
+
+INVOICE_ALLOWED = {"status", "notes", "invoice_date", "due_date", "services_date", "sent_at"}
+
+
+@router.post("/invoices", status_code=201)
+def create_invoice(body: InvoiceCreate):
+    """Manually create a historical invoice with optional line items."""
+    sent_at = None
+    if body.status == "sent":
+        from datetime import datetime
+        sent_at = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    with get_write_db() as db:
+        # Check for duplicate invoice number
+        existing = db.execute(
+            "SELECT id FROM billing_invoices WHERE invoice_number = ?",
+            (body.invoice_number,),
+        ).fetchone()
+        if existing:
+            raise HTTPException(status_code=409, detail=f"Invoice number '{body.invoice_number}' already exists")
+
+        cur = db.execute(
+            """INSERT INTO billing_invoices
+               (company_id, invoice_number, period_month, invoice_date, services_date,
+                due_date, status, total_amount, notes, sent_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (body.company_id, body.invoice_number, body.period_month,
+             body.invoice_date, body.services_date, body.due_date,
+             body.status, body.total_amount, body.notes, sent_at),
+        )
+        invoice_id = cur.lastrowid
+
+        if body.lines:
+            for i, line in enumerate(body.lines):
+                db.execute(
+                    """INSERT INTO billing_invoice_lines
+                       (invoice_id, type, description, amount, date_range, sort_order)
+                       VALUES (?, 'manual', ?, ?, ?, ?)""",
+                    (invoice_id, line.description, line.amount, line.date_range, i),
+                )
+
+        db.commit()
+
+        inv = db.execute(
+            "SELECT bi.*, bco.name AS company_name, 0 AS session_count "
+            "FROM billing_invoices bi "
+            "LEFT JOIN billing_companies bco ON bco.id = bi.company_id "
+            "WHERE bi.id = ?",
+            (invoice_id,),
+        ).fetchone()
+
+    return dict(inv)
+
+
+@router.get("/invoices")
+def list_invoices(
+    company_id: Optional[int] = None,
+    status: Optional[str] = None,
+    period_month: Optional[str] = None,   # YYYY-MM  (exact month)
+    period_year: Optional[int] = None,    # YYYY     (whole year, ignored if period_month set)
+):
+    """List all invoices with company name, status, and linked session count."""
+    with get_db_connection(readonly=True) as db:
+        q = """
+            SELECT bi.*, bco.name AS company_name,
+                   COUNT(DISTINCT bs.id) AS session_count
+            FROM billing_invoices bi
+            LEFT JOIN billing_companies bco ON bco.id = bi.company_id
+            LEFT JOIN billing_invoice_lines bil ON bil.invoice_id = bi.id
+            LEFT JOIN billing_sessions bs ON bs.invoice_line_id = bil.id
+            WHERE 1=1
+        """
+        params: list = []
+        if company_id:
+            q += " AND bi.company_id = ?"
+            params.append(company_id)
+        if status:
+            q += " AND bi.status = ?"
+            params.append(status)
+        if period_month:
+            q += " AND bi.period_month = ?"
+            params.append(period_month)
+        elif period_year:
+            q += " AND bi.period_month LIKE ?"
+            params.append(f"{period_year}-%")
+        q += " GROUP BY bi.id ORDER BY bi.invoice_date DESC, bi.id DESC"
+        rows = db.execute(q, params).fetchall()
+    return [dict(r) for r in rows]
+
+
+@router.get("/invoices/csv-template")
+def get_invoice_csv_template():
+    """Return a downloadable CSV template for bulk invoice import."""
+    from fastapi.responses import Response
+    header = "company_name,invoice_number,period_month,invoice_date,total_amount,status,notes"
+    example = "Acme Corp,2025-ACME-03,2025-03,2025-03-31,5000.00,sent,March advisory services"
+    content = f"{header}\n{example}\n"
+    return Response(
+        content=content,
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="invoice_import_template.csv"'},
+    )
+
+
+class InvoiceBulkImportRow(BaseModel):
+    company_name: str
+    invoice_number: str
+    period_month: str
+    invoice_date: Optional[str] = None
+    total_amount: float
+    status: str = "sent"
+    notes: Optional[str] = None
+
+
+class InvoiceBulkImportBody(BaseModel):
+    rows: list[InvoiceBulkImportRow]
+
+
+@router.post("/invoices/bulk-import")
+def bulk_import_invoices(body: InvoiceBulkImportBody):
+    """Bulk-create historical invoices from parsed CSV rows.
+
+    Returns per-row results. Duplicate invoice numbers are skipped with an error.
+    Unknown company names are also rejected per row.
+    """
+    from datetime import datetime as _dt
+
+    with get_db_connection(readonly=True) as db:
+        companies = {
+            row["name"].lower(): row["id"]
+            for row in db.execute("SELECT id, name FROM billing_companies").fetchall()
+        }
+        existing_numbers = {
+            row[0]
+            for row in db.execute("SELECT invoice_number FROM billing_invoices").fetchall()
+        }
+
+    results = []
+    created = 0
+    skipped = 0
+
+    with get_write_db() as db:
+        for i, row in enumerate(body.rows):
+            row_num = i + 1
+
+            # Resolve company
+            company_id = companies.get(row.company_name.strip().lower())
+            if not company_id:
+                results.append({"row": row_num, "invoice_number": row.invoice_number,
+                                 "status": "error", "error": f"Unknown company: '{row.company_name}'"})
+                skipped += 1
+                continue
+
+            # Check for duplicate
+            if row.invoice_number in existing_numbers:
+                results.append({"row": row_num, "invoice_number": row.invoice_number,
+                                 "status": "error", "error": "Duplicate invoice number"})
+                skipped += 1
+                continue
+
+            sent_at = None
+            if row.status == "sent":
+                sent_at = row.invoice_date or _dt.utcnow().strftime("%Y-%m-%d")
+
+            try:
+                cur = db.execute(
+                    """INSERT INTO billing_invoices
+                       (company_id, invoice_number, period_month, invoice_date,
+                        status, total_amount, notes, sent_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (company_id, row.invoice_number, row.period_month, row.invoice_date,
+                     row.status, row.total_amount, row.notes, sent_at),
+                )
+                existing_numbers.add(row.invoice_number)
+                results.append({"row": row_num, "invoice_number": row.invoice_number,
+                                 "status": "created", "id": cur.lastrowid, "error": None})
+                created += 1
+            except Exception as e:
+                results.append({"row": row_num, "invoice_number": row.invoice_number,
+                                 "status": "error", "error": str(e)})
+                skipped += 1
+
+        db.commit()
+
+    return {"created": created, "skipped": skipped, "results": results}
+
+
+@router.get("/invoices/{invoice_id}")
+def get_invoice(invoice_id: int):
+    """Return invoice detail with line items and linked sessions."""
+    with get_db_connection(readonly=True) as db:
+        inv = db.execute(
+            "SELECT bi.*, bco.name AS company_name "
+            "FROM billing_invoices bi "
+            "LEFT JOIN billing_companies bco ON bco.id = bi.company_id "
+            "WHERE bi.id = ?",
+            (invoice_id,),
+        ).fetchone()
+        if not inv:
+            raise HTTPException(status_code=404, detail="Invoice not found")
+
+        lines = db.execute(
+            "SELECT * FROM billing_invoice_lines "
+            "WHERE invoice_id = ? ORDER BY sort_order, id",
+            (invoice_id,),
+        ).fetchall()
+
+        sessions = db.execute(
+            """
+            SELECT bs.*, bc.name AS client_name, bc.prepaid AS prepaid,
+                   bco2.name AS company_name, bco2.abbrev AS company_abbrev, bil.invoice_id AS invoice_id
+            FROM billing_sessions bs
+            JOIN billing_invoice_lines bil ON bil.id = bs.invoice_line_id
+            LEFT JOIN billing_clients bc ON bc.id = bs.client_id
+            LEFT JOIN billing_companies bco2 ON bco2.id = bs.company_id
+            WHERE bil.invoice_id = ?
+            ORDER BY bs.date
+            """,
+            (invoice_id,),
+        ).fetchall()
+
+    result = dict(inv)
+    result["lines"] = [dict(line) for line in lines]
+    result["sessions"] = [_session_to_dict(s) for s in sessions]
+    return result
+
+
+@router.delete("/invoices/{invoice_id}")
+def delete_invoice(invoice_id: int):
+    """Delete an invoice, unlink its sessions, and remove the PDF file if present."""
+    with get_write_db() as db:
+        inv = db.execute(
+            "SELECT id, pdf_path FROM billing_invoices WHERE id = ?", (invoice_id,)
+        ).fetchone()
+        if not inv:
+            raise HTTPException(status_code=404, detail="Invoice not found")
+        # Unlink sessions that point to this invoice's lines
+        db.execute(
+            "UPDATE billing_sessions SET invoice_line_id = NULL "
+            "WHERE invoice_line_id IN (SELECT id FROM billing_invoice_lines WHERE invoice_id = ?)",
+            (invoice_id,),
+        )
+        db.execute("DELETE FROM billing_invoice_payments WHERE invoice_id = ?", (invoice_id,))
+        db.execute("DELETE FROM billing_invoice_lines WHERE invoice_id = ?", (invoice_id,))
+        db.execute("DELETE FROM billing_invoices WHERE id = ?", (invoice_id,))
+        db.commit()
+    # Remove PDF file from disk if it exists
+    if inv["pdf_path"]:
+        try:
+            Path(inv["pdf_path"]).unlink(missing_ok=True)
+        except Exception:
+            pass
+    return {"ok": True}
+
+
+@router.patch("/invoices/{invoice_id}")
+def update_invoice(invoice_id: int, body: InvoiceUpdate):
+    """Update invoice status, notes, or dates."""
+    fields = {k: v for k, v in body.model_dump(exclude_unset=True).items()
+              if k in INVOICE_ALLOWED and v is not None}
+    if not fields:
+        raise HTTPException(status_code=400, detail="No valid fields")
+    clause, params = _build_update(fields, INVOICE_ALLOWED)
+    params.append(invoice_id)
+    with get_write_db() as db:
+        db.execute(f"UPDATE billing_invoices SET {clause} WHERE id = ?", params)
+        db.commit()
+        inv = db.execute(
+            "SELECT bi.*, bco.name AS company_name, "
+            "COUNT(DISTINCT bs.id) AS session_count "
+            "FROM billing_invoices bi "
+            "LEFT JOIN billing_companies bco ON bco.id = bi.company_id "
+            "LEFT JOIN billing_invoice_lines bil ON bil.invoice_id = bi.id "
+            "LEFT JOIN billing_sessions bs ON bs.invoice_line_id = bil.id "
+            "WHERE bi.id = ? GROUP BY bi.id",
+            (invoice_id,),
+        ).fetchone()
+    return dict(inv)
+
+
+# ---------------------------------------------------------------------------
+# Billing & payment summary
+# ---------------------------------------------------------------------------
+
+@router.get("/summary")
+def get_billing_summary(year: Optional[int] = None):
+    """Return billing grid (invoiced/confirmed/projected by company × month)
+    and cash-received totals for a given year.
+    """
+    if year is None:
+        year = datetime.now(timezone.utc).year
+
+    months = [f"{year}-{m:02d}" for m in range(1, 13)]
+    current_month = datetime.now(timezone.utc).strftime("%Y-%m")
+
+    with get_db_connection(readonly=True) as db:
+        companies = db.execute(
+            "SELECT id, name, abbrev FROM billing_companies WHERE active=1 ORDER BY name"
+        ).fetchall()
+
+        # Invoice totals by company × period_month
+        inv_rows = db.execute(
+            """SELECT company_id, period_month,
+                      SUM(total_amount) AS total,
+                      GROUP_CONCAT(DISTINCT status) AS statuses
+               FROM billing_invoices
+               WHERE period_month LIKE ?
+               GROUP BY company_id, period_month""",
+            (f"{year}-%",),
+        ).fetchall()
+
+        # Session amounts by company × month (uses stored amount; prepaid sessions have amount=0)
+        sess_rows = db.execute(
+            """SELECT company_id,
+                      substr(date, 1, 7) AS month,
+                      SUM(CASE WHEN is_confirmed=1 THEN amount ELSE 0 END) AS confirmed,
+                      SUM(CASE WHEN is_confirmed=0 THEN amount ELSE 0 END) AS projected,
+                      SUM(CASE WHEN is_confirmed=1 THEN duration_hours ELSE 0 END) AS confirmed_hrs,
+                      SUM(CASE WHEN is_confirmed=0 THEN duration_hours ELSE 0 END) AS projected_hrs
+               FROM billing_sessions
+               WHERE date LIKE ? AND dismissed=0 AND company_id IS NOT NULL
+               GROUP BY company_id, month""",
+            (f"{year}-%",),
+        ).fetchall()
+
+        # Cash received by month — invoice-linked payments + unlinked payments with a company_id
+        pay_rows = db.execute(
+            """SELECT month, SUM(total) AS total FROM (
+                   SELECT substr(p.date, 1, 7) AS month, ip.amount_applied AS total
+                   FROM billing_invoice_payments ip
+                   JOIN billing_payments p ON p.id = ip.payment_id
+                   WHERE p.date LIKE ?
+               UNION ALL
+                   SELECT substr(date, 1, 7) AS month, ABS(amount) AS total
+                   FROM billing_payments
+                   WHERE company_id IS NOT NULL
+                     AND id NOT IN (SELECT payment_id FROM billing_invoice_payments)
+                     AND date LIKE ?
+               ) GROUP BY month""",
+            (f"{year}-%", f"{year}-%"),
+        ).fetchall()
+
+    inv_map: dict = {}
+    for r in inv_rows:
+        inv_map[(r["company_id"], r["period_month"])] = {
+            "invoiced": r["total"] or 0.0,
+            "statuses": r["statuses"] or "",
+        }
+
+    sess_map: dict = {}
+    for r in sess_rows:
+        sess_map[(r["company_id"], r["month"])] = {
+            "confirmed":     r["confirmed"]     or 0.0,
+            "projected":     r["projected"]     or 0.0,
+            "confirmed_hrs": r["confirmed_hrs"] or 0.0,
+            "projected_hrs": r["projected_hrs"] or 0.0,
+        }
+
+    pay_map = {r["month"]: r["total"] or 0.0 for r in pay_rows}
+
+    company_data = []
+    for co in companies:
+        monthly = {}
+        co_total = 0.0
+        has_any = False
+
+        for month in months:
+            inv  = inv_map.get((co["id"], month))
+            sess = sess_map.get((co["id"], month), {})
+
+            if inv:
+                cell = {
+                    "invoiced":      inv["invoiced"],
+                    "statuses":      inv["statuses"],
+                    "confirmed":     None,
+                    "projected":     None,
+                    "confirmed_hrs": None,
+                    "projected_hrs": None,
+                }
+                co_total += inv["invoiced"]
+                has_any = True
+            else:
+                confirmed = sess.get("confirmed", 0.0)
+                projected = sess.get("projected", 0.0)
+                if confirmed or projected:
+                    cell = {
+                        "invoiced":      None,
+                        "statuses":      None,
+                        "confirmed":     confirmed,
+                        "projected":     projected,
+                        "confirmed_hrs": sess.get("confirmed_hrs", 0.0),
+                        "projected_hrs": sess.get("projected_hrs", 0.0),
+                    }
+                    co_total += confirmed + projected
+                    has_any = True
+                else:
+                    cell = None
+
+            monthly[month] = cell
+
+        if has_any:
+            company_data.append({
+                "id":     co["id"],
+                "name":   co["name"],
+                "abbrev": co["abbrev"],
+                "monthly": monthly,
+                "total":   co_total,
+            })
+
+    payments_by_month = {m: pay_map.get(m, 0.0) for m in months}
+
+    return {
+        "year":             year,
+        "months":           months,
+        "current_month":    current_month,
+        "companies":        company_data,
+        "payments_by_month": payments_by_month,
+        "payments_total":   sum(payments_by_month.values()),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Payments (LunchMoney)
+# ---------------------------------------------------------------------------
+
+class SingleAssignment(BaseModel):
+    invoice_id: int
+    amount_applied: float
+
+
+class PaymentUpdate(BaseModel):
+    company_id: Optional[int] = None
+
+
+@router.post("/lunchmoney/sync")
+def sync_lunchmoney(days_back: int = 180, clear: bool = False):
+    """Trigger a LunchMoney transaction sync into billing_payments.
+
+    If clear=true, wipes billing_invoice_payments and billing_payments first,
+    then re-imports from scratch.
+    """
+    if clear:
+        with get_write_db() as db:
+            db.execute("DELETE FROM billing_invoice_payments")
+            db.execute("DELETE FROM billing_payments")
+            db.commit()
+    try:
+        from connectors.lunchmoney import sync_lunchmoney_transactions
+        result = sync_lunchmoney_transactions(days_back=days_back)
+        if clear:
+            result["cleared"] = True
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/lunchmoney/relink-companies")
+def relink_payment_companies():
+    """Back-fill company_id on billing_payments with no company set.
+
+    Matches payee + notes against company name and abbrev.
+    Returns count of payments updated.
+    """
+    try:
+        from connectors.lunchmoney import infer_company_ids_for_existing
+        with get_write_db() as db:
+            updated = infer_company_ids_for_existing(db)
+        return {"updated": updated}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/lunchmoney/check")
+def check_lunchmoney_connection():
+    try:
+        from connectors.lunchmoney import check_lunchmoney
+        return check_lunchmoney()
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@router.get("/payments")
+def list_payments(unmatched_only: bool = False):
+    """List all billing payments with invoice assignments and fuzzy match suggestions."""
+    from collections import defaultdict
+
+    with get_db_connection(readonly=True) as db:
+        payment_rows = db.execute(
+            "SELECT * FROM billing_payments ORDER BY date DESC, id DESC"
+        ).fetchall()
+
+        assign_rows = db.execute(
+            """SELECT bip.id, bip.payment_id, bip.invoice_id, bip.amount_applied,
+                      bi.invoice_number, bco.name AS company_name
+               FROM billing_invoice_payments bip
+               JOIN billing_invoices bi  ON bi.id  = bip.invoice_id
+               JOIN billing_companies bco ON bco.id = bi.company_id"""
+        ).fetchall()
+
+        open_invoices = db.execute(
+            """SELECT bi.id, bi.invoice_number, bi.total_amount, bi.due_date,
+                      bco.name AS company_name, bco.abbrev
+               FROM billing_invoices bi
+               JOIN billing_companies bco ON bco.id = bi.company_id
+               WHERE bi.status NOT IN ('paid', 'cancelled')
+               ORDER BY bi.due_date"""
+        ).fetchall()
+
+    assign_by_payment: dict = defaultdict(list)
+    for a in assign_rows:
+        assign_by_payment[a["payment_id"]].append({
+            "id": a["id"],
+            "invoice_id": a["invoice_id"],
+            "invoice_number": a["invoice_number"],
+            "company_name": a["company_name"],
+            "amount_applied": a["amount_applied"],
+        })
+
+    result = []
+    for p in payment_rows:
+        assignments = assign_by_payment.get(p["id"], [])
+        if unmatched_only and assignments:
+            continue
+
+        # Suggestions: exact amount match only (name matching was too broad — returned all
+        # company invoices for any payment from that company, flooding the assignment panel)
+        suggested: list[int] = []
+        if not assignments:
+            abs_amt = abs(float(p["amount"]))
+            for inv in open_invoices:
+                if abs(float(inv["total_amount"]) - abs_amt) < 0.01:
+                    suggested.append(inv["id"])
+
+        d = dict(p)
+        d["assignments"] = assignments
+        d["suggested_invoice_ids"] = suggested
+        result.append(d)
+
+    return result
+
+
+@router.patch("/payments/{payment_id}")
+def update_payment(payment_id: int, body: PaymentUpdate):
+    """Update mutable fields on a payment (currently: company_id)."""
+    fields = body.model_dump(exclude_unset=True)
+    if not fields:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    clause = ", ".join(f"{k} = ?" for k in fields)
+    params = list(fields.values()) + [payment_id]
+    with get_write_db() as db:
+        if not db.execute("SELECT 1 FROM billing_payments WHERE id=?", (payment_id,)).fetchone():
+            raise HTTPException(status_code=404, detail="Payment not found")
+        db.execute(f"UPDATE billing_payments SET {clause} WHERE id = ?", params)
+        db.commit()
+    return {"ok": True}
+
+
+def _sync_invoice_payment_status(db, invoice_id: int) -> None:
+    """Recalculate and persist paid/partial/sent status for an invoice based on applied payments."""
+    inv = db.execute(
+        "SELECT status, total_amount FROM billing_invoices WHERE id=?", (invoice_id,)
+    ).fetchone()
+    if not inv or inv["status"] == "draft":
+        return
+    total = float(inv["total_amount"] or 0)
+    paid = float(
+        db.execute(
+            "SELECT COALESCE(SUM(amount_applied), 0) AS s FROM billing_invoice_payments WHERE invoice_id=?",
+            (invoice_id,),
+        ).fetchone()["s"]
+    )
+    if total > 0 and paid >= total - 0.01:
+        new_status = "paid"
+    elif paid > 0.01:
+        new_status = "partial"
+    else:
+        new_status = "sent"
+    if new_status != inv["status"]:
+        db.execute("UPDATE billing_invoices SET status=? WHERE id=?", (new_status, invoice_id))
+
+
+@router.post("/payments/{payment_id}/assign")
+def assign_payment(payment_id: int, body: SingleAssignment):
+    """Add or update a single invoice assignment for a payment."""
+    with get_write_db() as db:
+        if not db.execute("SELECT 1 FROM billing_payments WHERE id=?", (payment_id,)).fetchone():
+            raise HTTPException(status_code=404, detail="Payment not found")
+        existing = db.execute(
+            "SELECT id FROM billing_invoice_payments WHERE invoice_id=? AND payment_id=?",
+            (body.invoice_id, payment_id),
+        ).fetchone()
+        if existing:
+            db.execute(
+                "UPDATE billing_invoice_payments SET amount_applied=? WHERE id=?",
+                (body.amount_applied, existing["id"]),
+            )
+        else:
+            db.execute(
+                "INSERT INTO billing_invoice_payments (invoice_id, payment_id, amount_applied) "
+                "VALUES (?, ?, ?)",
+                (body.invoice_id, payment_id, body.amount_applied),
+            )
+        _sync_invoice_payment_status(db, body.invoice_id)
+        db.commit()
+    return {"ok": True}
+
+
+@router.delete("/invoice-payments/{assignment_id}")
+def remove_invoice_payment(assignment_id: int):
+    """Remove a specific invoice–payment link."""
+    with get_write_db() as db:
+        row = db.execute(
+            "SELECT invoice_id FROM billing_invoice_payments WHERE id=?", (assignment_id,)
+        ).fetchone()
+        db.execute("DELETE FROM billing_invoice_payments WHERE id=?", (assignment_id,))
+        if row:
+            _sync_invoice_payment_status(db, row["invoice_id"])
+        db.commit()
+    return {"ok": True}

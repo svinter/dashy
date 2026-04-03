@@ -1081,6 +1081,8 @@ export interface BriefingData {
     pr_reviews: number;
     open_notes: number;
     overdue_bills: number;
+    billing_queue: number;
+    billing_unmatched_payments: number;
   };
   overnight: OvernightItem[];
 }
@@ -1119,4 +1121,272 @@ export interface SandboxApp {
   created_at: string;
   updated_at: string;
   files: string[];
+}
+
+// Billing
+export interface BillingClient {
+  id: number;
+  name: string;
+  company_id: number;
+  rate_override: number | null;
+  prepaid: boolean;
+  obsidian_name: string | null;
+  employee_id: number | null;
+  active: boolean;
+}
+
+export interface BillingSettings {
+  invoice_output_dir: string;
+  provider_name: string;
+  provider_address: string;
+  provider_phone: string;
+  provider_email: string;
+}
+
+export interface BillingCompany {
+  id: number;
+  name: string;
+  abbrev: string | null;
+  default_rate: number | null;
+  billing_method: string | null;
+  payment_method: string | null;
+  payment_instructions: string | null;
+  ap_email: string | null;
+  cc_email: string | null;
+  tax_tool: string | null;
+  invoice_prefix: string | null;
+  notes: string | null;
+  email_subject: string | null;
+  email_body: string | null;
+  active: boolean;
+  clients: BillingClient[];
+}
+
+export interface BillingObsidianNote {
+  found: boolean;
+  path: string;
+  duration_hours: number | null;
+  obsidian_link: string;
+  duration_source: string | null;
+}
+
+export interface BillingUnprocessedEvent {
+  calendar_event_id: string;
+  summary: string;
+  start_time: string;
+  end_time: string;
+  color_id: string;
+  is_grape: boolean;
+  slot_hours: number;
+  duration_hours: number;
+  duration_source: string;
+  inferred_client_id: number | null;
+  inferred_client_name: string | null;
+  inferred_company_id: number | null;
+  inferred_confidence: number;
+  obsidian: BillingObsidianNote | null;
+}
+
+export interface BillingSession {
+  id: number;
+  date: string;
+  client_id: number | null;
+  client_name: string | null;
+  company_id: number | null;
+  company_name: string | null;
+  company_abbrev: string | null;
+  duration_hours: number;
+  rate: number | null;
+  amount: number;
+  is_confirmed: boolean;
+  prepaid: boolean;
+  dismissed: boolean;
+  calendar_event_id: string | null;
+  color_id: string | null;
+  obsidian_note_path: string | null;
+  obsidian_link: string | null;
+  notes: string | null;
+  invoice_line_id: number | null;
+  invoice_id: number | null;
+  created_at: string;
+}
+
+export interface BillingInvoice {
+  id: number;
+  invoice_number: string;
+  company_id: number | null;
+  company_name: string | null;
+  period_month: string | null;
+  invoice_date: string | null;
+  services_date: string | null;
+  due_date: string | null;
+  status: 'draft' | 'sent' | 'paid' | 'partial';
+  total_amount: number | null;
+  pdf_path: string | null;
+  notes: string | null;
+  sent_at: string | null;
+  session_count: number;
+  created_at: string;
+}
+
+export interface InvoiceBulkImportRow {
+  company_name: string;
+  invoice_number: string;
+  period_month: string;
+  invoice_date?: string;
+  total_amount: number;
+  status: string;
+  notes?: string;
+}
+
+export interface InvoiceBulkImportResult {
+  created: number;
+  skipped: number;
+  results: { row: number; invoice_number: string; status: 'created' | 'error'; error: string | null; id?: number }[];
+}
+
+export interface InvoiceLineInput {
+  description: string;
+  amount: number;
+  date_range?: string;
+}
+
+export interface InvoiceCreate {
+  company_id: number;
+  invoice_number: string;
+  period_month: string;
+  invoice_date?: string;
+  services_date?: string;
+  due_date?: string;
+  status: string;
+  total_amount: number;
+  notes?: string;
+  lines?: InvoiceLineInput[];
+}
+
+export interface InvoiceCompose {
+  invoice_id: number;
+  invoice_number: string;
+  to: string;
+  cc: string;
+  subject: string;
+  body: string;
+  pdf_filename: string;
+  pdf_path: string | null;
+}
+
+export interface BillingInvoiceLine {
+  id: number;
+  invoice_id: number;
+  type: string;
+  description: string | null;
+  date_range: string | null;
+  unit_cost: number | null;
+  quantity: number | null;
+  amount: number | null;
+  sort_order: number | null;
+}
+
+export interface BillingInvoiceDetail extends BillingInvoice {
+  lines: BillingInvoiceLine[];
+  sessions: BillingSession[];
+}
+
+export interface BillingSeedStatus {
+  seeded: boolean;
+  company_count: number;
+  client_count: number;
+  seed_file_exists: boolean;
+}
+
+export interface BillingPrepCompany {
+  id: number;
+  name: string;
+  abbrev: string | null;
+  billing_method: string | null;
+  default_rate: number | null;
+  confirmed_sessions: BillingSession[];
+  projected_sessions: BillingSession[];
+  confirmed_total_hours: number;
+  confirmed_total_amount: number;
+  projected_total_hours: number;
+  projected_total_amount: number;
+  existing_invoice: { id: number; invoice_number: string; status: string } | null;
+}
+
+export interface BillingPrepData {
+  year: number;
+  month: number;
+  period_month: string;
+  companies: BillingPrepCompany[];
+}
+
+export interface BillingGenerateResult {
+  ok: boolean;
+  invoices: Array<{
+    company_id: number;
+    company_name: string;
+    invoice_number: string;
+    total_amount: number;
+    status: string;
+  }>;
+}
+
+export interface BillingSummaryCell {
+  invoiced: number | null;
+  statuses: string | null;       // comma-separated invoice statuses
+  confirmed: number | null;      // session amount (no invoice)
+  projected: number | null;      // unconfirmed session amount (no invoice)
+  confirmed_hrs: number | null;
+  projected_hrs: number | null;
+}
+
+export interface BillingSummaryCompany {
+  id: number;
+  name: string;
+  abbrev: string | null;
+  monthly: Record<string, BillingSummaryCell | null>;
+  total: number;
+}
+
+export interface BillingSummaryData {
+  year: number;
+  months: string[];              // ["2026-01", ..., "2026-12"]
+  current_month: string;
+  companies: BillingSummaryCompany[];
+  payments_by_month: Record<string, number>;
+  payments_total: number;
+}
+
+export interface BillingPaymentAssignment {
+  id: number;
+  invoice_id: number;
+  invoice_number: string;
+  company_name: string;
+  amount_applied: number;
+}
+
+export interface BillingPayment {
+  id: number;
+  lunchmoney_transaction_id: string | null;
+  date: string;
+  amount: number;
+  payee: string;
+  notes: string | null;
+  created_at: string;
+  company_id: number | null;
+  assignments: BillingPaymentAssignment[];
+  suggested_invoice_ids: number[];
+}
+
+export interface BillingBadgeCounts {
+  queue_count: number;
+  unmatched_payments_count: number;
+}
+
+export interface BillingLunchMoneySyncResult {
+  inserted: number;
+  skipped: number;
+  auto_matched: number;
+  total: number;
 }
