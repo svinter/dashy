@@ -1052,7 +1052,7 @@ export function SettingsPage() {
       <h1>Settings</h1>
       {versionData?.version && (
         <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-light)', marginTop: 0 }}>
-          {versionData.version}
+          {versionData.version.split('\n').map((line, i) => <span key={i}>{line}{i === 0 ? ' · ' : ''}</span>)}
         </p>
       )}
 

@@ -162,17 +162,16 @@ def _generate_pdf(invoice_id: int) -> Path:
     # ---- Provider / company name block ----
     story.append(Paragraph(
         (provider["provider_name"] or "Invoice").upper(),
-        sty(fontSize=22, fontName="Helvetica-Bold", textColor=BRAND_GREEN, spaceAfter=4),
+        sty(fontSize=22, fontName="Helvetica-Bold", textColor=BRAND_GREEN, spaceAfter=16),
+    ))
+    story.append(Paragraph(
+        "Advisory Services",
+        sty(fontSize=10, fontName="Helvetica", textColor=MID, spaceAfter=2),
     ))
     if provider["provider_contact_name"]:
         story.append(Paragraph(
             provider["provider_contact_name"],
-            sty(fontSize=10, fontName="Helvetica", textColor=MID, spaceAfter=2),
-        ))
-    else:
-        story.append(Paragraph(
-            "Advisory Services",
-            sty(fontSize=10, fontName="Helvetica", textColor=MID, spaceAfter=2),
+            sty(fontSize=9, fontName="Helvetica", textColor=MID, spaceAfter=1),
         ))
 
     # Provider contact lines — render each non-empty address field on its own line

@@ -133,7 +133,7 @@ export function Sidebar() {
         <NavLink to="/" className="sidebar-title sidebar-title-link">Dashy</NavLink>
         {versionData?.version && (
           <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)', marginBottom: 'var(--space-sm)' }}>
-            {versionData.version}
+            {versionData.version.split('\n').map((line, i) => <div key={i}>{line}</div>)}
           </div>
         )}
 

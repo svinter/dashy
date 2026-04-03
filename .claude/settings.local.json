@@ -20,7 +20,8 @@
       "Bash(venv/bin/alembic upgrade:*)",
       "Bash(venv/bin/alembic current:*)",
       "Bash(node -e \"const rq = require\\('/Users/stevevinter/dashy/app/frontend/node_modules/@tanstack/query-core/build/modern/index.js'\\); console.log\\(rq.QueryCache\\)\")",
-      "Bash(make checkpoint:*)"
+      "Bash(make checkpoint:*)",
+      "Bash(printf \"Dashy v1.0.0\\\\nDashboard v1.2.21\")"
     ]
   }
 }
