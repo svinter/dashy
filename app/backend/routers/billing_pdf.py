@@ -34,6 +34,7 @@ def _get_provider() -> dict:
     if row:
         return {
             "provider_name":          (row["provider_name"]          or "").strip(),
+            "provider_contact_name":  (row["provider_contact_name"]  or "").strip(),
             "provider_address1":      (row["provider_address1"]      or "").strip(),
             "provider_address2":      (row["provider_address2"]      or "").strip(),
             "provider_city_state_zip": (row["provider_city_state_zip"] or "").strip(),
@@ -41,8 +42,9 @@ def _get_provider() -> dict:
             "provider_email":         (row["provider_email"]         or "").strip(),
         }
     return {
-        "provider_name": "", "provider_address1": "", "provider_address2": "",
-        "provider_city_state_zip": "", "provider_phone": "", "provider_email": "",
+        "provider_name": "", "provider_contact_name": "", "provider_address1": "",
+        "provider_address2": "", "provider_city_state_zip": "", "provider_phone": "",
+        "provider_email": "",
     }
 
 
@@ -160,12 +162,18 @@ def _generate_pdf(invoice_id: int) -> Path:
     # ---- Provider / company name block ----
     story.append(Paragraph(
         (provider["provider_name"] or "Invoice").upper(),
-        sty(fontSize=22, fontName="Helvetica-Bold", textColor=BRAND_GREEN, spaceAfter=16),
+        sty(fontSize=22, fontName="Helvetica-Bold", textColor=BRAND_GREEN, spaceAfter=4),
     ))
-    story.append(Paragraph(
-        "Advisory Services",
-        sty(fontSize=10, fontName="Helvetica", textColor=MID, spaceAfter=2),
-    ))
+    if provider["provider_contact_name"]:
+        story.append(Paragraph(
+            provider["provider_contact_name"],
+            sty(fontSize=10, fontName="Helvetica", textColor=MID, spaceAfter=2),
+        ))
+    else:
+        story.append(Paragraph(
+            "Advisory Services",
+            sty(fontSize=10, fontName="Helvetica", textColor=MID, spaceAfter=2),
+        ))
 
     # Provider contact lines — render each non-empty address field on its own line
     for addr_line in filter(None, [
@@ -446,11 +454,14 @@ def _compose_invoice_email(invoice_id: int) -> dict:
     provider = _get_provider()
     provider_name = provider["provider_name"] or "Invoice"
 
-    try:
-        from app_config import load_config
-        sender_name = load_config().get("profile", {}).get("user_name", "") or provider_name
-    except Exception:
-        sender_name = provider_name
+    # Prefer the stored contact name, fall back to profile user_name, then provider_name
+    sender_name = provider["provider_contact_name"]
+    if not sender_name:
+        try:
+            from app_config import load_config
+            sender_name = load_config().get("profile", {}).get("user_name", "") or provider_name
+        except Exception:
+            sender_name = provider_name
 
     variables = {
         "invoice_number": inv_num,

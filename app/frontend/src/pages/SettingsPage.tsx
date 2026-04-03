@@ -1428,8 +1428,12 @@ function BillingTab() {
           </label>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-sm)', maxWidth: 660 }}>
             <label style={{ fontSize: 'var(--text-sm)', display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <span style={{ color: 'var(--color-text-light)' }}>Provider name</span>
+              <span style={{ color: 'var(--color-text-light)' }}>Company name</span>
               <input value={settingsVal('provider_name')} onChange={e => setSettingsDraft(d => ({ ...d, provider_name: e.target.value }))} placeholder="Vantage Insights" style={{ fontSize: 'var(--text-sm)' }} />
+            </label>
+            <label style={{ fontSize: 'var(--text-sm)', display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <span style={{ color: 'var(--color-text-light)' }}>Contact name</span>
+              <input value={settingsVal('provider_contact_name')} onChange={e => setSettingsDraft(d => ({ ...d, provider_contact_name: e.target.value }))} placeholder="Steve Vinter" style={{ fontSize: 'var(--text-sm)' }} />
             </label>
             <label style={{ fontSize: 'var(--text-sm)', display: 'flex', flexDirection: 'column', gap: 2 }}>
               <span style={{ color: 'var(--color-text-light)' }}>Provider email</span>

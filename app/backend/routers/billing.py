@@ -111,6 +111,7 @@ def _build_update(fields: dict, allowed: set) -> tuple[str, list]:
 class BillingSettingsUpdate(BaseModel):
     invoice_output_dir: Optional[str] = None
     provider_name: Optional[str] = None
+    provider_contact_name: Optional[str] = None
     provider_address1: Optional[str] = None
     provider_address2: Optional[str] = None
     provider_city_state_zip: Optional[str] = None
@@ -119,7 +120,7 @@ class BillingSettingsUpdate(BaseModel):
 
 
 PROVIDER_COLS = {
-    "provider_name", "provider_address1", "provider_address2",
+    "provider_name", "provider_contact_name", "provider_address1", "provider_address2",
     "provider_city_state_zip", "provider_phone", "provider_email",
 }
 

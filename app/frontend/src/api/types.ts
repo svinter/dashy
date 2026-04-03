@@ -1138,6 +1138,7 @@ export interface BillingClient {
 export interface BillingSettings {
   invoice_output_dir: string;
   provider_name: string;
+  provider_contact_name: string;
   provider_address1: string;
   provider_address2: string;
   provider_city_state_zip: string;
