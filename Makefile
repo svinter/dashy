@@ -103,7 +103,7 @@ logs:
 
 checkpoint:
 	git add -A
-	git commit -m "Checkpoint $$(date '+%Y-%m-%d %H:%M')"
+	git diff --quiet && git diff --cached --quiet || git commit -m "Checkpoint $$(date '+%Y-%m-%d %H:%M')"
 	git push origin main
 
 # --- Lint & Format ---
