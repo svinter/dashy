@@ -804,6 +804,7 @@ class SessionUpdate(BaseModel):
     obsidian_note_path: Optional[str] = None
     is_confirmed: Optional[bool] = None
     dismissed: Optional[bool] = None
+    session_number: Optional[int] = None
 
 
 class SessionCreate(BaseModel):
@@ -817,7 +818,8 @@ class SessionCreate(BaseModel):
 
 
 SESSION_ALLOWED = {"client_id", "company_id", "date", "duration_hours", "rate", "amount",
-                   "notes", "obsidian_note_path", "is_confirmed", "dismissed"}
+                   "notes", "obsidian_note_path", "is_confirmed", "dismissed",
+                   "prepaid_block_id", "session_number"}
 
 
 # ---------------------------------------------------------------------------
@@ -1031,6 +1033,34 @@ def confirm_session(body: SessionConfirm):
             )
             session_id = cur.lastrowid
 
+        # Auto-link to active prepaid block when client is prepaid
+        no_active_prepaid_block = False
+        if is_prepaid and body.client_id:
+            active_block = db.execute(
+                """SELECT pb.id, pb.hours_purchased,
+                          COALESCE(SUM(bs2.duration_hours), 0) AS hours_used
+                   FROM billing_prepaid_blocks pb
+                   LEFT JOIN billing_sessions bs2
+                          ON bs2.prepaid_block_id = pb.id
+                         AND bs2.dismissed = 0
+                         AND bs2.id != ?
+                   WHERE pb.client_id = ?
+                     AND pb.hours_purchased IS NOT NULL
+                     AND (pb.starting_after_date IS NULL OR pb.starting_after_date <= ?)
+                   GROUP BY pb.id
+                   HAVING hours_used < pb.hours_purchased
+                   ORDER BY pb.starting_after_date ASC
+                   LIMIT 1""",
+                (session_id, body.client_id, date_str),
+            ).fetchone()
+            if active_block:
+                db.execute(
+                    "UPDATE billing_sessions SET prepaid_block_id = ? WHERE id = ?",
+                    (active_block["id"], session_id),
+                )
+            else:
+                no_active_prepaid_block = True
+
         db.commit()
         row = db.execute(
             "SELECT bs.*, bc.name as client_name, bc.prepaid, bco.name as company_name, bco.abbrev as company_abbrev "
@@ -1040,7 +1070,10 @@ def confirm_session(body: SessionConfirm):
             "WHERE bs.id = ?", (session_id,)
         ).fetchone()
 
-    return _session_to_dict(row)
+    result = _session_to_dict(row)
+    if no_active_prepaid_block:
+        result["no_active_prepaid_block"] = True
+    return result
 
 
 @router.post("/sessions/dismiss")
@@ -1084,16 +1117,45 @@ def list_sessions(
     """Return confirmed (non-dismissed) billing sessions with client/company info."""
     with get_db_connection(readonly=True) as db:
         q = """
+            WITH sno AS (
+                SELECT id,
+                       ROW_NUMBER() OVER (PARTITION BY client_id ORDER BY date, id) AS rn
+                FROM billing_sessions
+                WHERE client_id IS NOT NULL AND dismissed = 0
+            ),
+            latest_blocks AS (
+                -- Most recently created block per client (by id)
+                SELECT client_id, starting_after_date
+                FROM billing_prepaid_blocks
+                WHERE id IN (SELECT MAX(id) FROM billing_prepaid_blocks GROUP BY client_id)
+            ),
+            block_cum AS (
+                -- Running cumulative hours within each client's active block period
+                SELECT bs2.id,
+                       SUM(bs2.duration_hours) OVER (
+                           PARTITION BY bs2.client_id
+                           ORDER BY bs2.date, bs2.id
+                           ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+                       ) AS cumulative_block_hours
+                FROM billing_sessions bs2
+                JOIN latest_blocks lb ON lb.client_id = bs2.client_id
+                WHERE bs2.dismissed = 0
+                  AND (lb.starting_after_date IS NULL OR bs2.date > lb.starting_after_date)
+            )
             SELECT bs.*,
                    bc.name  AS client_name,
                    bc.prepaid AS prepaid,
                    bco.name AS company_name,
                    bco.abbrev AS company_abbrev,
-                   bil.invoice_id AS invoice_id
+                   bil.invoice_id AS invoice_id,
+                   COALESCE(bs.session_number, sno.rn) AS display_session_number,
+                   block_cum.cumulative_block_hours
             FROM billing_sessions bs
             LEFT JOIN billing_clients bc  ON bc.id  = bs.client_id
             LEFT JOIN billing_companies bco ON bco.id = bs.company_id
             LEFT JOIN billing_invoice_lines bil ON bil.id = bs.invoice_line_id
+            LEFT JOIN sno ON sno.id = bs.id
+            LEFT JOIN block_cum ON block_cum.id = bs.id
             WHERE bs.dismissed = 0 AND (bs.client_id IS NOT NULL OR bs.company_id IS NOT NULL)
         """
         params: list = []
@@ -1192,6 +1254,28 @@ def relink_sessions():
     return {"relinked": relinked}
 
 
+@router.get("/sessions/next-number")
+def get_next_session_number(client_id: int):
+    """Return the next session number for a client: MAX(COALESCE(session_number, row_number)) + 1."""
+    with get_db_connection(readonly=True) as db:
+        row = db.execute(
+            """
+            WITH sno AS (
+                SELECT id,
+                       ROW_NUMBER() OVER (ORDER BY date, id) AS rn
+                FROM billing_sessions
+                WHERE client_id = ? AND dismissed = 0
+            )
+            SELECT MAX(COALESCE(bs.session_number, sno.rn)) AS max_sno
+            FROM billing_sessions bs
+            JOIN sno ON sno.id = bs.id
+            WHERE bs.client_id = ? AND bs.dismissed = 0
+            """,
+            (client_id, client_id)
+        ).fetchone()
+    return {"client_id": client_id, "next_number": (row["max_sno"] or 0) + 1}
+
+
 @router.get("/sessions/{session_id}")
 def get_session(session_id: int):
     with get_db_connection(readonly=True) as db:
@@ -1276,6 +1360,145 @@ def unprocess_session(session_id: int):
         )
         db.commit()
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Prepaid blocks
+# ---------------------------------------------------------------------------
+
+class PrepaidBlockCreate(BaseModel):
+    client_id: int
+    hours_purchased: float
+    sessions_purchased: Optional[int] = None
+    starting_after_date: Optional[str] = None  # YYYY-MM-DD
+    hours_offset: Optional[float] = None  # pre-Dashy history offset
+
+
+def _prepaid_block_to_dict(row, hours_used: float) -> dict:
+    d = dict(row)
+    d["hours_used"] = round(hours_used, 2)
+    return d
+
+
+@router.get("/prepaid-blocks")
+def list_prepaid_blocks(client_id: Optional[int] = None):
+    """Return prepaid blocks with computed hours_used."""
+    with get_db_connection(readonly=True) as db:
+        q = """
+            SELECT pb.*, bc.name AS client_name,
+                   COALESCE(SUM(bs.duration_hours), 0) AS hours_used
+            FROM billing_prepaid_blocks pb
+            JOIN billing_clients bc ON bc.id = pb.client_id
+            LEFT JOIN billing_sessions bs
+                   ON bs.client_id = pb.client_id
+                   AND bs.dismissed = 0
+                   AND (pb.starting_after_date IS NULL OR bs.date > pb.starting_after_date)
+        """
+        params: list = []
+        if client_id:
+            q += " WHERE pb.client_id = ?"
+            params.append(client_id)
+        q += " GROUP BY pb.id ORDER BY pb.created_at DESC"
+        rows = db.execute(q, params).fetchall()
+    return [dict(r) for r in rows]
+
+
+@router.post("/prepaid-blocks", status_code=201)
+def create_prepaid_block(body: PrepaidBlockCreate):
+    """Create a prepaid block and automatically generate a draft invoice."""
+    with get_write_db() as db:
+        cl = db.execute(
+            "SELECT bc.*, bco.default_rate, bco.id AS co_id, bco.name AS co_name, "
+            "bco.abbrev AS co_abbrev, bco.invoice_prefix "
+            "FROM billing_clients bc "
+            "JOIN billing_companies bco ON bco.id = bc.company_id "
+            "WHERE bc.id = ?", (body.client_id,)
+        ).fetchone()
+        if not cl:
+            raise HTTPException(status_code=404, detail="Client not found")
+
+        # Format starting_after_date for invoice description
+        if body.starting_after_date:
+            try:
+                dt = datetime.strptime(body.starting_after_date, "%Y-%m-%d")
+                date_label = f"{dt.strftime('%B')} {dt.day}, {dt.year}"
+            except ValueError:
+                date_label = body.starting_after_date
+        else:
+            date_label = "date TBD"
+
+        n = body.hours_purchased
+        n_str = str(int(n)) if n == int(n) else str(n)
+        description = f"{n_str} hours of coaching beginning after {date_label}"
+
+        rate = cl["rate_override"] if cl["rate_override"] is not None else cl["default_rate"]
+        amount = round(body.hours_purchased * (rate or 0), 2)
+
+        # Determine period_month from starting_after_date (or today)
+        if body.starting_after_date:
+            try:
+                period_dt = datetime.strptime(body.starting_after_date, "%Y-%m-%d")
+            except ValueError:
+                period_dt = datetime.now()
+        else:
+            period_dt = datetime.now()
+        period_month = period_dt.strftime("%Y-%m")
+        year, month_num = period_dt.year, period_dt.month
+
+        abbrev = (
+            cl["co_abbrev"]
+            or cl["invoice_prefix"]
+            or cl["co_name"][:3].upper()
+        )
+        base_inv_num = _invoice_number_for_period(year, month_num, abbrev)
+
+        # Find a unique invoice number (append -P, -P2, etc. to avoid collisions)
+        candidate = f"{base_inv_num}-P"
+        suffix = 2
+        while db.execute(
+            "SELECT 1 FROM billing_invoices WHERE invoice_number = ?", (candidate,)
+        ).fetchone():
+            candidate = f"{base_inv_num}-P{suffix}"
+            suffix += 1
+        invoice_number = candidate
+
+        today = datetime.now().strftime("%Y-%m-%d")
+        due_date = (datetime.now() + timedelta(days=30)).strftime("%Y-%m-%d")
+
+        cur = db.execute(
+            """INSERT INTO billing_invoices
+               (invoice_number, company_id, period_month, invoice_date,
+                due_date, status, total_amount)
+               VALUES (?, ?, ?, ?, ?, 'draft', ?)""",
+            (invoice_number, cl["co_id"], period_month, today, due_date, amount),
+        )
+        invoice_id = cur.lastrowid
+
+        db.execute(
+            """INSERT INTO billing_invoice_lines
+               (invoice_id, type, description, unit_cost, quantity, amount, sort_order)
+               VALUES (?, 'prepaid', ?, ?, ?, ?, 1)""",
+            (invoice_id, description, rate or 0, body.hours_purchased, amount),
+        )
+
+        cur2 = db.execute(
+            """INSERT INTO billing_prepaid_blocks
+               (client_id, sessions_purchased, hours_purchased, starting_after_date, invoice_id, hours_offset)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (body.client_id, body.sessions_purchased, body.hours_purchased,
+             body.starting_after_date, invoice_id, body.hours_offset or 0),
+        )
+        block_id = cur2.lastrowid
+        db.commit()
+
+        row = db.execute(
+            """SELECT pb.*, bc.name AS client_name, 0.0 AS hours_used
+               FROM billing_prepaid_blocks pb
+               JOIN billing_clients bc ON bc.id = pb.client_id
+               WHERE pb.id = ?""", (block_id,)
+        ).fetchone()
+
+    return {**dict(row), "invoice_id": invoice_id, "invoice_number": invoice_number}
 
 
 # ---------------------------------------------------------------------------

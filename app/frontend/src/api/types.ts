@@ -1204,12 +1204,30 @@ export interface BillingSession {
   is_confirmed: boolean;
   prepaid: boolean;
   dismissed: boolean;
+  session_number: number | null;
+  display_session_number: number | null;
+  prepaid_block_id: number | null;
+  cumulative_block_hours: number | null;
+  no_active_prepaid_block?: boolean;
   calendar_event_id: string | null;
   color_id: string | null;
   obsidian_note_path: string | null;
   obsidian_link: string | null;
   notes: string | null;
   invoice_line_id: number | null;
+  invoice_id: number | null;
+  created_at: string;
+}
+
+export interface BillingPrepaidBlock {
+  id: number;
+  client_id: number;
+  client_name: string;
+  sessions_purchased: number | null;
+  hours_purchased: number | null;
+  hours_used: number;
+  hours_offset: number;
+  starting_after_date: string | null;
   invoice_id: number | null;
   created_at: string;
 }

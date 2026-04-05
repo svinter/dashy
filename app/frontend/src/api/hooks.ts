@@ -76,6 +76,7 @@ import type {
   BillingSeedStatus,
   BillingUnprocessedEvent,
   BillingSession,
+  BillingPrepaidBlock,
   BillingInvoice,
   BillingInvoiceDetail,
   InvoiceCreate,
@@ -2287,6 +2288,43 @@ export function useCreateBillingSession() {
       is_confirmed: boolean;
     }) => api.post<BillingSession>('/billing/sessions', body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['billing-sessions'] }),
+  });
+}
+
+export function useBillingNextSessionNumber(clientId: number | null) {
+  return useQuery({
+    queryKey: ['billing-next-session-number', clientId],
+    queryFn: () => api.get<{ client_id: number; next_number: number }>(
+      `/billing/sessions/next-number?client_id=${clientId}`
+    ),
+    enabled: clientId != null,
+  });
+}
+
+export function useBillingPrepaidBlocks(clientId?: number) {
+  const qs = clientId ? `?client_id=${clientId}` : '';
+  return useQuery({
+    queryKey: ['billing-prepaid-blocks', clientId],
+    queryFn: () => api.get<BillingPrepaidBlock[]>(`/billing/prepaid-blocks${qs}`),
+  });
+}
+
+export function useCreatePrepaidBlock() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: {
+      client_id: number;
+      hours_purchased: number;
+      sessions_purchased?: number | null;
+      starting_after_date?: string | null;
+      hours_offset?: number | null;
+    }) => api.post<BillingPrepaidBlock & { invoice_id: number; invoice_number: string }>(
+      '/billing/prepaid-blocks', body
+    ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['billing-prepaid-blocks'] });
+      qc.invalidateQueries({ queryKey: ['billing-invoices'] });
+    },
   });
 }
 

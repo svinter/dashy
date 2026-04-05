@@ -38,6 +38,7 @@ import {
   useImportBillingSeed,
   useBillingSettings,
   useUpdateBillingSettings,
+  useCreatePrepaidBlock,
 } from '../api/hooks';
 import type { ServiceAuthStatus, SyncSourceInfo, ConnectorInfo, UserProfile, DashboardIssue, BillingCompany, BillingClient, BillingSettings } from '../api/types';
 
@@ -1373,6 +1374,7 @@ function BillingTab() {
   const createClient = useCreateBillingClient();
   const updateClient = useUpdateBillingClient();
   const deleteClient = useDeleteBillingClient();
+  const createPrepaidBlock = useCreatePrepaidBlock();
 
   const [expandedCompanies, setExpandedCompanies] = useState<Set<number>>(new Set());
   const [editingCompany, setEditingCompany] = useState<number | null>(null);
@@ -1380,6 +1382,9 @@ function BillingTab() {
   const [addingClientTo, setAddingClientTo] = useState<number | null>(null);
   const [addingCompany, setAddingCompany] = useState(false);
   const [showInactive, setShowInactive] = useState(false);
+  const [addingBlockToClient, setAddingBlockToClient] = useState<number | null>(null);
+  const [newBlock, setNewBlock] = useState({ hours_purchased: '', sessions_purchased: '', starting_after_date: '', hours_offset: '' });
+  const [blockSaved, setBlockSaved] = useState<number | null>(null);
 
   // New company form state
   const [newCo, setNewCo] = useState({ name: '', abbrev: '', default_rate: '', billing_method: 'invoice', payment_method: '', ap_email: '', invoice_prefix: '' });
@@ -1593,33 +1598,123 @@ function BillingTab() {
               <div style={{ borderTop: '1px solid var(--color-border)', padding: 'var(--space-sm) var(--space-md)' }}>
                 {co.clients.length === 0 && <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-light)', margin: 0 }}>No clients</p>}
                 {co.clients.map(cl => (
-                  <div key={cl.id} style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', padding: '3px 0', opacity: cl.active ? 1 : 0.5 }}>
-                    {editingClient === cl.id ? (
-                      <>
-                        <input value={editClData.name ?? cl.name} onChange={e => setEditClData(d => ({ ...d, name: e.target.value }))} style={{ flex: 1 }} />
-                        <input value={editClData.obsidian_name ?? cl.obsidian_name ?? ''} onChange={e => setEditClData(d => ({ ...d, obsidian_name: e.target.value }))} placeholder="Obsidian name" style={{ flex: 1 }} />
-                        <input type="number" value={editClData.rate_override ?? cl.rate_override ?? ''} onChange={e => setEditClData(d => ({ ...d, rate_override: parseFloat(e.target.value) || null }))} placeholder="Rate override" style={{ width: 80 }} />
-                        <label style={{ fontSize: 'var(--text-xs)', display: 'flex', gap: 3 }}>
-                          <input type="checkbox" checked={editClData.prepaid ?? cl.prepaid} onChange={e => setEditClData(d => ({ ...d, prepaid: e.target.checked }))} /> prepaid
-                        </label>
-                        <label style={{ fontSize: 'var(--text-xs)', display: 'flex', gap: 3 }}>
-                          <input type="checkbox" checked={editClData.active ?? cl.active} onChange={e => setEditClData(d => ({ ...d, active: e.target.checked }))} /> active
-                        </label>
-                        <button className="btn-primary" style={{ fontSize: 'var(--text-xs)' }} onClick={() => {
-                          updateClient.mutate({ id: cl.id, ...editClData });
-                          setEditingClient(null);
-                          setEditClData({});
-                        }}>Save</button>
-                        <button className="btn-link" style={{ fontSize: 'var(--text-xs)' }} onClick={() => { setEditingClient(null); setEditClData({}); }}>Cancel</button>
-                      </>
-                    ) : (
-                      <>
-                        <span style={{ flex: 1, fontSize: 'var(--text-sm)' }}>{cl.name}</span>
-                        {cl.prepaid && <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)' }}>prepaid</span>}
-                        {cl.rate_override && <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)' }}>${cl.rate_override}/hr</span>}
-                        <button className="btn-link" style={{ fontSize: 'var(--text-xs)' }} onClick={() => { setEditingClient(cl.id); setEditClData({}); }}>edit</button>
-                        <button className="btn-link" style={{ fontSize: 'var(--text-xs)', color: 'var(--color-error)' }} onClick={() => { if (confirm(`Remove ${cl.name}?`)) deleteClient.mutate(cl.id); }}>×</button>
-                      </>
+                  <div key={cl.id}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', padding: '3px 0', opacity: cl.active ? 1 : 0.5 }}>
+                      {editingClient === cl.id ? (
+                        <>
+                          <input value={editClData.name ?? cl.name} onChange={e => setEditClData(d => ({ ...d, name: e.target.value }))} style={{ flex: 1 }} />
+                          <input value={editClData.obsidian_name ?? cl.obsidian_name ?? ''} onChange={e => setEditClData(d => ({ ...d, obsidian_name: e.target.value }))} placeholder="Obsidian name" style={{ flex: 1 }} />
+                          <input type="number" value={editClData.rate_override ?? cl.rate_override ?? ''} onChange={e => setEditClData(d => ({ ...d, rate_override: parseFloat(e.target.value) || null }))} placeholder="Rate override" style={{ width: 80 }} />
+                          <label style={{ fontSize: 'var(--text-xs)', display: 'flex', gap: 3 }}>
+                            <input type="checkbox" checked={editClData.prepaid ?? cl.prepaid} onChange={e => setEditClData(d => ({ ...d, prepaid: e.target.checked }))} /> prepaid
+                          </label>
+                          <label style={{ fontSize: 'var(--text-xs)', display: 'flex', gap: 3 }}>
+                            <input type="checkbox" checked={editClData.active ?? cl.active} onChange={e => setEditClData(d => ({ ...d, active: e.target.checked }))} /> active
+                          </label>
+                          <button className="btn-primary" style={{ fontSize: 'var(--text-xs)' }} onClick={() => {
+                            updateClient.mutate({ id: cl.id, ...editClData });
+                            setEditingClient(null);
+                            setEditClData({});
+                          }}>Save</button>
+                          <button className="btn-link" style={{ fontSize: 'var(--text-xs)' }} onClick={() => { setEditingClient(null); setEditClData({}); }}>Cancel</button>
+                        </>
+                      ) : (
+                        <>
+                          <span style={{ flex: 1, fontSize: 'var(--text-sm)' }}>{cl.name}</span>
+                          {cl.prepaid && <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)' }}>prepaid</span>}
+                          {cl.rate_override && <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)' }}>${cl.rate_override}/hr</span>}
+                          {cl.prepaid && (
+                            <button
+                              className="btn-link"
+                              style={{ fontSize: 'var(--text-xs)', color: blockSaved === cl.id ? 'var(--color-success, #1a6631)' : undefined }}
+                              onClick={() => {
+                                setAddingBlockToClient(addingBlockToClient === cl.id ? null : cl.id);
+                                setNewBlock({ hours_purchased: '', sessions_purchased: '', starting_after_date: '', hours_offset: '' });
+                              }}
+                            >
+                              {blockSaved === cl.id ? '✓ block created' : '+ prepaid block'}
+                            </button>
+                          )}
+                          <button className="btn-link" style={{ fontSize: 'var(--text-xs)' }} onClick={() => { setEditingClient(cl.id); setEditClData({}); }}>edit</button>
+                          <button className="btn-link" style={{ fontSize: 'var(--text-xs)', color: 'var(--color-error)' }} onClick={() => { if (confirm(`Remove ${cl.name}?`)) deleteClient.mutate(cl.id); }}>×</button>
+                        </>
+                      )}
+                    </div>
+                    {/* Create Prepaid Block inline form */}
+                    {addingBlockToClient === cl.id && (
+                      <div style={{ display: 'flex', gap: 'var(--space-sm)', alignItems: 'flex-end', padding: '6px 0 6px 12px', flexWrap: 'wrap' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                          <label style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)' }}>Hours purchased *</label>
+                          <input
+                            type="number"
+                            step="0.5"
+                            min="0"
+                            value={newBlock.hours_purchased}
+                            onChange={e => setNewBlock(b => ({ ...b, hours_purchased: e.target.value }))}
+                            style={{ width: 80 }}
+                            autoFocus
+                          />
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                          <label style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)' }}>Sessions (optional)</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={newBlock.sessions_purchased}
+                            onChange={e => setNewBlock(b => ({ ...b, sessions_purchased: e.target.value }))}
+                            style={{ width: 70 }}
+                          />
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                          <label style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)' }}>Starting after date</label>
+                          <input
+                            type="date"
+                            value={newBlock.starting_after_date}
+                            onChange={e => setNewBlock(b => ({ ...b, starting_after_date: e.target.value }))}
+                          />
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                          <label style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)' }}>Prior hrs (offset)</label>
+                          <input
+                            type="number"
+                            step="0.5"
+                            min="0"
+                            placeholder="0"
+                            value={newBlock.hours_offset}
+                            onChange={e => setNewBlock(b => ({ ...b, hours_offset: e.target.value }))}
+                            style={{ width: 70 }}
+                          />
+                        </div>
+                        <button
+                          className="btn-primary"
+                          style={{ fontSize: 'var(--text-xs)' }}
+                          disabled={!newBlock.hours_purchased || createPrepaidBlock.isPending}
+                          onClick={() => {
+                            if (!newBlock.hours_purchased) return;
+                            createPrepaidBlock.mutate({
+                              client_id: cl.id,
+                              hours_purchased: parseFloat(newBlock.hours_purchased),
+                              sessions_purchased: newBlock.sessions_purchased ? parseInt(newBlock.sessions_purchased) : null,
+                              starting_after_date: newBlock.starting_after_date || null,
+                              hours_offset: newBlock.hours_offset ? parseFloat(newBlock.hours_offset) : null,
+                            }, {
+                              onSuccess: () => {
+                                setAddingBlockToClient(null);
+                                setBlockSaved(cl.id);
+                                setTimeout(() => setBlockSaved(null), 3000);
+                              },
+                            });
+                          }}
+                        >
+                          {createPrepaidBlock.isPending ? 'Creating…' : 'Create Block & Draft Invoice'}
+                        </button>
+                        <button className="btn-link" style={{ fontSize: 'var(--text-xs)' }} onClick={() => setAddingBlockToClient(null)}>Cancel</button>
+                        {createPrepaidBlock.isError && (
+                          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-error)' }}>
+                            {String((createPrepaidBlock.error as Error)?.message ?? 'Failed')}
+                          </span>
+                        )}
+                      </div>
                     )}
                   </div>
                 ))}

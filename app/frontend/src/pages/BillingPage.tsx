@@ -7,6 +7,8 @@ import {
   useDismissBillingEvent,
   useBillingCompanies,
   useBillingSessions,
+  useBillingPrepaidBlocks,
+  useBillingNextSessionNumber,
   useCreateBillingSession,
   useUpdateBillingSession,
   useDeleteBillingSession,
@@ -31,7 +33,7 @@ import {
   useRemoveBillingPaymentAssignment,
   useUpdateBillingPayment,
 } from '../api/hooks';
-import type { BillingUnprocessedEvent, BillingCompany, BillingSession, BillingInvoice, BillingSummaryData, BillingSummaryCell, BillingPayment, BillingLunchMoneySyncResult, InvoiceCompose, InvoiceLineInput, InvoiceBulkImportRow, InvoiceBulkImportResult } from '../api/types';
+import type { BillingUnprocessedEvent, BillingCompany, BillingSession, BillingPrepaidBlock, BillingInvoice, BillingSummaryData, BillingSummaryCell, BillingPayment, BillingLunchMoneySyncResult, InvoiceCompose, InvoiceLineInput, InvoiceBulkImportRow, InvoiceBulkImportResult } from '../api/types';
 
 // ---------------------------------------------------------------------------
 // Date / grouping helpers
@@ -112,9 +114,8 @@ export interface BillingDateState {
 
 export function defaultDateFilter(): BillingDateState {
   const d = new Date();
-  const m = d.getMonth(); // 0-based current month
-  if (m === 0) return { year: d.getFullYear() - 1, month: 12, week: null };
-  return { year: d.getFullYear(), month: m, week: null }; // m is 0-based, so month=m is 1-based previous month
+  const m = d.getMonth() + 1; // 1-based current month (getMonth() is 0-based)
+  return { year: d.getFullYear(), month: m, week: null };
 }
 
 /** Returns sorted list of distinct week-start dates (Mon) for weeks that touch the given month. */
@@ -378,19 +379,59 @@ function ClientSelectCell({ clientId, companies, onCommit }: ClientSelectCellPro
 }
 
 // ---------------------------------------------------------------------------
+// Session number inline-edit cell
+// ---------------------------------------------------------------------------
+
+function SessionNumberCell({ value, onCommit }: { value: number | null; onCommit: (v: number | null) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const ref = useRef<HTMLInputElement>(null);
+
+  function start() { setDraft(value != null ? String(value) : ''); setEditing(true); }
+  function commit() {
+    setEditing(false);
+    const n = draft !== '' ? parseInt(draft) : null;
+    if (n !== value) onCommit(n);
+  }
+
+  useEffect(() => { if (editing) ref.current?.select(); }, [editing]);
+
+  if (editing) {
+    return (
+      <input
+        ref={ref}
+        type="number"
+        value={draft}
+        onChange={e => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setEditing(false); }}
+        style={{ width: 40, fontSize: 'inherit', padding: '1px 2px', textAlign: 'right' }}
+      />
+    );
+  }
+  return (
+    <span onClick={start} title="Click to set session number" style={{ cursor: 'text', borderBottom: '1px dashed var(--color-border)' }}>
+      {value != null ? `#${value}` : <span style={{ opacity: 0.3 }}>—</span>}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Session row
 // ---------------------------------------------------------------------------
 
 interface SessionRowProps {
   showCompanyCol?: boolean;
+  showPrepaidCol?: boolean;
   session: BillingSession;
   companies: BillingCompany[];
+  blocks?: BillingPrepaidBlock[];
   onUpdate: (id: number, fields: Partial<BillingSession>) => void;
   onDelete: (id: number) => void;
   onUnprocess: (id: number) => void;
 }
 
-function SessionRow({ session: s, companies, onUpdate, onDelete, onUnprocess, showCompanyCol = false }: SessionRowProps) {
+function SessionRow({ session: s, companies, blocks = [], onUpdate, onDelete, onUnprocess, showCompanyCol = false, showPrepaidCol = false }: SessionRowProps) {
   const effectiveRate = s.rate ?? null;
   const [editOpen, setEditOpen] = useState(false);
 
@@ -465,10 +506,20 @@ function SessionRow({ session: s, companies, onUpdate, onDelete, onUnprocess, sh
 
   const canSave = !!(fCompanyId || (fClientId !== '' && fClientId !== NO_CLIENT));
 
+  // Prepaid block lookup: use explicit link first, then fall back to most recent block for this client
+  const linkedBlock = s.prepaid_block_id != null
+    ? (blocks.find(b => b.id === s.prepaid_block_id) ?? null)
+    : (s.prepaid && s.client_id != null
+        ? (blocks.find(b => b.client_id === s.client_id) ?? null)
+        : null);
+  // colSpan for edit mode: base = Date + Client + # + Hrs + Rate + Amount + Status + Invoice + Note + Notes + Actions = 11
+  // +1 for Co col, +1 for Prepaid col
+  const editColSpan = 11 + (showCompanyCol ? 1 : 0) + (showPrepaidCol ? 1 : 0);
+
   if (editOpen) {
     return (
       <tr style={{ background: 'var(--color-bg-subtle, #f8f8f8)' }}>
-        <td colSpan={showCompanyCol ? 11 : 10} style={{ padding: '10px 12px', borderBottom: '1px solid var(--color-border)' }}>
+        <td colSpan={editColSpan} style={{ padding: '10px 12px', borderBottom: '1px solid var(--color-border)' }}>
           <div style={{ display: 'flex', gap: 'var(--space-sm)', flexWrap: 'wrap', alignItems: 'flex-end', fontSize: 'var(--text-sm)' }}>
             {/* Date */}
             <input type="date" value={fDate} onChange={e => setFDate(e.target.value)}
@@ -552,6 +603,15 @@ function SessionRow({ session: s, companies, onUpdate, onDelete, onUnprocess, sh
         </td>
       )}
       <td style={{ fontSize: 'var(--text-sm)' }}>{s.client_name ?? <span style={{ color: 'var(--color-text-light)' }}>{s.company_name ?? '—'}</span>}</td>
+      {/* Session number — click to edit */}
+      <td style={{ textAlign: 'right', fontSize: 'var(--text-xs)', color: 'var(--color-text-light)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+        {s.client_id != null
+          ? <SessionNumberCell
+              value={s.display_session_number}
+              onCommit={v => onUpdate(s.id, { session_number: v } as Partial<BillingSession>)}
+            />
+          : <span style={{ opacity: 0.3 }}>—</span>}
+      </td>
       <td style={{ textAlign: 'right', fontSize: 'var(--text-sm)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
         {s.duration_hours.toFixed(2)}h
       </td>
@@ -574,7 +634,6 @@ function SessionRow({ session: s, companies, onUpdate, onDelete, onUnprocess, sh
         ) : (
           <span style={{ background: '#7B52AB', color: '#fff', borderRadius: 3, padding: '1px 6px', fontSize: 'var(--text-xs)' }}>confirmed</span>
         )}
-        {s.prepaid && <span style={{ marginLeft: 4, color: 'var(--color-text-light)', fontSize: 'var(--text-xs)' }}>prepaid</span>}
       </td>
       <td style={{ textAlign: 'center', fontSize: 'var(--text-xs)', color: 'var(--color-text-light)' }}>
         {s.invoice_line_id
@@ -592,6 +651,20 @@ function SessionRow({ session: s, companies, onUpdate, onDelete, onUnprocess, sh
       <td style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-light)', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {s.notes || ''}
       </td>
+      {/* Prepaid block progress — only rendered when showPrepaidCol */}
+      {showPrepaidCol && (
+        <td style={{ fontSize: 'var(--text-xs)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+          {linkedBlock && linkedBlock.hours_purchased != null && s.cumulative_block_hours != null ? (() => {
+            const displayHours = s.cumulative_block_hours + (linkedBlock.hours_offset ?? 0);
+            const exhausted = displayHours >= linkedBlock.hours_purchased;
+            return (
+              <span style={{ color: exhausted ? 'var(--color-error, #c00)' : 'var(--color-text-light)' }}>
+                {displayHours.toFixed(1)}/{linkedBlock.hours_purchased.toFixed(1)}h
+              </span>
+            );
+          })() : null}
+        </td>
+      )}
       <td style={{ whiteSpace: 'nowrap' }}>
         <button className="btn-link" style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)', marginRight: 6 }}
           title="Edit session" onClick={() => setEditOpen(true)}>✎</button>
@@ -615,14 +688,18 @@ interface CompanyGroupProps {
   companyName: string;
   sessions: BillingSession[];
   companies: BillingCompany[];
+  blocks?: BillingPrepaidBlock[];
+  showPrepaidCol?: boolean;
   onUpdate: (id: number, fields: Partial<BillingSession>) => void;
   onDelete: (id: number) => void;
   onUnprocess: (id: number) => void;
 }
 
-function CompanyGroup({ companyName, sessions, companies, onUpdate, onDelete, onUnprocess }: CompanyGroupProps) {
+function CompanyGroup({ companyName, sessions, companies, blocks = [], showPrepaidCol = false, onUpdate, onDelete, onUnprocess }: CompanyGroupProps) {
   const totalHours = sessions.reduce((s, r) => s + r.duration_hours, 0);
   const totalAmount = sessions.reduce((s, r) => s + r.amount, 0);
+  // Date + Client + # + Hrs + Rate + Amount + Status + Invoice + Note + Notes + Prepaid(cond) + Actions
+  const colCount = 11 + (showPrepaidCol ? 1 : 0);
 
   const byClient = new Map<string, BillingSession[]>();
   for (const s of sessions) {
@@ -634,7 +711,7 @@ function CompanyGroup({ companyName, sessions, companies, onUpdate, onDelete, on
   return (
     <>
       <tr>
-        <td colSpan={10} style={{
+        <td colSpan={colCount} style={{
           fontWeight: 600, fontSize: 'var(--text-sm)', padding: '3px 8px 3px 16px',
           borderTop: '1px solid var(--color-border)',
           color: 'var(--color-text-light)',
@@ -652,14 +729,14 @@ function CompanyGroup({ companyName, sessions, companies, onUpdate, onDelete, on
           <>
             {byClient.size > 1 && (
               <tr key={`client-${clientName}`}>
-                <td colSpan={10} style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)', padding: '2px 8px 2px 28px', fontStyle: 'italic' }}>
+                <td colSpan={colCount} style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)', padding: '2px 8px 2px 28px', fontStyle: 'italic' }}>
                   {clientName}
                   <span style={{ float: 'right' }}>{ch.toFixed(2)}h · ${ca.toFixed(2)}</span>
                 </td>
               </tr>
             )}
             {clientSessions.map(s => (
-              <SessionRow key={s.id} session={s} companies={companies} onUpdate={onUpdate} onDelete={onDelete} onUnprocess={onUnprocess} />
+              <SessionRow key={s.id} session={s} companies={companies} blocks={blocks} showPrepaidCol={showPrepaidCol} onUpdate={onUpdate} onDelete={onDelete} onUnprocess={onUnprocess} />
             ))}
           </>
         );
@@ -853,6 +930,7 @@ function SessionsView() {
   const update = useUpdateBillingSession();
   const del = useDeleteBillingSession();
   const unprocess = useUnprocessBillingSession();
+  const { data: allBlocks = [] } = useBillingPrepaidBlocks();
 
   function handleUpdate(id: number, fields: Partial<BillingSession>) { update.mutate({ id, ...fields }); }
   function handleDelete(id: number) { del.mutate(id); }
@@ -866,6 +944,7 @@ function SessionsView() {
   const grouped = groupSessions(visibleSessions);
   const grandHours = visibleSessions.reduce((s, r) => s + r.duration_hours, 0);
   const grandAmount = visibleSessions.reduce((s, r) => s + r.amount, 0);
+  const hasPrepaidSessions = visibleSessions.some(s => s.prepaid);
 
   const sessionsSorted = [...visibleSessions].sort((a, b) => {
     if (sortKey === 'date') return a.date.localeCompare(b.date);
@@ -963,6 +1042,7 @@ function SessionsView() {
               <tr style={{ borderBottom: '1px solid var(--color-border)', textAlign: 'left' }}>
                 <th style={TH}>Date</th>
                 <th style={TH}>Client</th>
+                <th style={{ ...TH, textAlign: 'right' }}>#</th>
                 <th style={{ ...TH, textAlign: 'right' }}>Hrs</th>
                 <th style={{ ...TH, textAlign: 'right' }}>Rate</th>
                 <th style={{ ...TH, textAlign: 'right' }}>Amount</th>
@@ -970,6 +1050,7 @@ function SessionsView() {
                 <th style={{ ...TH, textAlign: 'center' }}>Invoice</th>
                 <th style={{ ...TH, textAlign: 'center' }}>Note</th>
                 <th style={TH}>Notes</th>
+                {hasPrepaidSessions && <th style={TH}>Prepaid</th>}
                 <th />
               </tr>
             </thead>
@@ -977,10 +1058,11 @@ function SessionsView() {
               {sortedMonthEntries(grouped).map(([monthKey, weekMap]) => {
                 const mh = [...weekMap.values()].flatMap(wm => [...wm.values()].flat()).reduce((s, r) => s + r.duration_hours, 0);
                 const ma = [...weekMap.values()].flatMap(wm => [...wm.values()].flat()).reduce((s, r) => s + r.amount, 0);
+                const colCount = hasPrepaidSessions ? 12 : 11;
                 return (
                   <>
                     <tr key={`month-${monthKey}`}>
-                      <td colSpan={10} style={{
+                      <td colSpan={colCount} style={{
                         fontWeight: 700, fontSize: 'var(--text-sm)', padding: '6px 8px',
                         borderTop: '2px solid var(--color-border)',
                         background: 'var(--color-bg-subtle, color-mix(in srgb, var(--color-border) 40%, transparent))',
@@ -997,7 +1079,7 @@ function SessionsView() {
                       return (
                         <>
                           <tr key={`week-${weekStart}`}>
-                            <td colSpan={10} style={{
+                            <td colSpan={colCount} style={{
                               fontSize: 'var(--text-xs)', padding: '3px 8px 3px 12px',
                               color: 'var(--color-text-light)',
                               borderTop: '1px solid var(--color-border)',
@@ -1012,6 +1094,8 @@ function SessionsView() {
                               companyName={companyName}
                               sessions={companySessions}
                               companies={companies}
+                              blocks={allBlocks}
+                              showPrepaidCol={hasPrepaidSessions}
                               onUpdate={handleUpdate}
                               onDelete={handleDelete}
                               onUnprocess={handleUnprocess}
@@ -1037,6 +1121,7 @@ function SessionsView() {
                 <th style={TH}>Date</th>
                 <th style={TH}>Co</th>
                 <th style={TH}>Client</th>
+                <th style={{ ...TH, textAlign: 'right' }}>#</th>
                 <th style={{ ...TH, textAlign: 'right' }}>Hrs</th>
                 <th style={{ ...TH, textAlign: 'right' }}>Rate</th>
                 <th style={{ ...TH, textAlign: 'right' }}>Amount</th>
@@ -1044,6 +1129,7 @@ function SessionsView() {
                 <th style={{ ...TH, textAlign: 'center' }}>Invoice</th>
                 <th style={{ ...TH, textAlign: 'center' }}>Note</th>
                 <th style={TH}>Notes</th>
+                {hasPrepaidSessions && <th style={TH}>Prepaid</th>}
                 <th />
               </tr>
             </thead>
@@ -1053,6 +1139,8 @@ function SessionsView() {
                   key={s.id}
                   session={s}
                   companies={companies}
+                  blocks={allBlocks}
+                  showPrepaidCol={hasPrepaidSessions}
                   onUpdate={handleUpdate}
                   onDelete={handleDelete}
                   onUnprocess={handleUnprocess}
@@ -1254,6 +1342,11 @@ function UnprocessedRow({ event: ev, companies, companyAbbrev, expectedRevenue, 
   const isConfidenceHigh = ev.inferred_confidence >= 0.75;
   const canConfirm = noClient ? !!companyId && notes.trim().length > 0 : !!clientId;
 
+  // Session number preview — fetched when a client is selected
+  const nextNumClientId = (!noClient && clientId !== '' && typeof clientId === 'number') ? clientId : null;
+  const { data: nextNumData } = useBillingNextSessionNumber(nextNumClientId);
+  if (nextNumClientId != null) console.log('[next-number] client_id=', nextNumClientId, '→', nextNumData);
+
   // Derive display values from local state so edits are reflected immediately in the collapsed row
   const displayAbbrev = selectedCompany?.abbrev ?? companyAbbrev ?? null;
   const displayClient = selectedClient?.name ?? (noClient ? null : ev.inferred_client_name ?? null);
@@ -1371,6 +1464,13 @@ function UnprocessedRow({ event: ev, companies, companyAbbrev, expectedRevenue, 
               <input type="number" step="0.25" min="0" value={duration} onChange={e => setDuration(e.target.value)} style={{ width: 80 }} />
             </div>
 
+            {/* Session number preview */}
+            {nextNumData && (
+              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)', alignSelf: 'flex-end', paddingBottom: 6 }}>
+                Session <strong>#{nextNumData.next_number}</strong>
+              </div>
+            )}
+
             {/* Rate preview (client path) */}
             {selectedClient && effectiveRate && !noClient && (
               <div style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-light)', alignSelf: 'flex-end', paddingBottom: 4 }}>
@@ -1435,6 +1535,7 @@ function UnprocessedQueue() {
 
   const [showBanana, setShowBanana] = useState(false);
   const [dateFilter, setDateFilter] = useState<BillingDateState>(defaultDateFilter());
+  const [blockWarnings, setBlockWarnings] = useState<string[]>([]);
 
   // Helper: look up effective rate for an event from companies data
   function effectiveRate(ev: BillingUnprocessedEvent): number | null {
@@ -1536,6 +1637,23 @@ function UnprocessedQueue() {
         </p>
       )}
 
+      {blockWarnings.length > 0 && (
+        <div style={{
+          padding: 'var(--space-sm) var(--space-md)',
+          marginBottom: 'var(--space-md)',
+          background: 'color-mix(in srgb, #f59e0b 15%, transparent)',
+          border: '1px solid #f59e0b',
+          borderRadius: 4,
+          fontSize: 'var(--text-sm)',
+        }}>
+          <strong>⚠️ No active prepaid block:</strong>
+          <ul style={{ margin: '4px 0 0', paddingLeft: 20 }}>
+            {blockWarnings.map((w, i) => <li key={i}>{w}</li>)}
+          </ul>
+          <button className="btn-link" style={{ fontSize: 'var(--text-xs)', marginTop: 4 }} onClick={() => setBlockWarnings([])}>Dismiss</button>
+        </div>
+      )}
+
       {monthEntries.map(([monthKey, mEvents]) => {
         const mHours = mEvents.reduce((s, e) => s + e.duration_hours, 0);
         const mRevenue = mEvents.reduce((s, e) => s + (expectedRevenue(e) ?? 0), 0);
@@ -1564,7 +1682,16 @@ function UnprocessedQueue() {
                   companyAbbrev={abbrev}
                   expectedRevenue={rev}
                   onConfirm={(ev, clientId, companyId, durationHours, notes) => {
-                    confirm.mutate({ calendar_event_id: ev.calendar_event_id, client_id: clientId, company_id: companyId, duration_hours: durationHours, notes });
+                    confirm.mutate(
+                      { calendar_event_id: ev.calendar_event_id, client_id: clientId, company_id: companyId, duration_hours: durationHours, notes },
+                      {
+                        onSuccess: (session) => {
+                          if (session.no_active_prepaid_block) {
+                            setBlockWarnings(w => [...w, `${session.client_name ?? 'Client'} — session confirmed but no active prepaid block found`]);
+                          }
+                        },
+                      }
+                    );
                   }}
                   onDismiss={ev => {
                     if (window.confirm(`Dismiss "${ev.summary}"?`)) dismiss.mutate(ev.calendar_event_id);
