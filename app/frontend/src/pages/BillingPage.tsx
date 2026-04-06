@@ -32,8 +32,11 @@ import {
   useAssignBillingPayment,
   useRemoveBillingPaymentAssignment,
   useUpdateBillingPayment,
+  useInvoiceUnlinkedSessions,
+  useReconcileInvoiceSessions,
+  useAddInvoiceLine,
 } from '../api/hooks';
-import type { BillingUnprocessedEvent, BillingCompany, BillingSession, BillingPrepaidBlock, BillingInvoice, BillingSummaryData, BillingSummaryCell, BillingPayment, BillingLunchMoneySyncResult, InvoiceCompose, InvoiceLineInput, InvoiceBulkImportRow, InvoiceBulkImportResult } from '../api/types';
+import type { BillingUnprocessedEvent, BillingCompany, BillingSession, BillingPrepaidBlock, BillingInvoice, BillingInvoiceDetail, BillingSummaryData, BillingSummaryCell, BillingPayment, BillingLunchMoneySyncResult, InvoiceCompose, InvoiceLineInput, InvoiceBulkImportRow, InvoiceBulkImportResult } from '../api/types';
 
 // ---------------------------------------------------------------------------
 // Date / grouping helpers
@@ -904,9 +907,10 @@ type SessionSortKey = 'date' | 'company' | 'amount';
 type SessionViewTab = 'grouped' | 'flat' | 'summary';
 
 function SessionsView() {
-  const [dateFilter, setDateFilter] = useState<BillingDateState>(defaultDateFilter());
+  const [dateFilter, setDateFilter] = useState<BillingDateState>(defaultDateFilter);
   const [companyId, setCompanyId] = useState<number | ''>('');
   const [unconfirmedOnly, setUnconfirmedOnly] = useState(false);
+  const [unlinkedOnly, setUnlinkedOnly] = useState(false);
   const [viewTab, setViewTab] = useState<SessionViewTab>('flat');
   const [showNewForm, setShowNewForm] = useState(false);
   const [refreshMsg, setRefreshMsg] = useState('');
@@ -936,10 +940,11 @@ function SessionsView() {
   function handleDelete(id: number) { del.mutate(id); }
   function handleUnprocess(id: number) { unprocess.mutate(id); }
 
-  // Apply week filter client-side (month/year filter handled by API)
-  const visibleSessions = dateFilter.week !== null
-    ? sessions.filter(s => matchesDateFilter(s.date, dateFilter))
-    : sessions;
+  // Apply week and unlinked filters client-side (month/year filter handled by API)
+  const visibleSessions = sessions.filter(s =>
+    (dateFilter.week === null || matchesDateFilter(s.date, dateFilter)) &&
+    (!unlinkedOnly || (s.is_confirmed && s.invoice_line_id === null))
+  );
 
   const grouped = groupSessions(visibleSessions);
   const grandHours = visibleSessions.reduce((s, r) => s + r.duration_hours, 0);
@@ -974,6 +979,10 @@ function SessionsView() {
           <input type="checkbox" checked={unconfirmedOnly} onChange={e => setUnconfirmedOnly(e.target.checked)} />
           Unprocessed only
         </label>
+        <label style={{ fontSize: 'var(--text-sm)', display: 'flex', gap: 4, alignItems: 'center' }}>
+          <input type="checkbox" checked={unlinkedOnly} onChange={e => setUnlinkedOnly(e.target.checked)} />
+          Unlinked only
+        </label>
         {viewTab === 'flat' && (
           <select value={sortKey} onChange={e => setSortKey(e.target.value as SessionSortKey)} style={{ fontSize: 'var(--text-sm)' }}>
             <option value="date">Sort: date</option>
@@ -983,7 +992,7 @@ function SessionsView() {
         )}
         {viewTab === 'summary' && (
           <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)' }}>
-            {periodMonthParam ? `comparing vs invoices for ${periodMonthParam}` : `comparing vs invoices for ${dateFilter.year}`}
+            {periodMonthParam ? `invoices for ${periodMonthParam} (excl. prepaid)` : `invoices for ${dateFilter.year} (excl. prepaid)`}
           </span>
         )}
         {visibleSessions.length > 0 && (
@@ -1148,6 +1157,21 @@ function SessionsView() {
                 />
               ))}
             </tbody>
+            <tfoot>
+              <tr style={{ borderTop: '2px solid var(--color-border)', fontWeight: 600 }}>
+                <td colSpan={4} style={{ padding: '5px 8px', fontSize: 'var(--text-sm)' }}>
+                  Total ({sessionsSorted.length})
+                </td>
+                <td style={{ padding: '5px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                  {grandHours.toFixed(2)}h
+                </td>
+                <td />
+                <td style={{ padding: '5px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                  ${grandAmount.toFixed(2)}
+                </td>
+                <td colSpan={hasPrepaidSessions ? 5 : 4} />
+              </tr>
+            </tfoot>
           </table>
         </div>
       )}
@@ -1159,6 +1183,7 @@ function SessionsView() {
           id: number; name: string; abbrev: string | null;
           confirmed: number; projected: number;
           confirmedAmt: number; projectedAmt: number;
+          unreconciledCount: number; unreconciledAmt: number;
         }>();
         for (const s of visibleSessions) {
           const id = s.company_id ?? -1;
@@ -1169,100 +1194,183 @@ function SessionsView() {
               abbrev: s.company_abbrev ?? null,
               confirmed: 0, projected: 0,
               confirmedAmt: 0, projectedAmt: 0,
+              unreconciledCount: 0, unreconciledAmt: 0,
             });
           }
           const row = byCompany.get(id)!;
-          if (s.is_confirmed) { row.confirmed += s.duration_hours; row.confirmedAmt += s.amount; }
-          else                { row.projected += s.duration_hours; row.projectedAmt += s.amount; }
+          if (s.is_confirmed) {
+            row.confirmed += s.duration_hours;
+            row.confirmedAmt += s.amount;
+            // Prepaid sessions with amount=0 will never be invoiced — don't flag as unlinked
+            if (s.invoice_line_id === null && !(s.prepaid && s.amount === 0)) {
+              row.unreconciledCount += 1;
+              row.unreconciledAmt += s.amount;
+            }
+          } else {
+            row.projected += s.duration_hours;
+            row.projectedAmt += s.amount;
+          }
         }
-        const invoiceByCompany = new Map(periodInvoices.map(inv => [inv.company_id, inv]));
+
+        // Build invoice totals per company, excluding prepaid block invoices (invoice # ends with -P).
+        // When multiple invoices exist for a company in the period (year view), sum them.
+        const billingInvoices = periodInvoices.filter(inv => !inv.invoice_number.endsWith('-P'));
+        const invoicedAmtByCompany = new Map<number, number>();
+        const invoicesByCompany = new Map<number, BillingInvoice[]>();
+        for (const inv of billingInvoices) {
+          if (inv.company_id == null) continue;
+          invoicedAmtByCompany.set(inv.company_id, (invoicedAmtByCompany.get(inv.company_id) ?? 0) + (inv.total_amount ?? 0));
+          const list = invoicesByCompany.get(inv.company_id) ?? [];
+          list.push(inv);
+          invoicesByCompany.set(inv.company_id, list);
+        }
+
+        const companyById = new Map(companies.map(co => [co.id, co]));
+        // Suppress the Unreconciled column for companies where sessions are intentionally unbilled:
+        // - billing_method = null (pro bono)
+        // - billing_method = 'payasgo' (no regular invoices)
+        // - default_rate = 0 (zero-rate regardless of billing_method, e.g. Continua)
+        const skipReconcileCheck = (id: number) => {
+          const co = companyById.get(id);
+          if (!co) return false;
+          return co.billing_method === null || co.billing_method === 'payasgo' || co.default_rate === 0;
+        };
+
         const rows = [...byCompany.values()].sort((a, b) => a.name.localeCompare(b.name));
+        const totalConfirmedHrs = rows.reduce((s, r) => s + r.confirmed, 0);
+        const totalProjectedHrs = rows.reduce((s, r) => s + r.projected, 0);
         const totalConfirmedAmt = rows.reduce((s, r) => s + r.confirmedAmt, 0);
         const totalProjectedAmt = rows.reduce((s, r) => s + r.projectedAmt, 0);
-        const totalInvoiced = rows.reduce((s, r) => s + (invoiceByCompany.get(r.id)?.total_amount ?? 0), 0);
+        const totalInvoiced = rows.reduce((s, r) => s + (invoicedAmtByCompany.get(r.id) ?? 0), 0);
+        const totalUnreconciledCount = rows.reduce((s, r) => skipReconcileCheck(r.id) ? s : s + r.unreconciledCount, 0);
+        const totalUnreconciledAmt = rows.reduce((s, r) => skipReconcileCheck(r.id) ? s : s + r.unreconciledAmt, 0);
+
+        const periodLabel = periodMonthParam
+          ? periodMonthParam
+          : `all of ${dateFilter.year}`;
 
         if (rows.length === 0) return <p className="empty-state">No sessions match the current filters.</p>;
 
         return (
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--text-sm)' }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid var(--color-border)', textAlign: 'left' }}>
-                <th style={TH}>Company</th>
-                <th style={{ ...TH, textAlign: 'right' }}>Conf. Hrs</th>
-                <th style={{ ...TH, textAlign: 'right' }}>Confirmed $</th>
-                <th style={{ ...TH, textAlign: 'right' }}>Proj. Hrs</th>
-                <th style={{ ...TH, textAlign: 'right' }}>Projected $</th>
-                <th style={{ ...TH, textAlign: 'right' }}>Invoice $</th>
-                <th style={{ ...TH, textAlign: 'right' }}>Diff</th>
-                <th style={TH}>Invoice #</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(r => {
-                const inv = invoiceByCompany.get(r.id);
-                const diff = r.confirmedAmt - (inv?.total_amount ?? 0);
-                const hasDiff = Math.abs(diff) >= 0.01;
-                return (
-                  <tr key={r.id} style={{ borderBottom: '1px solid var(--color-border-faint)' }}>
-                    <td style={{ padding: '6px 8px' }}>
-                      {r.abbrev
-                        ? <><span style={{ color: 'var(--color-text-light)', marginRight: 6 }}>{r.abbrev}</span>{r.name}</>
-                        : r.name}
-                    </td>
-                    <td style={{ padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--color-text-light)' }}>
-                      {r.confirmed.toFixed(2)}h
-                    </td>
-                    <td style={{ padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>
-                      ${r.confirmedAmt.toFixed(2)}
-                    </td>
-                    <td style={{ padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--color-text-light)' }}>
-                      {r.projected > 0 ? `${r.projected.toFixed(2)}h` : '—'}
-                    </td>
-                    <td style={{ padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--color-text-light)' }}>
-                      {r.projectedAmt > 0 ? `$${r.projectedAmt.toFixed(2)}` : '—'}
-                    </td>
-                    <td style={{ padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                      {inv ? `$${inv.total_amount!.toFixed(2)}` : <span style={{ color: 'var(--color-text-light)' }}>—</span>}
-                    </td>
-                    <td style={{
-                      padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums',
-                      color: hasDiff ? (diff > 0 ? '#c0392b' : '#27ae60') : 'var(--color-text-light)',
-                      fontWeight: hasDiff ? 600 : undefined,
-                    }}>
-                      {hasDiff ? `${diff > 0 ? '+' : ''}$${diff.toFixed(2)}` : '✓'}
-                    </td>
-                    <td style={{ padding: '6px 8px', fontSize: 'var(--text-xs)' }}>
-                      {inv
-                        ? <Link to={`/billing/invoices/${inv.id}`} style={{ color: 'var(--color-accent)', textDecoration: 'none' }}>{inv.invoice_number}</Link>
-                        : <span style={{ color: 'var(--color-text-light)' }}>—</span>}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-            <tfoot>
-              <tr style={{ borderTop: '2px solid var(--color-border)', fontWeight: 600 }}>
-                <td style={{ padding: '6px 8px', fontSize: 'var(--text-sm)' }}>Total</td>
-                <td />
-                <td style={{ padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>${totalConfirmedAmt.toFixed(2)}</td>
-                <td />
-                <td style={{ padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--color-text-light)' }}>
-                  {totalProjectedAmt > 0 ? `$${totalProjectedAmt.toFixed(2)}` : '—'}
-                </td>
-                <td style={{ padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>${totalInvoiced.toFixed(2)}</td>
-                <td style={{
-                  padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums',
-                  color: Math.abs(totalConfirmedAmt - totalInvoiced) >= 0.01 ? '#c0392b' : 'var(--color-text-light)',
-                  fontWeight: 600,
-                }}>
-                  {Math.abs(totalConfirmedAmt - totalInvoiced) >= 0.01
-                    ? `${totalConfirmedAmt - totalInvoiced > 0 ? '+' : ''}$${(totalConfirmedAmt - totalInvoiced).toFixed(2)}`
-                    : '✓'}
-                </td>
-                <td />
-              </tr>
-            </tfoot>
-          </table>
+          <>
+            <div style={{ marginBottom: 'var(--space-sm)', fontSize: 'var(--text-xs)', color: 'var(--color-text-light)', display: 'flex', alignItems: 'center', gap: 'var(--space-md)' }}>
+              <span>
+                Invoice $ = non-prepaid invoices for <strong>{periodLabel}</strong> &nbsp;·&nbsp;
+                Unreconciled = confirmed sessions with no invoice line link
+              </span>
+            </div>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--text-sm)' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--color-border)', textAlign: 'left' }}>
+                  <th style={TH}>Company</th>
+                  <th style={{ ...TH, textAlign: 'right' }}>Conf. Hrs</th>
+                  <th style={{ ...TH, textAlign: 'right' }}>Confirmed $</th>
+                  <th style={{ ...TH, textAlign: 'right' }}>Proj. Hrs</th>
+                  <th style={{ ...TH, textAlign: 'right' }}>Projected $</th>
+                  <th style={{ ...TH, textAlign: 'right' }}>Invoice $</th>
+                  <th style={{ ...TH, textAlign: 'right' }}>Unreconciled</th>
+                  <th style={TH}>Invoice(s)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map(r => {
+                  const invoicedAmt = invoicedAmtByCompany.get(r.id) ?? 0;
+                  const invList = invoicesByCompany.get(r.id) ?? [];
+                  return (
+                    <tr key={r.id} style={{ borderBottom: '1px solid var(--color-border-faint)' }}>
+                      <td style={{ padding: '6px 8px' }}>
+                        {r.abbrev
+                          ? <><span style={{ color: 'var(--color-text-light)', marginRight: 6 }}>{r.abbrev}</span>{r.name}</>
+                          : r.name}
+                      </td>
+                      <td style={{ padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--color-text-light)' }}>
+                        {r.confirmed.toFixed(2)}h
+                      </td>
+                      <td style={{ padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>
+                        ${r.confirmedAmt.toFixed(2)}
+                      </td>
+                      <td style={{ padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--color-text-light)' }}>
+                        {r.projected > 0 ? `${r.projected.toFixed(2)}h` : '—'}
+                      </td>
+                      <td style={{ padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--color-text-light)' }}>
+                        {r.projectedAmt > 0 ? `$${r.projectedAmt.toFixed(2)}` : '—'}
+                      </td>
+                      <td style={{ padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                        {invoicedAmt > 0 ? `$${invoicedAmt.toFixed(2)}` : <span style={{ color: 'var(--color-text-light)' }}>—</span>}
+                      </td>
+                      <td style={{
+                        padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums',
+                        color: r.confirmed === 0 || skipReconcileCheck(r.id) ? 'var(--color-text-light)'
+                          : r.unreconciledCount > 0 ? '#c0392b'
+                          : 'var(--color-text-light)',
+                        fontWeight: !skipReconcileCheck(r.id) && r.unreconciledCount > 0 ? 600 : undefined,
+                      }}>
+                        {r.confirmed === 0 || skipReconcileCheck(r.id)
+                          ? '—'
+                          : r.unreconciledCount > 0
+                            ? (
+                                <button
+                                  className="btn-link"
+                                  style={{ color: '#c0392b', fontWeight: 600, fontSize: 'inherit', fontVariantNumeric: 'tabular-nums' }}
+                                  title={`${r.unreconciledCount} confirmed session${r.unreconciledCount === 1 ? '' : 's'} not linked to an invoice line — click to filter`}
+                                  onClick={() => {
+                                    setCompanyId(r.id);
+                                    setUnlinkedOnly(true);
+                                    setUnconfirmedOnly(false);
+                                    if (periodMonthParam) {
+                                      const [y, m] = periodMonthParam.split('-').map(Number);
+                                      setDateFilter({ year: y, month: m, week: null });
+                                    }
+                                    setViewTab('flat');
+                                  }}
+                                >
+                                  {r.unreconciledCount} unlinked (${r.unreconciledAmt.toFixed(2)})
+                                </button>
+                              )
+                            : '✓'}
+                      </td>
+                      <td style={{ padding: '6px 8px', fontSize: 'var(--text-xs)' }}>
+                        {invList.length === 0
+                          ? <span style={{ color: 'var(--color-text-light)' }}>—</span>
+                          : invList.map((inv, i) => (
+                              <span key={inv.id}>
+                                {i > 0 && ', '}
+                                <Link to={`/billing/invoices/${inv.id}`} style={{ color: 'var(--color-accent)', textDecoration: 'none' }}>{inv.invoice_number}</Link>
+                              </span>
+                            ))}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr style={{ borderTop: '2px solid var(--color-border)', fontWeight: 600 }}>
+                  <td style={{ padding: '6px 8px', fontSize: 'var(--text-sm)' }}>Total</td>
+                  <td style={{ padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--color-text-light)' }}>
+                    {totalConfirmedHrs.toFixed(2)}h
+                  </td>
+                  <td style={{ padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>${totalConfirmedAmt.toFixed(2)}</td>
+                  <td style={{ padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--color-text-light)' }}>
+                    {totalProjectedHrs > 0 ? `${totalProjectedHrs.toFixed(2)}h` : '—'}
+                  </td>
+                  <td style={{ padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--color-text-light)' }}>
+                    {totalProjectedAmt > 0 ? `$${totalProjectedAmt.toFixed(2)}` : '—'}
+                  </td>
+                  <td style={{ padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>${totalInvoiced.toFixed(2)}</td>
+                  <td style={{
+                    padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums',
+                    color: totalUnreconciledCount > 0 ? '#c0392b' : 'var(--color-text-light)',
+                    fontWeight: 600,
+                  }}>
+                    {totalUnreconciledCount > 0
+                      ? `${totalUnreconciledCount} unlinked ($${totalUnreconciledAmt.toFixed(2)})`
+                      : totalConfirmedAmt > 0 ? '✓' : '—'}
+                  </td>
+                  <td />
+                </tr>
+              </tfoot>
+            </table>
+          </>
         );
       })()}
     </div>
@@ -2359,14 +2467,16 @@ function InvoicesListView() {
   const navigate = useNavigate();
   const [filterCompany, setFilterCompany] = useState<number | ''>('');
   const [filterStatus, setFilterStatus] = useState('');
+  const [filterUnlinked, setFilterUnlinked] = useState(false);
   const [dateFilter, setDateFilter] = useState<BillingDateState>(defaultDateFilter());
   const { data: companies = [] } = useBillingCompanies();
-  const { data: invoices = [], isLoading, refetch } = useBillingInvoices({
+  const { data: allInvoices = [], isLoading, refetch } = useBillingInvoices({
     company_id: filterCompany || undefined,
     status: filterStatus || undefined,
     period_month: dateFilter.month !== null ? `${dateFilter.year}-${String(dateFilter.month).padStart(2, '0')}` : undefined,
     period_year: dateFilter.month === null ? dateFilter.year : undefined,
   });
+  const invoices = filterUnlinked ? allInvoices.filter(inv => inv.unlinked_session_count > 0) : allInvoices;
   const deleteMut = useDeleteBillingInvoice();
   const deleteAllMut = useDeleteBillingInvoicesBulk();
   const generatePdf = useBillingGeneratePdf();
@@ -2415,7 +2525,15 @@ function InvoicesListView() {
           <option value="paid">Paid</option>
           <option value="partial">Partial</option>
         </select>
-        {invoices.length > 0 && (
+        <button
+          className="btn-link"
+          style={{ fontSize: 'var(--text-sm)', color: filterUnlinked ? '#e67e22' : 'var(--color-text-light)', fontWeight: filterUnlinked ? 600 : undefined }}
+          onClick={() => setFilterUnlinked(v => !v)}
+          title="Show only invoices with unlinked confirmed sessions"
+        >
+          {filterUnlinked ? '● ' : '○ '}Needs reconciliation
+        </button>
+        {allInvoices.length > 0 && (
           <button
             className="btn-link"
             style={{ fontSize: 'var(--text-sm)', color: '#c0392b', marginLeft: 'auto' }}
@@ -2424,12 +2542,12 @@ function InvoicesListView() {
               const label = dateFilter.month !== null
                 ? `${MONTH_LABELS[dateFilter.month - 1]} ${dateFilter.year}`
                 : String(dateFilter.year);
-              if (window.confirm(`Delete all ${invoices.length} invoice(s) for ${label}? This cannot be undone.`)) {
-                deleteAllMut.mutate(invoices.map(inv => inv.id));
+              if (window.confirm(`Delete all ${allInvoices.length} invoice(s) for ${label}? This cannot be undone.`)) {
+                deleteAllMut.mutate(allInvoices.map(inv => inv.id));
               }
             }}
           >
-            Delete All ({invoices.length})
+            Delete All ({allInvoices.length})
           </button>
         )}
       </div>
@@ -2470,7 +2588,17 @@ function InvoicesListView() {
                     <td style={{ padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
                       {inv.total_amount != null ? `$${inv.total_amount.toFixed(2)}` : '—'}
                     </td>
-                    <td style={{ padding: '6px 8px', textAlign: 'center', color: 'var(--color-text-light)' }}>{inv.session_count}</td>
+                    <td style={{ padding: '6px 8px', textAlign: 'center', color: 'var(--color-text-light)' }}>
+                      {inv.session_count}
+                      {inv.unlinked_session_count > 0 && (
+                        <span
+                          title={`${inv.unlinked_session_count} confirmed session${inv.unlinked_session_count === 1 ? '' : 's'} not linked to this invoice`}
+                          style={{ marginLeft: 5, display: 'inline-block', background: '#e67e22', color: '#fff', borderRadius: 8, fontSize: '0.68em', fontWeight: 700, padding: '1px 5px', verticalAlign: 'middle', lineHeight: 1.4 }}
+                        >
+                          +{inv.unlinked_session_count}
+                        </span>
+                      )}
+                    </td>
                     <td style={{ padding: '6px 8px', textAlign: 'center' }}>{statusBadge(inv.status)}</td>
                     <td style={{ padding: '4px 8px', whiteSpace: 'nowrap' }} onClick={e => e.stopPropagation()}>
                       <button
@@ -2592,6 +2720,163 @@ function InvoicesListView() {
 }
 
 // ---------------------------------------------------------------------------
+// Reconcile panel — link unlinked confirmed sessions to an invoice line
+// ---------------------------------------------------------------------------
+
+function ReconcilePanel({ invoice }: { invoice: BillingInvoiceDetail }) {
+  const { data: unlinked = [], isLoading } = useInvoiceUnlinkedSessions(invoice.id);
+  const reconcile = useReconcileInvoiceSessions();
+  const [checked, setChecked] = useState<Set<number>>(new Set());
+  const [selectedLineId, setSelectedLineId] = useState<number | ''>('');
+  const [open, setOpen] = useState(false);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  // Reset checked set when unlinked list changes
+  const unlinkedIds = unlinked.map(s => s.id).join(',');
+  useEffect(() => { setChecked(new Set()); }, [unlinkedIds]);
+
+  const sessionLines = invoice.lines.filter(l => l.type === 'sessions');
+
+  if (!open) {
+    const count = isLoading ? null : unlinked.length;
+    return (
+      <div style={{ marginBottom: 'var(--space-xl)' }}>
+        <button
+          className="btn-link"
+          style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-light)' }}
+          onClick={() => setOpen(true)}
+        >
+          Reconcile sessions {count != null && count > 0 ? `(${count} unlinked)` : count === 0 ? '(none unlinked)' : '…'}
+        </button>
+      </div>
+    );
+  }
+
+  function toggleAll(all: boolean) {
+    setChecked(all ? new Set(unlinked.map(s => s.id)) : new Set());
+  }
+
+  function toggle(id: number) {
+    setChecked(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  const hasLines = invoice.lines.length > 0;
+
+  function handleSave() {
+    if (checked.size === 0) return;
+    if (hasLines && !selectedLineId) return;
+    reconcile.mutate(
+      { invoiceId: invoice.id, session_ids: [...checked], line_id: hasLines ? Number(selectedLineId) : undefined },
+      {
+        onSuccess: (res) => {
+          setSuccessMsg(`Linked ${res.linked} session${res.linked === 1 ? '' : 's'}.`);
+          setChecked(new Set());
+          setTimeout(() => setSuccessMsg(null), 3000);
+        },
+      },
+    );
+  }
+
+  return (
+    <div style={{ marginBottom: 'var(--space-xl)', border: '1px solid var(--color-border)', borderRadius: 4, padding: 'var(--space-md)' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-md)', marginBottom: 'var(--space-sm)' }}>
+        <h3 style={{ margin: 0, fontSize: 'var(--text-base)' }}>Reconcile Sessions</h3>
+        <button className="btn-link" style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)' }} onClick={() => setOpen(false)}>hide</button>
+      </div>
+      <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-light)', margin: '0 0 var(--space-sm)' }}>
+        Confirmed sessions for {invoice.company_name} in {invoice.period_month} with no invoice link.
+      </p>
+
+      {isLoading && <p className="empty-state">Loading…</p>}
+
+      {!isLoading && unlinked.length === 0 && (
+        <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-light)' }}>No unlinked sessions found.</p>
+      )}
+
+      {unlinked.length > 0 && (
+        <>
+          <div style={{ display: 'flex', gap: 'var(--space-sm)', marginBottom: 'var(--space-xs)', fontSize: 'var(--text-xs)', color: 'var(--color-text-light)' }}>
+            <button className="btn-link" style={{ fontSize: 'var(--text-xs)' }} onClick={() => toggleAll(true)}>Select all</button>
+            <button className="btn-link" style={{ fontSize: 'var(--text-xs)' }} onClick={() => toggleAll(false)}>Deselect all</button>
+          </div>
+          <div style={{ overflowX: 'auto', marginBottom: 'var(--space-md)' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--text-sm)' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--color-border)', textAlign: 'left' }}>
+                  <th style={{ ...TH, width: 32 }}></th>
+                  <th style={TH}>Date</th>
+                  <th style={TH}>Client</th>
+                  <th style={{ ...TH, textAlign: 'right' }}>Hours</th>
+                  <th style={{ ...TH, textAlign: 'right' }}>Amount</th>
+                  <th style={TH}>Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {unlinked.map(s => (
+                  <tr
+                    key={s.id}
+                    style={{ borderBottom: '1px solid var(--color-border)', cursor: 'pointer', background: checked.has(s.id) ? 'var(--color-bg-subtle, rgba(0,0,0,0.03))' : undefined }}
+                    onClick={() => toggle(s.id)}
+                  >
+                    <td style={{ padding: '5px 8px' }}>
+                      <input type="checkbox" checked={checked.has(s.id)} onChange={() => toggle(s.id)} onClick={e => e.stopPropagation()} />
+                    </td>
+                    <td style={{ padding: '5px 8px', whiteSpace: 'nowrap' }}>{formatDate(s.date)}</td>
+                    <td style={{ padding: '5px 8px' }}>{s.client_name ?? s.company_name ?? '—'}</td>
+                    <td style={{ padding: '5px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{s.duration_hours.toFixed(2)}h</td>
+                    <td style={{ padding: '5px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>${s.amount.toFixed(2)}</td>
+                    <td style={{ padding: '5px 8px', color: 'var(--color-text-light)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {s.notes ?? '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div style={{ display: 'flex', gap: 'var(--space-md)', alignItems: 'center', flexWrap: 'wrap' }}>
+            {hasLines ? (
+              <label style={{ fontSize: 'var(--text-sm)' }}>
+                Link to line:{' '}
+                <select
+                  value={selectedLineId}
+                  onChange={e => setSelectedLineId(e.target.value === '' ? '' : Number(e.target.value))}
+                  style={{ fontSize: 'var(--text-sm)', marginLeft: 4 }}
+                >
+                  <option value="">— choose line —</option>
+                  {(sessionLines.length > 0 ? sessionLines : invoice.lines).map(l => (
+                    <option key={l.id} value={l.id}>
+                      {l.description ?? `Line #${l.id}`}{l.type !== 'sessions' ? ` (${l.type})` : ''}{l.amount != null ? ` ($${l.amount.toFixed(2)})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-light)' }}>
+                No line items — a sessions line will be created automatically.
+              </span>
+            )}
+            <button
+              className="btn-primary"
+              disabled={checked.size === 0 || (hasLines && !selectedLineId) || reconcile.isPending}
+              onClick={handleSave}
+            >
+              {reconcile.isPending ? 'Saving…' : `Link ${checked.size} session${checked.size === 1 ? '' : 's'}`}
+            </button>
+            {successMsg && <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-success, #2a7a2a)' }}>{successMsg}</span>}
+            {reconcile.isError && <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-error)' }}>Save failed.</span>}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Invoice detail view — /billing/invoices/:id
 // ---------------------------------------------------------------------------
 
@@ -2604,6 +2889,9 @@ function InvoiceDetailView() {
   const [editNotes, setEditNotes] = useState<string | null>(null);
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [showSendModal, setShowSendModal] = useState(false);
+  const [showAddLine, setShowAddLine] = useState(false);
+  const addLine = useAddInvoiceLine();
+  const [lineForm, setLineForm] = useState({ description: '', date_range: '', unit_cost: '', quantity: '', amount: '' });
 
   if (isLoading) return <p className="empty-state">Loading…</p>;
   if (!invoice) return <p className="empty-state">Invoice not found.</p>;
@@ -2754,10 +3042,18 @@ function InvoiceDetailView() {
       )}
 
       {/* Line items */}
-      {invoice.lines.length > 0 && (
-        <div style={{ marginBottom: 'var(--space-xl)' }}>
-          <h3 style={{ fontSize: 'var(--text-base)', marginBottom: 'var(--space-sm)' }}>Line Items</h3>
-          <div style={{ overflowX: 'auto' }}>
+      <div style={{ marginBottom: 'var(--space-xl)' }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-md)', marginBottom: 'var(--space-sm)' }}>
+          <h3 style={{ margin: 0, fontSize: 'var(--text-base)' }}>Line Items</h3>
+          {!showAddLine && (
+            <button className="btn-link" style={{ fontSize: 'var(--text-sm)' }} onClick={() => setShowAddLine(true)}>
+              + Add Line Item
+            </button>
+          )}
+        </div>
+
+        {invoice.lines.length > 0 && (
+          <div style={{ overflowX: 'auto', marginBottom: showAddLine ? 'var(--space-sm)' : 0 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--text-sm)' }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--color-border)', textAlign: 'left' }}>
@@ -2795,8 +3091,104 @@ function InvoiceDetailView() {
               </tbody>
             </table>
           </div>
-        </div>
-      )}
+        )}
+
+        {showAddLine && (
+          <div style={{ border: '1px solid var(--color-border)', borderRadius: 4, padding: 'var(--space-md)', marginTop: invoice.lines.length > 0 ? 'var(--space-sm)' : 0 }}>
+            <div style={{ fontSize: 'var(--text-sm)', fontWeight: 500, marginBottom: 'var(--space-sm)' }}>New Line Item</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr', gap: 'var(--space-sm)', marginBottom: 'var(--space-sm)' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: 'var(--text-xs)', color: 'var(--color-text-light)', marginBottom: 2 }}>Description *</label>
+                <input
+                  type="text"
+                  value={lineForm.description}
+                  onChange={e => setLineForm(f => ({ ...f, description: e.target.value }))}
+                  placeholder="e.g. Prior-period correction"
+                  style={{ width: '100%', fontSize: 'var(--text-sm)', boxSizing: 'border-box' }}
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: 'var(--text-xs)', color: 'var(--color-text-light)', marginBottom: 2 }}>Date Range</label>
+                <input
+                  type="text"
+                  value={lineForm.date_range}
+                  onChange={e => setLineForm(f => ({ ...f, date_range: e.target.value }))}
+                  placeholder="e.g. Jan 2026"
+                  style={{ width: '100%', fontSize: 'var(--text-sm)', boxSizing: 'border-box' }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: 'var(--text-xs)', color: 'var(--color-text-light)', marginBottom: 2 }}>Qty</label>
+                <input
+                  type="number"
+                  value={lineForm.quantity}
+                  onChange={e => setLineForm(f => ({ ...f, quantity: e.target.value }))}
+                  placeholder="—"
+                  min="0"
+                  step="0.01"
+                  style={{ width: '100%', fontSize: 'var(--text-sm)', boxSizing: 'border-box' }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: 'var(--text-xs)', color: 'var(--color-text-light)', marginBottom: 2 }}>Unit Cost</label>
+                <input
+                  type="number"
+                  value={lineForm.unit_cost}
+                  onChange={e => setLineForm(f => ({ ...f, unit_cost: e.target.value }))}
+                  placeholder="—"
+                  min="0"
+                  step="0.01"
+                  style={{ width: '100%', fontSize: 'var(--text-sm)', boxSizing: 'border-box' }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: 'var(--text-xs)', color: 'var(--color-text-light)', marginBottom: 2 }}>Amount *</label>
+                <input
+                  type="number"
+                  value={lineForm.amount}
+                  onChange={e => setLineForm(f => ({ ...f, amount: e.target.value }))}
+                  placeholder="0.00"
+                  step="0.01"
+                  style={{ width: '100%', fontSize: 'var(--text-sm)', boxSizing: 'border-box' }}
+                />
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 'var(--space-sm)', alignItems: 'center' }}>
+              <button
+                className="btn-primary"
+                disabled={!lineForm.description.trim() || !lineForm.amount || addLine.isPending}
+                onClick={() => {
+                  if (!invoiceId) return;
+                  addLine.mutate({
+                    invoiceId,
+                    description: lineForm.description.trim(),
+                    date_range: lineForm.date_range.trim() || undefined,
+                    unit_cost: lineForm.unit_cost ? Number(lineForm.unit_cost) : undefined,
+                    quantity: lineForm.quantity ? Number(lineForm.quantity) : undefined,
+                    amount: Number(lineForm.amount),
+                  }, {
+                    onSuccess: () => {
+                      setShowAddLine(false);
+                      setLineForm({ description: '', date_range: '', unit_cost: '', quantity: '', amount: '' });
+                    },
+                  });
+                }}
+              >
+                {addLine.isPending ? 'Saving…' : 'Add Line'}
+              </button>
+              <button
+                className="btn-link"
+                style={{ fontSize: 'var(--text-sm)' }}
+                onClick={() => { setShowAddLine(false); setLineForm({ description: '', date_range: '', unit_cost: '', quantity: '', amount: '' }); }}
+              >
+                Cancel
+              </button>
+              {addLine.isError && <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-error)' }}>Save failed.</span>}
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Sessions */}
       {invoice.sessions.length > 0 && (
@@ -2834,6 +3226,9 @@ function InvoiceDetailView() {
           </div>
         </div>
       )}
+
+      {/* Reconcile — link unlinked confirmed sessions */}
+      <ReconcilePanel invoice={invoice} />
     </div>
   );
 }
@@ -3465,6 +3860,17 @@ function PaymentsView() {
                   </tr>
                 ))}
               </tbody>
+              <tfoot>
+                <tr style={{ borderTop: '2px solid var(--color-border)', fontWeight: 600 }}>
+                  <td colSpan={2} style={{ padding: '5px 8px', fontSize: 'var(--text-sm)' }}>
+                    Total ({filteredPayments.length})
+                  </td>
+                  <td style={{ padding: '5px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                    {fmtAmt(filteredPayments.reduce((s, p) => s + Math.abs(p.amount), 0))}
+                  </td>
+                  <td colSpan={2} />
+                </tr>
+              </tfoot>
             </table>
           )}
         </div>

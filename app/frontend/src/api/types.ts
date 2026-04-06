@@ -1247,6 +1247,7 @@ export interface BillingInvoice {
   notes: string | null;
   sent_at: string | null;
   session_count: number;
+  unlinked_session_count: number;
   created_at: string;
 }
 

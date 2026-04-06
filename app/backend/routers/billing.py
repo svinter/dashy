@@ -1821,7 +1821,16 @@ def list_invoices(
     with get_db_connection(readonly=True) as db:
         q = """
             SELECT bi.*, bco.name AS company_name,
-                   COUNT(DISTINCT bs.id) AS session_count
+                   COUNT(DISTINCT bs.id) AS session_count,
+                   (
+                       SELECT COUNT(*)
+                       FROM billing_sessions us
+                       WHERE us.company_id = bi.company_id
+                         AND substr(us.date, 1, 7) = bi.period_month
+                         AND us.is_confirmed = 1
+                         AND us.dismissed = 0
+                         AND us.invoice_line_id IS NULL
+                   ) AS unlinked_session_count
             FROM billing_invoices bi
             LEFT JOIN billing_companies bco ON bco.id = bi.company_id
             LEFT JOIN billing_invoice_lines bil ON bil.invoice_id = bi.id
@@ -1981,6 +1990,149 @@ def get_invoice(invoice_id: int):
     result["lines"] = [dict(line) for line in lines]
     result["sessions"] = [_session_to_dict(s) for s in sessions]
     return result
+
+
+@router.get("/invoices/{invoice_id}/unlinked-sessions")
+def get_invoice_unlinked_sessions(invoice_id: int):
+    """Return confirmed sessions for the invoice's company/period that have no invoice_line_id."""
+    with get_db_connection(readonly=True) as db:
+        inv = db.execute(
+            "SELECT company_id, period_month FROM billing_invoices WHERE id = ?",
+            (invoice_id,),
+        ).fetchone()
+        if not inv:
+            raise HTTPException(status_code=404, detail="Invoice not found")
+
+        company_id = inv["company_id"]
+        period_month = inv["period_month"]
+        if not company_id or not period_month:
+            return []
+
+        rows = db.execute(
+            """
+            SELECT bs.*, bc.name AS client_name, bc.prepaid AS prepaid,
+                   bco.name AS company_name, bco.abbrev AS company_abbrev,
+                   NULL AS invoice_id
+            FROM billing_sessions bs
+            LEFT JOIN billing_clients bc ON bc.id = bs.client_id
+            LEFT JOIN billing_companies bco ON bco.id = bs.company_id
+            WHERE bs.company_id = ?
+              AND substr(bs.date, 1, 7) = ?
+              AND bs.is_confirmed = 1
+              AND bs.dismissed = 0
+              AND bs.invoice_line_id IS NULL
+            ORDER BY bs.date
+            """,
+            (company_id, period_month),
+        ).fetchall()
+
+    return [_session_to_dict(r) for r in rows]
+
+
+class ReconcileBody(BaseModel):
+    session_ids: list[int]
+    line_id: Optional[int] = None  # if omitted, a new sessions line is auto-created
+
+
+@router.post("/invoices/{invoice_id}/reconcile")
+def reconcile_invoice_sessions(invoice_id: int, body: ReconcileBody):
+    """Link confirmed sessions to an invoice line on this invoice.
+
+    If line_id is omitted (e.g. CSV-imported invoice with no lines), a new
+    'sessions' line is auto-created from the selected sessions' totals.
+    """
+    if not body.session_ids:
+        raise HTTPException(status_code=400, detail="No sessions provided")
+
+    with get_write_db() as db:
+        inv = db.execute(
+            "SELECT id FROM billing_invoices WHERE id = ?", (invoice_id,)
+        ).fetchone()
+        if not inv:
+            raise HTTPException(status_code=404, detail="Invoice not found")
+
+        if body.line_id is not None:
+            # Verify the line belongs to this invoice
+            line = db.execute(
+                "SELECT id FROM billing_invoice_lines WHERE id = ? AND invoice_id = ?",
+                (body.line_id, invoice_id),
+            ).fetchone()
+            if not line:
+                raise HTTPException(status_code=404, detail="Line not found on this invoice")
+            line_id = body.line_id
+        else:
+            # Auto-create a sessions line summing the selected sessions
+            placeholders = ",".join("?" * len(body.session_ids))
+            agg = db.execute(
+                f"SELECT SUM(duration_hours) AS hrs, SUM(amount) AS total "
+                f"FROM billing_sessions WHERE id IN ({placeholders})",
+                body.session_ids,
+            ).fetchone()
+            total_hrs = round(agg["hrs"] or 0, 2)
+            total_amt = round(agg["total"] or 0, 2)
+            cur = db.execute(
+                """INSERT INTO billing_invoice_lines
+                   (invoice_id, type, description, quantity, amount, sort_order)
+                   VALUES (?, 'sessions', 'Sessions', ?, ?, 1)""",
+                (invoice_id, total_hrs, total_amt),
+            )
+            line_id = cur.lastrowid
+
+        placeholders = ",".join("?" * len(body.session_ids))
+        db.execute(
+            f"UPDATE billing_sessions SET invoice_line_id = ? WHERE id IN ({placeholders})",
+            [line_id, *body.session_ids],
+        )
+        db.commit()
+
+    return {"ok": True, "linked": len(body.session_ids), "line_id": line_id}
+
+
+class AddInvoiceLineBody(BaseModel):
+    description: str
+    date_range: Optional[str] = None
+    unit_cost: Optional[float] = None
+    quantity: Optional[float] = None
+    amount: float
+
+
+@router.post("/invoices/{invoice_id}/lines", status_code=201)
+def add_invoice_line(invoice_id: int, body: AddInvoiceLineBody):
+    """Add a manual line item to an existing invoice and recompute total_amount."""
+    with get_write_db() as db:
+        inv = db.execute(
+            "SELECT id FROM billing_invoices WHERE id = ?", (invoice_id,)
+        ).fetchone()
+        if not inv:
+            raise HTTPException(status_code=404, detail="Invoice not found")
+
+        # Determine sort_order after existing lines
+        max_sort = db.execute(
+            "SELECT COALESCE(MAX(sort_order), 0) FROM billing_invoice_lines WHERE invoice_id = ?",
+            (invoice_id,),
+        ).fetchone()[0]
+
+        db.execute(
+            """INSERT INTO billing_invoice_lines
+               (invoice_id, type, description, date_range, unit_cost, quantity, amount, sort_order)
+               VALUES (?, 'manual', ?, ?, ?, ?, ?, ?)""",
+            (invoice_id, body.description, body.date_range,
+             body.unit_cost, body.quantity, body.amount, max_sort + 1),
+        )
+
+        # Recompute total_amount as sum of all lines
+        new_total = db.execute(
+            "SELECT COALESCE(SUM(amount), 0) FROM billing_invoice_lines WHERE invoice_id = ?",
+            (invoice_id,),
+        ).fetchone()[0]
+        db.execute(
+            "UPDATE billing_invoices SET total_amount = ? WHERE id = ?",
+            (round(new_total, 2), invoice_id),
+        )
+        db.commit()
+
+    # Return the full updated invoice detail
+    return get_invoice(invoice_id)
 
 
 @router.delete("/invoices/{invoice_id}")

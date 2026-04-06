@@ -2539,6 +2539,46 @@ export function useSendInvoiceEmail() {
   });
 }
 
+export function useAddInvoiceLine() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ invoiceId, ...body }: {
+      invoiceId: number;
+      description: string;
+      date_range?: string;
+      unit_cost?: number;
+      quantity?: number;
+      amount: number;
+    }) => api.post<BillingInvoiceDetail>(`/billing/invoices/${invoiceId}/lines`, body),
+    onSuccess: (_, { invoiceId }) => {
+      qc.invalidateQueries({ queryKey: ['billing-invoice', invoiceId] });
+      qc.invalidateQueries({ queryKey: ['billing-invoices'] });
+    },
+  });
+}
+
+export function useInvoiceUnlinkedSessions(invoiceId: number | null) {
+  return useQuery({
+    queryKey: ['billing-invoice-unlinked-sessions', invoiceId],
+    queryFn: () => api.get<BillingSession[]>(`/billing/invoices/${invoiceId}/unlinked-sessions`),
+    enabled: invoiceId != null,
+    staleTime: 0,
+  });
+}
+
+export function useReconcileInvoiceSessions() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ invoiceId, session_ids, line_id }: { invoiceId: number; session_ids: number[]; line_id?: number }) =>
+      api.post<{ ok: boolean; linked: number; line_id: number }>(`/billing/invoices/${invoiceId}/reconcile`, { session_ids, line_id }),
+    onSuccess: (_, { invoiceId }) => {
+      qc.invalidateQueries({ queryKey: ['billing-invoice', invoiceId] });
+      qc.invalidateQueries({ queryKey: ['billing-invoice-unlinked-sessions', invoiceId] });
+      qc.invalidateQueries({ queryKey: ['billing-sessions'] });
+    },
+  });
+}
+
 export function useBillingSummary(year: number) {
   return useQuery({
     queryKey: ['billing-summary', year],
