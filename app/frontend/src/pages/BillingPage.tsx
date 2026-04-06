@@ -73,6 +73,14 @@ function getMonthLabel(monthKey: string): string {
   return new Date(y, mo - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 }
 
+/** "Tue 4/10" — short weekday + month/day, no year, no leading zeros */
+function formatSessionDate(iso: string): string {
+  const [y, m, d] = iso.slice(0, 10).split('-').map(Number);
+  const date = new Date(y, m - 1, d);
+  const weekday = date.toLocaleDateString('en-US', { weekday: 'short' });
+  return `${weekday} ${m}/${d}`;
+}
+
 function formatDate(iso: string) {
   const d = new Date(iso);
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -599,7 +607,7 @@ function SessionRow({ session: s, companies, blocks = [], onUpdate, onDelete, on
 
   return (
     <tr>
-      <td style={{ whiteSpace: 'nowrap', fontSize: 'var(--text-sm)', paddingLeft: 24 }}>{s.date}</td>
+      <td style={{ whiteSpace: 'nowrap', fontSize: 'var(--text-sm)', paddingLeft: 24 }}>{formatSessionDate(s.date)}</td>
       {showCompanyCol && (
         <td style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)', whiteSpace: 'nowrap' }}>
           {s.company_abbrev ?? s.company_name ?? ''}
@@ -903,7 +911,7 @@ function NewSessionForm({ companies, defaultDate, onCreated, onCancel }: NewSess
 
 const TH: React.CSSProperties = { padding: '4px 8px', fontWeight: 500, color: 'var(--color-text-light)', whiteSpace: 'nowrap' };
 
-type SessionSortKey = 'date' | 'company' | 'amount';
+type SessionSortKey = 'date-desc' | 'date-asc' | 'company' | 'amount';
 type SessionViewTab = 'grouped' | 'flat' | 'summary';
 
 function SessionsView() {
@@ -915,7 +923,7 @@ function SessionsView() {
   const [showNewForm, setShowNewForm] = useState(false);
   const [refreshMsg, setRefreshMsg] = useState('');
   const refreshMut = useRefreshSessionsFromCalendar();
-  const [sortKey, setSortKey] = useState<SessionSortKey>('date');
+  const [sortKey, setSortKey] = useState<SessionSortKey>('date-desc');
 
   const { data: companies = [] } = useBillingCompanies();
   const { data: sessions = [], isLoading, refetch } = useBillingSessions({
@@ -952,7 +960,8 @@ function SessionsView() {
   const hasPrepaidSessions = visibleSessions.some(s => s.prepaid);
 
   const sessionsSorted = [...visibleSessions].sort((a, b) => {
-    if (sortKey === 'date') return a.date.localeCompare(b.date);
+    if (sortKey === 'date-desc') return b.date.localeCompare(a.date);
+    if (sortKey === 'date-asc') return a.date.localeCompare(b.date);
     if (sortKey === 'company') return (a.company_name ?? '').localeCompare(b.company_name ?? '');
     if (sortKey === 'amount') return b.amount - a.amount;
     return 0;
@@ -985,7 +994,8 @@ function SessionsView() {
         </label>
         {viewTab === 'flat' && (
           <select value={sortKey} onChange={e => setSortKey(e.target.value as SessionSortKey)} style={{ fontSize: 'var(--text-sm)' }}>
-            <option value="date">Sort: date</option>
+            <option value="date-desc">Sort: newest first</option>
+            <option value="date-asc">Sort: oldest first</option>
             <option value="company">Sort: company</option>
             <option value="amount">Sort: amount</option>
           </select>
@@ -1035,8 +1045,8 @@ function SessionsView() {
 
       {/* View tabs */}
       <div style={{ display: 'flex', gap: 0, marginBottom: 'var(--space-md)', borderBottom: '1px solid var(--color-border)' }}>
-        <button style={tabStyle(viewTab === 'grouped')} onClick={() => setViewTab('grouped')}>By Company & Date</button>
         <button style={tabStyle(viewTab === 'flat')} onClick={() => setViewTab('flat')}>By Date</button>
+        <button style={tabStyle(viewTab === 'grouped')} onClick={() => setViewTab('grouped')}>By Company & Date</button>
         <button style={tabStyle(viewTab === 'summary')} onClick={() => setViewTab('summary')}>Summary</button>
       </div>
 
@@ -1121,60 +1131,92 @@ function SessionsView() {
         </div>
       )}
 
-      {/* Tab B: flat list by date */}
-      {!isLoading && visibleSessions.length > 0 && viewTab === 'flat' && (
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--text-sm)' }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid var(--color-border)', textAlign: 'left' }}>
-                <th style={TH}>Date</th>
-                <th style={TH}>Co</th>
-                <th style={TH}>Client</th>
-                <th style={{ ...TH, textAlign: 'right' }}>#</th>
-                <th style={{ ...TH, textAlign: 'right' }}>Hrs</th>
-                <th style={{ ...TH, textAlign: 'right' }}>Rate</th>
-                <th style={{ ...TH, textAlign: 'right' }}>Amount</th>
-                <th style={{ ...TH, textAlign: 'center' }}>Status</th>
-                <th style={{ ...TH, textAlign: 'center' }}>Invoice</th>
-                <th style={{ ...TH, textAlign: 'center' }}>Note</th>
-                <th style={TH}>Notes</th>
-                {hasPrepaidSessions && <th style={TH}>Prepaid</th>}
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {sessionsSorted.map(s => (
-                <SessionRow
-                  key={s.id}
-                  session={s}
-                  companies={companies}
-                  blocks={allBlocks}
-                  showPrepaidCol={hasPrepaidSessions}
-                  onUpdate={handleUpdate}
-                  onDelete={handleDelete}
-                  onUnprocess={handleUnprocess}
-                  showCompanyCol
-                />
-              ))}
-            </tbody>
-            <tfoot>
-              <tr style={{ borderTop: '2px solid var(--color-border)', fontWeight: 600 }}>
-                <td colSpan={4} style={{ padding: '5px 8px', fontSize: 'var(--text-sm)' }}>
-                  Total ({sessionsSorted.length})
-                </td>
-                <td style={{ padding: '5px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                  {grandHours.toFixed(2)}h
-                </td>
-                <td />
-                <td style={{ padding: '5px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                  ${grandAmount.toFixed(2)}
-                </td>
-                <td colSpan={hasPrepaidSessions ? 5 : 4} />
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-      )}
+      {/* Tab B: by date, grouped by week */}
+      {!isLoading && visibleSessions.length > 0 && viewTab === 'flat' && (() => {
+        // Group sorted sessions into weeks, preserving sort order
+        const weekGroups: { weekStart: string; sessions: typeof sessionsSorted }[] = [];
+        for (const s of sessionsSorted) {
+          const ws = getWeekStart(s.date);
+          const last = weekGroups[weekGroups.length - 1];
+          if (last && last.weekStart === ws) {
+            last.sessions.push(s);
+          } else {
+            weekGroups.push({ weekStart: ws, sessions: [s] });
+          }
+        }
+        const colCount = hasPrepaidSessions ? 13 : 12;
+        return (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--text-sm)' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--color-border)', textAlign: 'left' }}>
+                  <th style={TH}>Date</th>
+                  <th style={TH}>Co</th>
+                  <th style={TH}>Client</th>
+                  <th style={{ ...TH, textAlign: 'right' }}>#</th>
+                  <th style={{ ...TH, textAlign: 'right' }}>Hrs</th>
+                  <th style={{ ...TH, textAlign: 'right' }}>Rate</th>
+                  <th style={{ ...TH, textAlign: 'right' }}>Amount</th>
+                  <th style={{ ...TH, textAlign: 'center' }}>Status</th>
+                  <th style={{ ...TH, textAlign: 'center' }}>Invoice</th>
+                  <th style={{ ...TH, textAlign: 'center' }}>Note</th>
+                  <th style={TH}>Notes</th>
+                  {hasPrepaidSessions && <th style={TH}>Prepaid</th>}
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {weekGroups.map(({ weekStart, sessions: wkSessions }) => {
+                  const wh = wkSessions.reduce((s, r) => s + r.duration_hours, 0);
+                  const wa = wkSessions.reduce((s, r) => s + r.amount, 0);
+                  return (
+                    <>
+                      <tr key={`week-${weekStart}`}>
+                        <td colSpan={colCount} style={{
+                          fontSize: 'var(--text-xs)', padding: '3px 8px',
+                          color: 'var(--color-text-light)',
+                          borderTop: '1px solid var(--color-border)',
+                        }}>
+                          {getWeekLabel(weekStart)}
+                          <span style={{ float: 'right' }}>{wh.toFixed(2)}h · ${wa.toFixed(2)}</span>
+                        </td>
+                      </tr>
+                      {wkSessions.map(s => (
+                        <SessionRow
+                          key={s.id}
+                          session={s}
+                          companies={companies}
+                          blocks={allBlocks}
+                          showPrepaidCol={hasPrepaidSessions}
+                          onUpdate={handleUpdate}
+                          onDelete={handleDelete}
+                          onUnprocess={handleUnprocess}
+                          showCompanyCol
+                        />
+                      ))}
+                    </>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr style={{ borderTop: '2px solid var(--color-border)', fontWeight: 600 }}>
+                  <td colSpan={4} style={{ padding: '5px 8px', fontSize: 'var(--text-sm)' }}>
+                    Total ({sessionsSorted.length})
+                  </td>
+                  <td style={{ padding: '5px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                    {grandHours.toFixed(2)}h
+                  </td>
+                  <td />
+                  <td style={{ padding: '5px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                    ${grandAmount.toFixed(2)}
+                  </td>
+                  <td colSpan={hasPrepaidSessions ? 5 : 4} />
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        );
+      })()}
 
       {/* Tab C: Summary by company */}
       {!isLoading && viewTab === 'summary' && (() => {
