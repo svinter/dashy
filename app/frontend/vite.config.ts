@@ -23,6 +23,10 @@ export default defineConfig({
         changeOrigin: true,
         ws: true,
       },
+      '/scripty': {
+        target: `http://localhost:${backendPort}`,
+        changeOrigin: true,
+      },
     },
   },
 })

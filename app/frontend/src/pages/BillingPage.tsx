@@ -35,6 +35,7 @@ import {
   useInvoiceUnlinkedSessions,
   useReconcileInvoiceSessions,
   useAddInvoiceLine,
+  useBillingDismissedSessions,
 } from '../api/hooks';
 import type { BillingUnprocessedEvent, BillingCompany, BillingSession, BillingPrepaidBlock, BillingInvoice, BillingInvoiceDetail, BillingSummaryData, BillingSummaryCell, BillingPayment, BillingLunchMoneySyncResult, InvoiceCompose, InvoiceLineInput, InvoiceBulkImportRow, InvoiceBulkImportResult } from '../api/types';
 
@@ -1665,7 +1666,13 @@ function UnprocessedRow({ event: ev, companies, companyAbbrev, expectedRevenue, 
               Confirm session
             </button>
             <button className="btn-link" onClick={() => onDismiss(ev)}>Dismiss</button>
-            <button className="btn-link" style={{ marginLeft: 'auto' }} onClick={() => setExpanded(false)}>Cancel</button>
+            <button className="btn-link" style={{ color: 'var(--color-text-light)' }} onClick={() => {
+              setCompanyId(ev.inferred_company_id ?? '');
+              setClientId(ev.inferred_client_id ?? '');
+              setDuration(String(ev.duration_hours.toFixed(2)));
+              setNotes('');
+              setExpanded(false);
+            }}>Cancel</button>
           </div>
         </div>
       )}
@@ -1682,9 +1689,12 @@ function UnprocessedQueue() {
   const { data: companies = [] } = useBillingCompanies();
   const confirm = useConfirmBillingSession();
   const dismiss = useDismissBillingEvent();
+  const unprocess = useUnprocessBillingSession();
 
-  const [showBanana, setShowBanana] = useState(false);
+  const [showBanana, setShowBanana] = useState(true);
+  const [showDismissed, setShowDismissed] = useState(false);
   const [dateFilter, setDateFilter] = useState<BillingDateState>(defaultDateFilter());
+  const { data: dismissedSessions = [] } = useBillingDismissedSessions();
   const [blockWarnings, setBlockWarnings] = useState<string[]>([]);
 
   // Helper: look up effective rate for an event from companies data
@@ -1778,6 +1788,10 @@ function UnprocessedQueue() {
             </button>
           );
         })()}
+        <label style={{ fontSize: 'var(--text-sm)', display: 'flex', gap: 4, alignItems: 'center' }}>
+          <input type="checkbox" checked={showDismissed} onChange={e => setShowDismissed(e.target.checked)} />
+          Show dismissed
+        </label>
         <button className="btn-link" style={{ marginLeft: 'auto' }} onClick={() => refetch()}>↻ Refresh</button>
       </div>
 
@@ -1852,6 +1866,54 @@ function UnprocessedQueue() {
           </div>
         );
       })}
+
+      {showDismissed && (
+        <div style={{ marginTop: 'var(--space-xl)' }}>
+          <div style={{
+            fontWeight: 700, fontSize: 'var(--text-sm)', padding: '5px 8px',
+            borderBottom: '2px solid var(--color-border)',
+            marginBottom: 'var(--space-sm)',
+          }}>
+            Dismissed ({dismissedSessions.length})
+          </div>
+          {dismissedSessions.length === 0 && (
+            <p className="empty-state">No dismissed sessions.</p>
+          )}
+          {dismissedSessions.map(s => (
+            <div key={s.id} style={{
+              display: 'flex', alignItems: 'center', gap: 'var(--space-sm)',
+              padding: '5px 10px', fontSize: 'var(--text-sm)',
+              border: '1px solid var(--color-border)', borderRadius: 4,
+              marginBottom: 'var(--space-xs)',
+              opacity: 0.7,
+            }}>
+              {s.color_id && colorBadge(s.color_id)}
+              <span style={{ width: 90, flexShrink: 0, color: 'var(--color-text-light)' }}>
+                {s.start_time ? formatDate(s.start_time) : s.date}
+              </span>
+              {s.client_name && (
+                <span style={{ color: 'var(--color-text-light)', width: 160, flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {s.client_name}
+                </span>
+              )}
+              {s.company_name && !s.client_name && (
+                <span style={{ color: 'var(--color-text-light)', width: 160, flexShrink: 0 }}>{s.company_name}</span>
+              )}
+              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {s.summary ?? '—'}
+              </span>
+              <button
+                className="btn-link"
+                style={{ flexShrink: 0, fontSize: 'var(--text-xs)' }}
+                title="Restore to queue"
+                onClick={() => unprocess.mutate(s.id)}
+              >
+                Restore
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

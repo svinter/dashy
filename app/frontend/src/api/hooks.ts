@@ -2245,6 +2245,7 @@ export function useUnprocessBillingSession() {
       qc.invalidateQueries({ queryKey: ['billing-sessions'] });
       qc.invalidateQueries({ queryKey: ['billing-unprocessed'] });
       qc.invalidateQueries({ queryKey: ['billing-badge-counts'] });
+      qc.invalidateQueries({ queryKey: ['billing-dismissed-sessions'] });
     },
   });
 }
@@ -2257,7 +2258,29 @@ export function useDismissBillingEvent() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['billing-unprocessed'] });
       qc.invalidateQueries({ queryKey: ['billing-badge-counts'] });
+      qc.invalidateQueries({ queryKey: ['billing-dismissed-sessions'] });
     },
+  });
+}
+
+export function useBillingDismissedSessions() {
+  return useQuery({
+    queryKey: ['billing-dismissed-sessions'],
+    queryFn: () => api.get<Array<{
+      id: number;
+      calendar_event_id: string | null;
+      date: string;
+      color_id: string | null;
+      duration_hours: number;
+      is_confirmed: boolean;
+      created_at: string;
+      summary: string | null;
+      start_time: string | null;
+      end_time: string | null;
+      client_name: string | null;
+      company_name: string | null;
+    }>>('/billing/sessions/dismissed'),
+    staleTime: 30_000,
   });
 }
 

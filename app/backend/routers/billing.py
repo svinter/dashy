@@ -1106,6 +1106,33 @@ def dismiss_session(body: SessionDismiss):
     return {"ok": True}
 
 
+@router.get("/sessions/dismissed")
+def list_dismissed_sessions():
+    """Return dismissed billing sessions (stubs and real) with calendar event info."""
+    with get_db_connection(readonly=True) as db:
+        rows = db.execute("""
+            SELECT bs.id,
+                   bs.calendar_event_id,
+                   bs.date,
+                   bs.color_id,
+                   bs.duration_hours,
+                   bs.is_confirmed,
+                   bs.created_at,
+                   ce.summary,
+                   ce.start_time,
+                   ce.end_time,
+                   bc.name  AS client_name,
+                   bco.name AS company_name
+            FROM billing_sessions bs
+            LEFT JOIN calendar_events ce ON ce.id = bs.calendar_event_id
+            LEFT JOIN billing_clients bc ON bc.id = bs.client_id
+            LEFT JOIN billing_companies bco ON bco.id = bs.company_id
+            WHERE bs.dismissed = 1
+            ORDER BY bs.date DESC, bs.id DESC
+        """).fetchall()
+    return [dict(r) for r in rows]
+
+
 @router.get("/sessions")
 def list_sessions(
     company_id: Optional[int] = None,
@@ -1121,7 +1148,7 @@ def list_sessions(
                 SELECT id,
                        ROW_NUMBER() OVER (PARTITION BY client_id ORDER BY date, id) AS rn
                 FROM billing_sessions
-                WHERE client_id IS NOT NULL AND dismissed = 0
+                WHERE client_id IS NOT NULL AND dismissed = 0 AND is_confirmed = 1
             ),
             latest_blocks AS (
                 -- Most recently created block per client (by id)
@@ -1139,7 +1166,7 @@ def list_sessions(
                        ) AS cumulative_block_hours
                 FROM billing_sessions bs2
                 JOIN latest_blocks lb ON lb.client_id = bs2.client_id
-                WHERE bs2.dismissed = 0
+                WHERE bs2.dismissed = 0 AND bs2.is_confirmed = 1
                   AND (lb.starting_after_date IS NULL OR bs2.date > lb.starting_after_date)
             )
             SELECT bs.*,
@@ -1156,7 +1183,7 @@ def list_sessions(
             LEFT JOIN billing_invoice_lines bil ON bil.id = bs.invoice_line_id
             LEFT JOIN sno ON sno.id = bs.id
             LEFT JOIN block_cum ON block_cum.id = bs.id
-            WHERE bs.dismissed = 0 AND (bs.client_id IS NOT NULL OR bs.company_id IS NOT NULL)
+            WHERE bs.dismissed = 0 AND bs.is_confirmed = 1
         """
         params: list = []
         if company_id:

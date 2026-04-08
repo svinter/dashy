@@ -62,6 +62,7 @@ from routers import (
     projects_api,
     ramp_api,
     sandbox,
+    scripty,
     search,
     sheets_api,
     slack_api,
@@ -95,8 +96,21 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
         # Sandbox app files get a relaxed CSP so they can load CDN libraries
         is_sandbox_file = request.url.path.startswith("/api/sandbox/apps/") and "/files/" in request.url.path
+        # Scripty UI needs inline scripts (self-contained page, no external deps)
+        is_scripty = request.url.path == "/scripty"
 
-        if is_sandbox_file:
+        if is_scripty:
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'self'; "
+                "script-src 'self' 'unsafe-inline'; "
+                "style-src 'self' 'unsafe-inline'; "
+                "img-src 'self' data:; "
+                f"connect-src 'self' ws://{host}; "
+                "font-src 'self'; "
+                "frame-src 'none'; "
+                "object-src 'none'"
+            )
+        elif is_sandbox_file:
             cdns = "https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://unpkg.com"
             response.headers["Content-Security-Policy"] = (
                 "default-src 'self'; "
@@ -173,6 +187,7 @@ app.include_router(whatsapp.router)
 app.include_router(agent_chat.router)
 app.include_router(changes.router)
 app.include_router(sandbox.router)
+app.include_router(scripty.router)
 
 # GraphQL knowledge graph API
 from graphql_api import graphql_app
