@@ -969,7 +969,7 @@ def confirm_session(body: SessionConfirm):
         if not ev:
             raise HTTPException(status_code=404, detail="Calendar event not found")
 
-        is_confirmed = ev["color_id"] == "3"
+        is_confirmed = True  # user explicitly confirmed; _promote_banana_sessions handles color update later
         date_str = ev["start_time"][:10]
 
         if body.client_id:
@@ -1266,6 +1266,31 @@ def refresh_sessions_from_calendar():
     with get_write_db() as db:
         promoted = _promote_banana_sessions(db)
     return {"promoted": promoted}
+
+
+@router.post("/sessions/sync-calendar")
+def sync_calendar_and_refresh():
+    """Synchronously pull latest events from Google Calendar, then promote banana→grape sessions.
+
+    Runs in the request thread so the caller can wait for completion before
+    re-fetching the unprocessed queue.  Returns counts of synced events and
+    promoted sessions.
+    """
+    synced = 0
+    promoted = 0
+    try:
+        from connectors.calendar_sync import sync_calendar_events
+        synced = sync_calendar_events()
+    except ImportError:
+        raise HTTPException(status_code=503, detail="Calendar connector not available")
+    except Exception as e:
+        logger.exception("Calendar sync failed")
+        raise HTTPException(status_code=500, detail=str(e))
+
+    with get_write_db() as db:
+        promoted = _promote_banana_sessions(db)
+
+    return {"synced": synced, "promoted": promoted}
 
 
 @router.post("/sessions/relink")

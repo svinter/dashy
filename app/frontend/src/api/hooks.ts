@@ -2374,6 +2374,17 @@ export function useRefreshSessionsFromCalendar() {
   });
 }
 
+export function useBillingSyncCalendar() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<{ synced: number; promoted: number }>('/billing/sessions/sync-calendar', {}),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['billing-unprocessed'] });
+      qc.invalidateQueries({ queryKey: ['billing-sessions'] });
+    },
+  });
+}
+
 export function useDeleteBillingSession() {
   const qc = useQueryClient();
   return useMutation({

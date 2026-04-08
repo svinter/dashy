@@ -36,6 +36,7 @@ import {
   useReconcileInvoiceSessions,
   useAddInvoiceLine,
   useBillingDismissedSessions,
+  useBillingSyncCalendar,
 } from '../api/hooks';
 import type { BillingUnprocessedEvent, BillingCompany, BillingSession, BillingPrepaidBlock, BillingInvoice, BillingInvoiceDetail, BillingSummaryData, BillingSummaryCell, BillingPayment, BillingLunchMoneySyncResult, InvoiceCompose, InvoiceLineInput, InvoiceBulkImportRow, InvoiceBulkImportResult } from '../api/types';
 
@@ -1690,9 +1691,11 @@ function UnprocessedQueue() {
   const confirm = useConfirmBillingSession();
   const dismiss = useDismissBillingEvent();
   const unprocess = useUnprocessBillingSession();
+  const syncCalendar = useBillingSyncCalendar();
 
   const [showBanana, setShowBanana] = useState(true);
   const [showDismissed, setShowDismissed] = useState(false);
+  const [syncMsg, setSyncMsg] = useState('');
   const [dateFilter, setDateFilter] = useState<BillingDateState>(defaultDateFilter());
   const { data: dismissedSessions = [] } = useBillingDismissedSessions();
   const [blockWarnings, setBlockWarnings] = useState<string[]>([]);
@@ -1792,7 +1795,29 @@ function UnprocessedQueue() {
           <input type="checkbox" checked={showDismissed} onChange={e => setShowDismissed(e.target.checked)} />
           Show dismissed
         </label>
-        <button className="btn-link" style={{ marginLeft: 'auto' }} onClick={() => refetch()}>↻ Refresh</button>
+        {syncMsg && (
+          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)' }}>{syncMsg}</span>
+        )}
+        <button
+          className="btn-link"
+          style={{ marginLeft: 'auto' }}
+          disabled={syncCalendar.isPending}
+          title="Sync Google Calendar, promote banana→grape, then reload queue"
+          onClick={() => {
+            setSyncMsg('');
+            syncCalendar.mutate(undefined, {
+              onSuccess: (r) => {
+                const parts = [];
+                if (r.synced) parts.push(`${r.synced} events synced`);
+                if (r.promoted) parts.push(`${r.promoted} promoted`);
+                setSyncMsg(parts.length ? parts.join(', ') : 'Up to date');
+              },
+              onError: () => setSyncMsg('Sync failed'),
+            });
+          }}
+        >
+          {syncCalendar.isPending ? '…' : '↻ Refresh'}
+        </button>
       </div>
 
       {visible.length === 0 && (
