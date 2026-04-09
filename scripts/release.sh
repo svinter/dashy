@@ -19,14 +19,11 @@ LATEST_VERSION="${LATEST_TAG#v}"  # strip leading 'v'
 if [ -n "${1:-}" ]; then
     VERSION="$1"
 else
-    # Auto-increment patch version
-    if [ -z "$LATEST_VERSION" ]; then
-        VERSION="1.0.0"
-    else
-        IFS='.' read -r MAJOR MINOR PATCH <<< "$LATEST_VERSION"
-        VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))"
+    read -p "old version=${LATEST_VERSION:-none}; new version? " VERSION
+    if [ -z "$VERSION" ]; then
+        echo "Aborted."
+        exit 0
     fi
-    echo "Auto-selected version: v${VERSION} (previous: ${LATEST_TAG:-none})"
 fi
 
 # Ensure tag doesn't already exist
@@ -85,17 +82,12 @@ echo "$NOTES"
 echo ""
 
 # --- Tag and release ---
-read -p "Create release? [Y/n] " -n 1 -r REPLY
+git tag "v${VERSION}"
+git push origin "v${VERSION}"
+gh repo set-default svinter/dashy
+gh release create "v${VERSION}" "$DMG_PATH" \
+    --title "$TITLE" \
+    --notes "$NOTES"
 echo ""
-if [[ ! "$REPLY" =~ ^[Nn]$ ]]; then
-    git tag "v${VERSION}"
-    git push origin "v${VERSION}"
-    gh release create "v${VERSION}" "$DMG_PATH" \
-        --title "$TITLE" \
-        --notes "$NOTES"
-    echo ""
-    echo "=== Released v${VERSION} ==="
-    echo "https://github.com/$(gh repo view --json nameWithOwner -q .nameWithOwner)/releases/tag/v${VERSION}"
-else
-    echo "Aborted. Tag not created. DMG is at $DMG_PATH"
-fi
+echo "=== Released v${VERSION} ==="
+echo "https://github.com/$(gh repo view --json nameWithOwner -q .nameWithOwner)/releases/tag/v${VERSION}"
