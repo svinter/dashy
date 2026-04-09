@@ -2194,7 +2194,7 @@ export function useBillingSeedStatus() {
 export function useImportBillingSeed() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (force = false) => api.post(`/billing/seed/import${force ? '?force=true' : ''}`, {}),
+    mutationFn: (force: boolean) => api.post(`/billing/seed/import${force ? '?force=true' : ''}`, {}),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['billing-companies'] });
       qc.invalidateQueries({ queryKey: ['billing-seed-status'] });

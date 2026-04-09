@@ -38,7 +38,7 @@ import {
   useBillingDismissedSessions,
   useBillingSyncCalendar,
 } from '../api/hooks';
-import type { BillingUnprocessedEvent, BillingCompany, BillingSession, BillingPrepaidBlock, BillingInvoice, BillingInvoiceDetail, BillingSummaryData, BillingSummaryCell, BillingPayment, BillingLunchMoneySyncResult, InvoiceCompose, InvoiceLineInput, InvoiceBulkImportRow, InvoiceBulkImportResult } from '../api/types';
+import type { BillingUnprocessedEvent, BillingCompany, BillingSession, BillingPrepaidBlock, BillingInvoice, BillingInvoiceDetail, BillingSummaryData, BillingSummaryCell, BillingPayment, BillingLunchMoneySyncResult, InvoiceLineInput, InvoiceBulkImportRow, InvoiceBulkImportResult } from '../api/types';
 
 // ---------------------------------------------------------------------------
 // Demo Mode context — hides all dollar amounts across the billing module
@@ -101,10 +101,6 @@ function useBillingScope() { return useContext(BillingScopeContext); }
 // Date / grouping helpers
 // ---------------------------------------------------------------------------
 
-function currentMonth() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-}
 
 /** ISO date string → Monday of that week (YYYY-MM-DD) */
 function getWeekStart(dateStr: string): string {
@@ -307,30 +303,7 @@ function groupSessions(sessions: BillingSession[]): MonthSessionMap {
   return months;
 }
 
-type WeekEventMap = Map<string, Map<string, BillingUnprocessedEvent[]>>;  // weekStart → company → events
-type MonthEventMap = Map<string, WeekEventMap>;
 
-function groupEvents(
-  events: BillingUnprocessedEvent[],
-  clientCompanyMap: Map<number, string>,
-): MonthEventMap {
-  const months: MonthEventMap = new Map();
-  for (const ev of events) {
-    const date = ev.start_time.slice(0, 10);
-    const monthKey = date.slice(0, 7);
-    const weekStart = getWeekStart(date);
-    const company = ev.inferred_client_id
-      ? (clientCompanyMap.get(ev.inferred_client_id) ?? '(unassigned)')
-      : '(unassigned)';
-    if (!months.has(monthKey)) months.set(monthKey, new Map());
-    const weeks = months.get(monthKey)!;
-    if (!weeks.has(weekStart)) weeks.set(weekStart, new Map());
-    const companies = weeks.get(weekStart)!;
-    if (!companies.has(company)) companies.set(company, []);
-    companies.get(company)!.push(ev);
-  }
-  return months;
-}
 
 // Sorted descending (newest first) for display
 function sortedMonthEntries<V>(map: Map<string, V>): [string, V][] {
@@ -342,112 +315,6 @@ function sortedWeekEntries<V>(map: Map<string, V>): [string, V][] {
 }
 
 // ---------------------------------------------------------------------------
-// Inline editable cell
-// ---------------------------------------------------------------------------
-
-interface EditableCellProps {
-  value: string | number | null;
-  type?: 'text' | 'number' | 'date';
-  step?: string;
-  style?: React.CSSProperties;
-  onCommit: (val: string) => void;
-}
-
-function EditableCell({ value, type = 'text', step, style, onCommit }: EditableCellProps) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState('');
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  function startEdit() {
-    setDraft(value === null ? '' : String(value));
-    setEditing(true);
-  }
-
-  useEffect(() => {
-    if (editing) inputRef.current?.select();
-  }, [editing]);
-
-  function commit() {
-    setEditing(false);
-    if (draft !== String(value ?? '')) onCommit(draft);
-  }
-
-  if (editing) {
-    return (
-      <input
-        ref={inputRef}
-        type={type}
-        step={step}
-        value={draft}
-        onChange={e => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={e => {
-          if (e.key === 'Enter') commit();
-          if (e.key === 'Escape') setEditing(false);
-        }}
-        style={{ width: '100%', fontSize: 'inherit', padding: '1px 4px', ...style }}
-      />
-    );
-  }
-
-  return (
-    <span
-      onClick={startEdit}
-      title="Click to edit"
-      style={{ cursor: 'text', borderBottom: '1px dashed var(--color-border)', ...style }}
-    >
-      {value ?? <span style={{ opacity: 0.35 }}>—</span>}
-    </span>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Client selector cell
-// ---------------------------------------------------------------------------
-
-interface ClientSelectCellProps {
-  clientId: number | null;
-  companies: BillingCompany[];
-  onCommit: (clientId: number) => void;
-}
-
-function ClientSelectCell({ clientId, companies, onCommit }: ClientSelectCellProps) {
-  const [editing, setEditing] = useState(false);
-  const allClients = companies.flatMap(co => co.clients.map(cl => ({ ...cl, company_name: co.name })));
-  const current = allClients.find(cl => cl.id === clientId);
-
-  if (editing) {
-    return (
-      <select
-        autoFocus
-        value={clientId ?? ''}
-        onChange={e => { setEditing(false); if (e.target.value) onCommit(Number(e.target.value)); }}
-        onBlur={() => setEditing(false)}
-        style={{ fontSize: 'inherit' }}
-      >
-        <option value="">— select —</option>
-        {companies.map(co => (
-          <optgroup key={co.id} label={co.name}>
-            {co.clients.filter(cl => cl.active).map(cl => (
-              <option key={cl.id} value={cl.id}>{cl.name}</option>
-            ))}
-          </optgroup>
-        ))}
-      </select>
-    );
-  }
-
-  return (
-    <span
-      onClick={() => setEditing(true)}
-      title="Click to edit"
-      style={{ cursor: 'pointer', borderBottom: '1px dashed var(--color-border)' }}
-    >
-      {current?.name ?? <span style={{ opacity: 0.35 }}>—</span>}
-    </span>
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Session number inline-edit cell
 // ---------------------------------------------------------------------------
@@ -1742,7 +1609,7 @@ function UnprocessedRow({ event: ev, companies, companyAbbrev, expectedRevenue, 
 
 function UnprocessedQueue() {
   const { demo } = useDemoMode();
-  const { data, isLoading, refetch } = useBillingUnprocessed();
+  const { data, isLoading } = useBillingUnprocessed();
   const { data: companies = [] } = useBillingCompanies();
   const confirm = useConfirmBillingSession();
   const dismiss = useDismissBillingEvent();
@@ -2042,13 +1909,6 @@ function formatPeriod(periodMonth: string | null) {
 // Invoice list view — /billing/invoices
 // ---------------------------------------------------------------------------
 
-function prevMonth() {
-  const d = new Date();
-  const m = d.getMonth(); // 0-based
-  const y = d.getFullYear();
-  if (m === 0) return `${y - 1}-12`;
-  return `${y}-${String(m).padStart(2, '0')}`;
-}
 
 
 // ---------------------------------------------------------------------------
@@ -2668,8 +2528,8 @@ function InvoicesListView() {
   const navigate = useNavigate();
   const [filterStatus, setFilterStatus] = useState('');
   const [filterUnlinked, setFilterUnlinked] = useState(false);
-  const { data: scopeCompanies = [] } = useBillingCompanies();
-  const groupIds = resolveGroupIds(company, scopeCompanies);
+  const { data: companies = [] } = useBillingCompanies();
+  const groupIds = resolveGroupIds(company, companies);
   const apiCompanyId = !groupIds && company ? Number(company) : undefined;
   const { data: allInvoices = [], isLoading, refetch } = useBillingInvoices({
     company_id: apiCompanyId,
@@ -3102,7 +2962,7 @@ function InvoiceDetailView() {
 
   function handleStatusChange(newStatus: string) {
     if (!invoiceId) return;
-    update.mutate({ id: invoiceId, status: newStatus });
+    update.mutate({ id: invoiceId, status: newStatus as 'draft' | 'sent' | 'paid' | 'partial' });
   }
 
   function commitNotes() {
@@ -3719,9 +3579,9 @@ function SummaryView() {
 
   const tabStyle = (active: boolean): React.CSSProperties => ({
     padding: '3px 12px', fontSize: 'var(--text-sm)', cursor: 'pointer',
-    borderBottom: active ? '2px solid var(--color-fg)' : '2px solid transparent',
-    color: active ? 'var(--color-fg)' : 'var(--color-text-light)',
-    background: 'none', border: 'none', borderBottom: active ? '2px solid var(--color-fg)' : '2px solid transparent',
+    color: active ? 'var(--color-text-light)' : 'var(--color-text-light)',
+    background: 'none', border: 'none', borderBottom: active ? '2px solid #333' : '2px solid transparent',
+    fontWeight: active ? 600 : undefined,
   });
 
   return (
@@ -3906,7 +3766,7 @@ function PaymentsView() {
     setShowAllInvoices(false);
   }
 
-  function toggleInvoice(invId: number, inv: BillingInvoice, defaultAmt: number) {
+  function toggleInvoice(invId: number, _inv: BillingInvoice, defaultAmt: number) {
     setPendingMap(prev => {
       const cur = prev[invId];
       if (cur) return { ...prev, [invId]: { ...cur, checked: !cur.checked } };
@@ -4147,7 +4007,7 @@ function PaymentsView() {
                               <span style={{ fontVariantNumeric: 'tabular-nums' }}>{inv.invoice_number}</span>
                               {isSuggested && <span style={{ color: '#e9a040', marginLeft: 4 }}>◑</span>}
                               <span style={{ color: 'var(--color-text-light)', marginLeft: 4, fontSize: 'var(--text-xs)' }}>
-                                {fmtAmt(inv.total_amount, demo)}
+                                {fmtAmt(inv.total_amount ?? 0, demo)}
                               </span>
                             </span>
                             {isChecked && (

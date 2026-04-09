@@ -37,9 +37,6 @@ function uid() {
   return Math.random().toString(36).slice(2);
 }
 
-function getMonthLabel(year: number, month: number) {
-  return new Date(year, month - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-}
 
 function formatSessionDates(dates: string[]): string {
   const sorted = [...new Set(dates)].sort();
@@ -370,8 +367,8 @@ function ExpensePanel({
 
 function Stage3({
   companies,
-  includedProjectedIds,
-  expenses,
+  includedProjectedIds: _includedProjectedIds,
+  expenses: _expenses,
   draftByCompany,
   invoiceDate,
   servicesDate,
@@ -652,6 +649,7 @@ function StageBreadcrumb({ stage }: { stage: number }) {
 
 export function InvoicePrepPage() {
   const { year: yearStr, month: monthStr } = useParams<{ year: string; month: string }>();
+  const navigate = useNavigate();
   const year = parseInt(yearStr ?? '0');
   const month = parseInt(monthStr ?? '0');
 
