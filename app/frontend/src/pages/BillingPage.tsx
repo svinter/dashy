@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, createContext, useContext } from 'react';
 import { NavLink, Link, Routes, Route, Navigate, useMatch, useNavigate, useParams } from 'react-router-dom';
 import { InvoicePrepPage } from './InvoicePrepPage';
 import {
@@ -39,6 +39,63 @@ import {
   useBillingSyncCalendar,
 } from '../api/hooks';
 import type { BillingUnprocessedEvent, BillingCompany, BillingSession, BillingPrepaidBlock, BillingInvoice, BillingInvoiceDetail, BillingSummaryData, BillingSummaryCell, BillingPayment, BillingLunchMoneySyncResult, InvoiceCompose, InvoiceLineInput, InvoiceBulkImportRow, InvoiceBulkImportResult } from '../api/types';
+
+// ---------------------------------------------------------------------------
+// Demo Mode context — hides all dollar amounts across the billing module
+// ---------------------------------------------------------------------------
+
+interface DemoModeCtx { demo: boolean; toggle: () => void; }
+const DemoModeContext = createContext<DemoModeCtx>({ demo: false, toggle: () => {} });
+export function useDemoMode() { return useContext(DemoModeContext); }
+
+// ---------------------------------------------------------------------------
+// Billing scope context — global year / month / company persisted for session
+// ---------------------------------------------------------------------------
+
+// company is a string: '' = all, numeric string = single company ID,
+// or a group key constant below.
+const SCOPE_COMPANY_PREPAID  = 'g:prepaid';   // companies with at least one prepaid client
+const SCOPE_COMPANY_PERIODIC = 'g:periodic';  // invoice-billed companies with no prepaid clients
+
+interface BillingScopeCtx {
+  year: number;
+  month: number | null;   // 1–12, null = all months
+  company: string;        // '' | numeric-string | group key
+  setYear: (y: number) => void;
+  setMonth: (m: number | null) => void;
+  setCompany: (c: string) => void;
+}
+
+function defaultScope(): Pick<BillingScopeCtx, 'year' | 'month' | 'company'> {
+  const d = new Date();
+  // d.getMonth() is 0-based; its value equals the previous month in 1-based numbering
+  const prevMonth = d.getMonth(); // 0 means January → previous month is December
+  return {
+    year: prevMonth === 0 ? d.getFullYear() - 1 : d.getFullYear(),
+    month: prevMonth === 0 ? 12 : prevMonth,
+    company: '',
+  };
+}
+
+/**
+ * For group filter keys, returns the set of company IDs that match.
+ * Returns null when company is '' (all) or a single numeric company.
+ */
+function resolveGroupIds(company: string, companies: BillingCompany[]): Set<number> | null {
+  if (company === SCOPE_COMPANY_PREPAID)
+    return new Set(companies.filter(co => co.clients.some(cl => cl.prepaid)).map(co => co.id));
+  if (company === SCOPE_COMPANY_PERIODIC)
+    return new Set(companies.filter(co => co.billing_method === 'invoice' && !co.clients.some(cl => cl.prepaid)).map(co => co.id));
+  return null;
+}
+
+const BillingScopeContext = createContext<BillingScopeCtx>({
+  ...defaultScope(),
+  setYear: () => {},
+  setMonth: () => {},
+  setCompany: () => {},
+});
+function useBillingScope() { return useContext(BillingScopeContext); }
 
 // ---------------------------------------------------------------------------
 // Date / grouping helpers
@@ -445,6 +502,7 @@ interface SessionRowProps {
 }
 
 function SessionRow({ session: s, companies, blocks = [], onUpdate, onDelete, onUnprocess, showCompanyCol = false, showPrepaidCol = false }: SessionRowProps) {
+  const { demo } = useDemoMode();
   const effectiveRate = s.rate ?? null;
   const [editOpen, setEditOpen] = useState(false);
 
@@ -569,7 +627,7 @@ function SessionRow({ session: s, companies, blocks = [], onUpdate, onDelete, on
 
             {resolvedRate != null && (
               <span style={{ color: 'var(--color-text-light)', fontSize: 'var(--text-xs)' }}>
-                → <strong>${previewAmt.toFixed(2)}</strong>
+                → <strong>{demo ? '—' : `$${previewAmt.toFixed(2)}`}</strong>
                 {fClient?.prepaid && ' (prepaid)'}
               </span>
             )}
@@ -629,10 +687,10 @@ function SessionRow({ session: s, companies, blocks = [], onUpdate, onDelete, on
         {s.duration_hours.toFixed(2)}h
       </td>
       <td style={{ textAlign: 'right', fontSize: 'var(--text-sm)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
-        {effectiveRate != null ? `$${effectiveRate}` : <span style={{ opacity: 0.4, fontSize: 'var(--text-xs)' }}>—</span>}
+        {demo ? '—' : effectiveRate != null ? `$${effectiveRate}` : <span style={{ opacity: 0.4, fontSize: 'var(--text-xs)' }}>—</span>}
       </td>
       <td style={{ textAlign: 'right', fontSize: 'var(--text-sm)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
-        ${s.amount.toFixed(2)}
+        {demo ? '—' : `$${s.amount.toFixed(2)}`}
       </td>
       <td style={{ textAlign: 'center', fontSize: 'var(--text-xs)' }}>
         {!s.is_confirmed ? (
@@ -709,6 +767,7 @@ interface CompanyGroupProps {
 }
 
 function CompanyGroup({ companyName, sessions, companies, blocks = [], showPrepaidCol = false, onUpdate, onDelete, onUnprocess }: CompanyGroupProps) {
+  const { demo } = useDemoMode();
   const totalHours = sessions.reduce((s, r) => s + r.duration_hours, 0);
   const totalAmount = sessions.reduce((s, r) => s + r.amount, 0);
   // Date + Client + # + Hrs + Rate + Amount + Status + Invoice + Note + Notes + Prepaid(cond) + Actions
@@ -731,7 +790,7 @@ function CompanyGroup({ companyName, sessions, companies, blocks = [], showPrepa
         }}>
           {companyName}
           <span style={{ float: 'right', fontWeight: 400 }}>
-            {totalHours.toFixed(2)}h · ${totalAmount.toFixed(2)}
+            {totalHours.toFixed(2)}h · {demo ? '—' : `$${totalAmount.toFixed(2)}`}
           </span>
         </td>
       </tr>
@@ -744,7 +803,7 @@ function CompanyGroup({ companyName, sessions, companies, blocks = [], showPrepa
               <tr key={`client-${clientName}`}>
                 <td colSpan={colCount} style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)', padding: '2px 8px 2px 28px', fontStyle: 'italic' }}>
                   {clientName}
-                  <span style={{ float: 'right' }}>{ch.toFixed(2)}h · ${ca.toFixed(2)}</span>
+                  <span style={{ float: 'right' }}>{ch.toFixed(2)}h · {demo ? '—' : `$${ca.toFixed(2)}`}</span>
                 </td>
               </tr>
             )}
@@ -770,6 +829,7 @@ interface NewSessionFormProps {
 }
 
 function NewSessionForm({ companies, defaultDate, onCreated, onCancel }: NewSessionFormProps) {
+  const { demo } = useDemoMode();
   const today = new Date().toISOString().slice(0, 10);
   const [date, setDate] = useState(defaultDate ?? today);
   const [companyId, setCompanyId] = useState<number | ''>('');
@@ -877,7 +937,7 @@ function NewSessionForm({ companies, defaultDate, onCreated, onCancel }: NewSess
         {/* Amount preview */}
         {effectiveRate != null && (
           <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-light)', paddingBottom: 4 }}>
-            → <strong>${previewAmount.toFixed(2)}</strong>
+            → <strong>{demo ? '—' : `$${previewAmount.toFixed(2)}`}</strong>
             {selectedClient?.prepaid && ' (prepaid)'}
           </span>
         )}
@@ -917,8 +977,8 @@ type SessionSortKey = 'date-desc' | 'date-asc' | 'company' | 'amount';
 type SessionViewTab = 'grouped' | 'flat' | 'summary';
 
 function SessionsView() {
-  const [dateFilter, setDateFilter] = useState<BillingDateState>(defaultDateFilter);
-  const [companyId, setCompanyId] = useState<number | ''>('');
+  const { demo } = useDemoMode();
+  const { year, month, company, setCompany } = useBillingScope();
   const [unconfirmedOnly, setUnconfirmedOnly] = useState(false);
   const [unlinkedOnly, setUnlinkedOnly] = useState(false);
   const [viewTab, setViewTab] = useState<SessionViewTab>('flat');
@@ -927,19 +987,22 @@ function SessionsView() {
   const refreshMut = useRefreshSessionsFromCalendar();
   const [sortKey, setSortKey] = useState<SessionSortKey>('date-desc');
 
+  const monthParam = month !== null ? `${year}-${String(month).padStart(2, '0')}` : String(year);
   const { data: companies = [] } = useBillingCompanies();
+  const groupIds = resolveGroupIds(company, companies);
+  const apiCompanyId = !groupIds && company ? Number(company) : undefined;
   const { data: sessions = [], isLoading, refetch } = useBillingSessions({
-    month: dateFilterToMonthParam(dateFilter),
-    company_id: companyId || undefined,
+    month: monthParam,
+    company_id: apiCompanyId,
     unconfirmed_only: unconfirmedOnly || undefined,
   });
   // Load invoices for the current period for side-by-side comparison in summary tab
-  const periodMonthParam = dateFilter.month !== null
-    ? `${dateFilter.year}-${String(dateFilter.month).padStart(2, '0')}`
+  const periodMonthParam = month !== null
+    ? `${year}-${String(month).padStart(2, '0')}`
     : undefined;
   const { data: periodInvoices = [] } = useBillingInvoices({
     period_month: periodMonthParam,
-    period_year: dateFilter.month === null ? dateFilter.year : undefined,
+    period_year: month === null ? year : undefined,
   });
   const update = useUpdateBillingSession();
   const del = useDeleteBillingSession();
@@ -950,9 +1013,9 @@ function SessionsView() {
   function handleDelete(id: number) { del.mutate(id); }
   function handleUnprocess(id: number) { unprocess.mutate(id); }
 
-  // Apply week and unlinked filters client-side (month/year filter handled by API)
+  // Apply unlinked and group-company filters client-side
   const visibleSessions = sessions.filter(s =>
-    (dateFilter.week === null || matchesDateFilter(s.date, dateFilter)) &&
+    (!groupIds || (s.company_id !== null && groupIds.has(s.company_id))) &&
     (!unlinkedOnly || (s.is_confirmed && s.invoice_line_id === null))
   );
 
@@ -981,11 +1044,6 @@ function SessionsView() {
       {/* Toolbar */}
       <div style={{ display: 'flex', gap: 'var(--space-md)', alignItems: 'center', marginBottom: 'var(--space-sm)', flexWrap: 'wrap' }}>
         <h2 style={{ margin: 0 }}>Sessions</h2>
-        <BillingDateFilter value={dateFilter} onChange={setDateFilter} />
-        <select value={companyId} onChange={e => setCompanyId(e.target.value ? Number(e.target.value) : '')} style={{ fontSize: 'var(--text-sm)' }}>
-          <option value="">All companies</option>
-          {companies.filter(co => co.active).map(co => <option key={co.id} value={co.id}>{co.name}</option>)}
-        </select>
         <label style={{ fontSize: 'var(--text-sm)', display: 'flex', gap: 4, alignItems: 'center' }}>
           <input type="checkbox" checked={unconfirmedOnly} onChange={e => setUnconfirmedOnly(e.target.checked)} />
           Unprocessed only
@@ -1004,12 +1062,12 @@ function SessionsView() {
         )}
         {viewTab === 'summary' && (
           <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)' }}>
-            {periodMonthParam ? `invoices for ${periodMonthParam} (excl. prepaid)` : `invoices for ${dateFilter.year} (excl. prepaid)`}
+            {periodMonthParam ? `invoices for ${periodMonthParam} (excl. prepaid)` : `invoices for ${year} (excl. prepaid)`}
           </span>
         )}
         {visibleSessions.length > 0 && (
           <span style={{ marginLeft: 'auto', fontSize: 'var(--text-sm)', color: 'var(--color-text-light)' }}>
-            {grandHours.toFixed(2)}h · <strong>${grandAmount.toFixed(2)}</strong>
+            {grandHours.toFixed(2)}h · <strong>{demo ? '—' : `$${grandAmount.toFixed(2)}`}</strong>
           </span>
         )}
         <button className="btn-secondary" style={{ fontSize: 'var(--text-sm)' }}
@@ -1090,7 +1148,7 @@ function SessionsView() {
                       }}>
                         {getMonthLabel(monthKey)}
                         <span style={{ float: 'right', fontWeight: 400, color: 'var(--color-text-light)' }}>
-                          {mh.toFixed(2)}h · ${ma.toFixed(2)}
+                          {mh.toFixed(2)}h · {demo ? '—' : `$${ma.toFixed(2)}`}
                         </span>
                       </td>
                     </tr>
@@ -1106,7 +1164,7 @@ function SessionsView() {
                               borderTop: '1px solid var(--color-border)',
                             }}>
                               {getWeekLabel(weekStart)}
-                              <span style={{ float: 'right' }}>{wh.toFixed(2)}h · ${wa.toFixed(2)}</span>
+                              <span style={{ float: 'right' }}>{wh.toFixed(2)}h · {demo ? '—' : `$${wa.toFixed(2)}`}</span>
                             </td>
                           </tr>
                           {sortedCompanyEntries([...companyMap.entries()]).map(([companyName, companySessions]) => (
@@ -1180,7 +1238,7 @@ function SessionsView() {
                           borderTop: '1px solid var(--color-border)',
                         }}>
                           {getWeekLabel(weekStart)}
-                          <span style={{ float: 'right' }}>{wh.toFixed(2)}h · ${wa.toFixed(2)}</span>
+                          <span style={{ float: 'right' }}>{wh.toFixed(2)}h · {demo ? '—' : `$${wa.toFixed(2)}`}</span>
                         </td>
                       </tr>
                       {wkSessions.map(s => (
@@ -1210,7 +1268,7 @@ function SessionsView() {
                   </td>
                   <td />
                   <td style={{ padding: '5px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                    ${grandAmount.toFixed(2)}
+                    {demo ? '—' : `$${grandAmount.toFixed(2)}`}
                   </td>
                   <td colSpan={hasPrepaidSessions ? 5 : 4} />
                 </tr>
@@ -1291,7 +1349,7 @@ function SessionsView() {
 
         const periodLabel = periodMonthParam
           ? periodMonthParam
-          : `all of ${dateFilter.year}`;
+          : `all of ${year}`;
 
         if (rows.length === 0) return <p className="empty-state">No sessions match the current filters.</p>;
 
@@ -1331,16 +1389,16 @@ function SessionsView() {
                         {r.confirmed.toFixed(2)}h
                       </td>
                       <td style={{ padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>
-                        ${r.confirmedAmt.toFixed(2)}
+                        {demo ? '—' : `$${r.confirmedAmt.toFixed(2)}`}
                       </td>
                       <td style={{ padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--color-text-light)' }}>
                         {r.projected > 0 ? `${r.projected.toFixed(2)}h` : '—'}
                       </td>
                       <td style={{ padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--color-text-light)' }}>
-                        {r.projectedAmt > 0 ? `$${r.projectedAmt.toFixed(2)}` : '—'}
+                        {r.projectedAmt > 0 ? (demo ? '—' : `$${r.projectedAmt.toFixed(2)}`) : '—'}
                       </td>
                       <td style={{ padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                        {invoicedAmt > 0 ? `$${invoicedAmt.toFixed(2)}` : <span style={{ color: 'var(--color-text-light)' }}>—</span>}
+                        {invoicedAmt > 0 ? (demo ? '—' : `$${invoicedAmt.toFixed(2)}`) : <span style={{ color: 'var(--color-text-light)' }}>—</span>}
                       </td>
                       <td style={{
                         padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums',
@@ -1358,17 +1416,13 @@ function SessionsView() {
                                   style={{ color: '#c0392b', fontWeight: 600, fontSize: 'inherit', fontVariantNumeric: 'tabular-nums' }}
                                   title={`${r.unreconciledCount} confirmed session${r.unreconciledCount === 1 ? '' : 's'} not linked to an invoice line — click to filter`}
                                   onClick={() => {
-                                    setCompanyId(r.id);
+                                    setCompany(String(r.id));
                                     setUnlinkedOnly(true);
                                     setUnconfirmedOnly(false);
-                                    if (periodMonthParam) {
-                                      const [y, m] = periodMonthParam.split('-').map(Number);
-                                      setDateFilter({ year: y, month: m, week: null });
-                                    }
                                     setViewTab('flat');
                                   }}
                                 >
-                                  {r.unreconciledCount} unlinked (${r.unreconciledAmt.toFixed(2)})
+                                  {r.unreconciledCount} unlinked {demo ? '' : `($${r.unreconciledAmt.toFixed(2)})`}
                                 </button>
                               )
                             : '✓'}
@@ -1393,21 +1447,21 @@ function SessionsView() {
                   <td style={{ padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--color-text-light)' }}>
                     {totalConfirmedHrs.toFixed(2)}h
                   </td>
-                  <td style={{ padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>${totalConfirmedAmt.toFixed(2)}</td>
+                  <td style={{ padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{demo ? '—' : `$${totalConfirmedAmt.toFixed(2)}`}</td>
                   <td style={{ padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--color-text-light)' }}>
                     {totalProjectedHrs > 0 ? `${totalProjectedHrs.toFixed(2)}h` : '—'}
                   </td>
                   <td style={{ padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--color-text-light)' }}>
-                    {totalProjectedAmt > 0 ? `$${totalProjectedAmt.toFixed(2)}` : '—'}
+                    {totalProjectedAmt > 0 ? (demo ? '—' : `$${totalProjectedAmt.toFixed(2)}`) : '—'}
                   </td>
-                  <td style={{ padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>${totalInvoiced.toFixed(2)}</td>
+                  <td style={{ padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{demo ? '—' : `$${totalInvoiced.toFixed(2)}`}</td>
                   <td style={{
                     padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums',
                     color: totalUnreconciledCount > 0 ? '#c0392b' : 'var(--color-text-light)',
                     fontWeight: 600,
                   }}>
                     {totalUnreconciledCount > 0
-                      ? `${totalUnreconciledCount} unlinked ($${totalUnreconciledAmt.toFixed(2)})`
+                      ? `${totalUnreconciledCount} unlinked${demo ? '' : ` ($${totalUnreconciledAmt.toFixed(2)})`}`
                       : totalConfirmedAmt > 0 ? '✓' : '—'}
                   </td>
                   <td />
@@ -1444,6 +1498,7 @@ interface RowProps {
 }
 
 function UnprocessedRow({ event: ev, companies, companyAbbrev, expectedRevenue, onConfirm, onDismiss }: RowProps) {
+  const { demo } = useDemoMode();
   const [expanded, setExpanded] = useState(false);
 
   // Company selector — pre-filled from inferred company
@@ -1537,7 +1592,7 @@ function UnprocessedRow({ event: ev, companies, companyAbbrev, expectedRevenue, 
         </span>
         {displayRevenue != null && (
           <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-light)', width: 60, flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
-            ${displayRevenue.toFixed(2)}
+            {demo ? '—' : `$${displayRevenue.toFixed(2)}`}
           </span>
         )}
         <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 'var(--space-xs)', flexShrink: 0 }}>
@@ -1626,7 +1681,7 @@ function UnprocessedRow({ event: ev, companies, companyAbbrev, expectedRevenue, 
             {/* Rate preview (client path) */}
             {selectedClient && effectiveRate && !noClient && (
               <div style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-light)', alignSelf: 'flex-end', paddingBottom: 4 }}>
-                ${effectiveRate}/hr → <strong>${(parseFloat(duration || '0') * effectiveRate).toFixed(2)}</strong>
+                {demo ? '—' : `$${effectiveRate}/hr → `}{demo ? '' : <strong>{`$${(parseFloat(duration || '0') * effectiveRate).toFixed(2)}`}</strong>}
                 {selectedClient.prepaid && <span style={{ marginLeft: 6 }}>(prepaid)</span>}
               </div>
             )}
@@ -1634,7 +1689,7 @@ function UnprocessedRow({ event: ev, companies, companyAbbrev, expectedRevenue, 
             {/* Company rate preview (no-client path) */}
             {noClient && selectedCompany?.default_rate && (
               <div style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-light)', alignSelf: 'flex-end', paddingBottom: 4 }}>
-                ${selectedCompany.default_rate}/hr → <strong>${(parseFloat(duration || '0') * selectedCompany.default_rate).toFixed(2)}</strong>
+                {demo ? '—' : `$${selectedCompany.default_rate}/hr → `}{demo ? '' : <strong>{`$${(parseFloat(duration || '0') * selectedCompany.default_rate).toFixed(2)}`}</strong>}
               </div>
             )}
           </div>
@@ -1686,6 +1741,7 @@ function UnprocessedRow({ event: ev, companies, companyAbbrev, expectedRevenue, 
 // ---------------------------------------------------------------------------
 
 function UnprocessedQueue() {
+  const { demo } = useDemoMode();
   const { data, isLoading, refetch } = useBillingUnprocessed();
   const { data: companies = [] } = useBillingCompanies();
   const confirm = useConfirmBillingSession();
@@ -1693,10 +1749,10 @@ function UnprocessedQueue() {
   const unprocess = useUnprocessBillingSession();
   const syncCalendar = useBillingSyncCalendar();
 
+  const { year, month, company } = useBillingScope();
   const [showBanana, setShowBanana] = useState(true);
   const [showDismissed, setShowDismissed] = useState(false);
   const [syncMsg, setSyncMsg] = useState('');
-  const [dateFilter, setDateFilter] = useState<BillingDateState>(defaultDateFilter());
   const { data: dismissedSessions = [] } = useBillingDismissedSessions();
   const [blockWarnings, setBlockWarnings] = useState<string[]>([]);
 
@@ -1729,11 +1785,26 @@ function UnprocessedQueue() {
     return co?.abbrev ?? co?.name ?? null;
   }
 
+  const groupIds = resolveGroupIds(company, companies);
+  const singleCoId = !groupIds && company ? Number(company) : null;
+
   const events = data?.events ?? [];
   const visible = events
     .filter(ev => {
       if (!showBanana && ev.color_id === '5') return false;
-      if (!matchesDateFilter(ev.start_time.slice(0, 10), dateFilter)) return false;
+      const dateStr = ev.start_time.slice(0, 10);
+      const evYear = Number(dateStr.slice(0, 4));
+      const evMonth = Number(dateStr.slice(5, 7));
+      if (evYear !== year) return false;
+      if (month !== null && evMonth !== month) return false;
+      if (company) {
+        const coId = ev.inferred_company_id;
+        if (groupIds !== null) {
+          if (!coId || !groupIds.has(coId)) return false;
+        } else {
+          if (coId !== singleCoId) return false;
+        }
+      }
       return true;
     })
     .sort((a, b) => a.start_time.localeCompare(b.start_time));
@@ -1766,10 +1837,9 @@ function UnprocessedQueue() {
           <input type="checkbox" checked={showBanana} onChange={e => setShowBanana(e.target.checked)} />
           Show banana
         </label>
-        <BillingDateFilter value={dateFilter} onChange={setDateFilter} />
         {visible.length > 0 && (
           <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-light)' }}>
-            {visible.length} events · {totalHours.toFixed(2)}h · <strong>${totalRevenue.toFixed(2)}</strong>
+            {visible.length} events · {totalHours.toFixed(2)}h · <strong>{demo ? '—' : `$${totalRevenue.toFixed(2)}`}</strong>
           </span>
         )}
         {(() => {
@@ -1856,7 +1926,7 @@ function UnprocessedQueue() {
             }}>
               <span>{getMonthLabel(monthKey)}</span>
               <span style={{ fontWeight: 400, color: 'var(--color-text-light)' }}>
-                {mEvents.length} events · {mHours.toFixed(2)}h · <strong style={{ color: 'var(--color-fg)' }}>${mRevenue.toFixed(2)}</strong>
+                {mEvents.length} events · {mHours.toFixed(2)}h · <strong style={{ color: 'var(--color-fg)' }}>{demo ? '—' : `$${mRevenue.toFixed(2)}`}</strong>
               </span>
             </div>
 
@@ -2593,19 +2663,23 @@ function NewInvoiceModal({ companies, onClose }: NewInvoiceModalProps) {
 }
 
 function InvoicesListView() {
+  const { demo } = useDemoMode();
+  const { year, month, company } = useBillingScope();
   const navigate = useNavigate();
-  const [filterCompany, setFilterCompany] = useState<number | ''>('');
   const [filterStatus, setFilterStatus] = useState('');
   const [filterUnlinked, setFilterUnlinked] = useState(false);
-  const [dateFilter, setDateFilter] = useState<BillingDateState>(defaultDateFilter());
-  const { data: companies = [] } = useBillingCompanies();
+  const { data: scopeCompanies = [] } = useBillingCompanies();
+  const groupIds = resolveGroupIds(company, scopeCompanies);
+  const apiCompanyId = !groupIds && company ? Number(company) : undefined;
   const { data: allInvoices = [], isLoading, refetch } = useBillingInvoices({
-    company_id: filterCompany || undefined,
+    company_id: apiCompanyId,
     status: filterStatus || undefined,
-    period_month: dateFilter.month !== null ? `${dateFilter.year}-${String(dateFilter.month).padStart(2, '0')}` : undefined,
-    period_year: dateFilter.month === null ? dateFilter.year : undefined,
+    period_month: month !== null ? `${year}-${String(month).padStart(2, '0')}` : undefined,
+    period_year: month === null ? year : undefined,
   });
-  const invoices = filterUnlinked ? allInvoices.filter(inv => inv.unlinked_session_count > 0) : allInvoices;
+  const invoices = allInvoices
+    .filter(inv => !groupIds || (inv.company_id !== null && groupIds.has(inv.company_id)))
+    .filter(inv => !filterUnlinked || inv.unlinked_session_count > 0);
   const deleteMut = useDeleteBillingInvoice();
   const deleteAllMut = useDeleteBillingInvoicesBulk();
   const generatePdf = useBillingGeneratePdf();
@@ -2637,16 +2711,11 @@ function InvoicesListView() {
     <div>
       <div style={{ display: 'flex', gap: 'var(--space-md)', alignItems: 'center', marginBottom: 'var(--space-sm)', flexWrap: 'wrap' }}>
         <h2 style={{ margin: 0 }}>Invoices</h2>
-        <BillingDateFilter value={dateFilter} onChange={setDateFilter} hideWeeks />
         <button className="btn-secondary" style={{ fontSize: 'var(--text-sm)' }} onClick={() => setShowNewInvoice(true)}>+ New Invoice</button>
         <button className="btn-link" style={{ fontSize: 'var(--text-sm)' }} onClick={() => setShowImportCsv(true)}>Import CSV</button>
         <button className="btn-link" style={{ marginLeft: 'auto', fontSize: 'var(--text-sm)' }} onClick={() => refetch()}>↻</button>
       </div>
       <div style={{ display: 'flex', gap: 'var(--space-md)', alignItems: 'center', marginBottom: 'var(--space-md)', flexWrap: 'wrap' }}>
-        <select value={filterCompany} onChange={e => setFilterCompany(e.target.value ? Number(e.target.value) : '')} style={{ fontSize: 'var(--text-sm)' }}>
-          <option value="">All companies</option>
-          {companies.map(co => <option key={co.id} value={co.id}>{co.name}</option>)}
-        </select>
         <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{ fontSize: 'var(--text-sm)' }}>
           <option value="">All statuses</option>
           <option value="draft">Draft</option>
@@ -2668,9 +2737,9 @@ function InvoicesListView() {
             style={{ fontSize: 'var(--text-sm)', color: '#c0392b', marginLeft: 'auto' }}
             disabled={deleteAllMut.isPending}
             onClick={() => {
-              const label = dateFilter.month !== null
-                ? `${MONTH_LABELS[dateFilter.month - 1]} ${dateFilter.year}`
-                : String(dateFilter.year);
+              const label = month !== null
+                ? `${MONTH_LABELS[month - 1]} ${year}`
+                : String(year);
               if (window.confirm(`Delete all ${allInvoices.length} invoice(s) for ${label}? This cannot be undone.`)) {
                 deleteAllMut.mutate(allInvoices.map(inv => inv.id));
               }
@@ -2715,7 +2784,7 @@ function InvoicesListView() {
                     <td style={{ padding: '6px 8px', color: 'var(--color-text-light)' }}>{formatPeriod(inv.period_month)}</td>
                     <td style={{ padding: '6px 8px', color: 'var(--color-text-light)' }}>{inv.invoice_date ? formatDate(inv.invoice_date) : '—'}</td>
                     <td style={{ padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                      {inv.total_amount != null ? `$${inv.total_amount.toFixed(2)}` : '—'}
+                      {demo ? '—' : inv.total_amount != null ? `$${inv.total_amount.toFixed(2)}` : '—'}
                     </td>
                     <td style={{ padding: '6px 8px', textAlign: 'center', color: 'var(--color-text-light)' }}>
                       {inv.session_count}
@@ -2787,7 +2856,7 @@ function InvoicesListView() {
                     Total ({invoices.length} invoice{invoices.length !== 1 ? 's' : ''})
                   </td>
                   <td style={{ padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize: 'var(--text-sm)' }}>
-                    ${invoices.reduce((sum, inv) => sum + (inv.total_amount ?? 0), 0).toFixed(2)}
+                    {demo ? '—' : `$${invoices.reduce((sum, inv) => sum + (inv.total_amount ?? 0), 0).toFixed(2)}`}
                   </td>
                   <td colSpan={4} />
                 </tr>
@@ -2853,6 +2922,7 @@ function InvoicesListView() {
 // ---------------------------------------------------------------------------
 
 function ReconcilePanel({ invoice }: { invoice: BillingInvoiceDetail }) {
+  const { demo } = useDemoMode();
   const { data: unlinked = [], isLoading } = useInvoiceUnlinkedSessions(invoice.id);
   const reconcile = useReconcileInvoiceSessions();
   const [checked, setChecked] = useState<Set<number>>(new Set());
@@ -2979,7 +3049,7 @@ function ReconcilePanel({ invoice }: { invoice: BillingInvoiceDetail }) {
                   <option value="">— choose line —</option>
                   {(sessionLines.length > 0 ? sessionLines : invoice.lines).map(l => (
                     <option key={l.id} value={l.id}>
-                      {l.description ?? `Line #${l.id}`}{l.type !== 'sessions' ? ` (${l.type})` : ''}{l.amount != null ? ` ($${l.amount.toFixed(2)})` : ''}
+                      {l.description ?? `Line #${l.id}`}{l.type !== 'sessions' ? ` (${l.type})` : ''}{l.amount != null && !demo ? ` ($${l.amount.toFixed(2)})` : ''}
                     </option>
                   ))}
                 </select>
@@ -3010,6 +3080,7 @@ function ReconcilePanel({ invoice }: { invoice: BillingInvoiceDetail }) {
 // ---------------------------------------------------------------------------
 
 function InvoiceDetailView() {
+  const { demo } = useDemoMode();
   const { id } = useParams<{ id: string }>();
   const invoiceId = id ? Number(id) : null;
   const { data: invoice, isLoading } = useBillingInvoice(invoiceId);
@@ -3075,7 +3146,7 @@ function InvoiceDetailView() {
         {invoice.services_date && <span>Services through: <strong style={{ color: 'var(--color-fg)' }}>{formatDate(invoice.services_date)}</strong></span>}
         <span>Due: <strong style={{ color: 'var(--color-fg)' }}>{invoice.due_date ? formatDate(invoice.due_date) : '—'}</strong></span>
         {invoice.total_amount != null && (
-          <span>Total: <strong style={{ color: 'var(--color-fg)', fontSize: 'var(--text-base)' }}>${invoice.total_amount.toFixed(2)}</strong></span>
+          <span>Total: <strong style={{ color: 'var(--color-fg)', fontSize: 'var(--text-base)' }}>{demo ? '—' : `$${invoice.total_amount.toFixed(2)}`}</strong></span>
         )}
       </div>
 
@@ -3204,17 +3275,17 @@ function InvoiceDetailView() {
                       {line.quantity != null ? line.quantity.toFixed(2) : '—'}
                     </td>
                     <td style={{ padding: '5px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                      {line.unit_cost != null ? `$${line.unit_cost.toFixed(2)}` : '—'}
+                      {line.unit_cost != null ? (demo ? '—' : `$${line.unit_cost.toFixed(2)}`) : '—'}
                     </td>
                     <td style={{ padding: '5px 8px', textAlign: 'right', fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>
-                      {line.amount != null ? `$${line.amount.toFixed(2)}` : '—'}
+                      {line.amount != null ? (demo ? '—' : `$${line.amount.toFixed(2)}`) : '—'}
                     </td>
                   </tr>
                 ))}
                 <tr style={{ borderTop: '2px solid var(--color-border)' }}>
                   <td colSpan={5} style={{ padding: '5px 8px', textAlign: 'right', fontWeight: 600 }}>Total</td>
                   <td style={{ padding: '5px 8px', textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
-                    {invoice.total_amount != null ? `$${invoice.total_amount.toFixed(2)}` : '—'}
+                    {invoice.total_amount != null ? (demo ? '—' : `$${invoice.total_amount.toFixed(2)}`) : '—'}
                   </td>
                 </tr>
               </tbody>
@@ -3342,9 +3413,9 @@ function InvoiceDetailView() {
                     <td style={{ padding: '5px 8px' }}>{s.client_name ?? s.company_name ?? '—'}</td>
                     <td style={{ padding: '5px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{s.duration_hours.toFixed(2)}h</td>
                     <td style={{ padding: '5px 8px', textAlign: 'right', color: 'var(--color-text-light)', fontVariantNumeric: 'tabular-nums' }}>
-                      {s.rate != null ? `$${s.rate}` : '—'}
+                      {s.rate != null ? (demo ? '—' : `$${s.rate}`) : '—'}
                     </td>
-                    <td style={{ padding: '5px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>${s.amount.toFixed(2)}</td>
+                    <td style={{ padding: '5px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{demo ? '—' : `$${s.amount.toFixed(2)}`}</td>
                     <td style={{ padding: '5px 8px', color: 'var(--color-text-light)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {s.notes ?? '—'}
                     </td>
@@ -3366,7 +3437,8 @@ function InvoiceDetailView() {
 // Summary helpers
 // ---------------------------------------------------------------------------
 
-function fmtAmt(n: number) {
+function fmtAmt(n: number, demo = false) {
+  if (demo) return '—';
   return n === 0 ? '—' : `$${Math.round(n).toLocaleString('en-US')}`;
 }
 
@@ -3392,6 +3464,7 @@ function bestStatus(statuses: string | null | undefined): string {
 }
 
 function SummaryCell({ cell, isCurrent }: { cell: BillingSummaryCell | null; isCurrent: boolean }) {
+  const { demo } = useDemoMode();
   if (!cell) return <span style={{ color: 'var(--color-border)' }}>—</span>;
 
   if (cell.invoiced !== null) {
@@ -3399,7 +3472,7 @@ function SummaryCell({ cell, isCurrent }: { cell: BillingSummaryCell | null; isC
     return (
       <span>
         <span style={{ color: STATUS_DOT[status] ?? '#aaa', fontSize: '0.65em', marginRight: 3 }}>●</span>
-        {fmtAmt(cell.invoiced)}
+        {fmtAmt(cell.invoiced, demo)}
       </span>
     );
   }
@@ -3412,14 +3485,14 @@ function SummaryCell({ cell, isCurrent }: { cell: BillingSummaryCell | null; isC
   if (confirmed && projected) {
     return (
       <span>
-        <span style={{ color: isCurrent ? 'var(--color-fg)' : 'var(--color-accent)' }}>{fmtAmt(confirmed)}</span>
+        <span style={{ color: isCurrent ? 'var(--color-fg)' : 'var(--color-accent)' }}>{fmtAmt(confirmed, demo)}</span>
         <br />
-        <span style={{ color: 'var(--color-text-light)', fontSize: '0.85em' }}>~{fmtAmt(projected)}</span>
+        <span style={{ color: 'var(--color-text-light)', fontSize: '0.85em' }}>~{fmtAmt(projected, demo)}</span>
       </span>
     );
   }
-  if (confirmed) return <span style={{ color: isCurrent ? 'var(--color-fg)' : 'var(--color-accent)' }}>{fmtAmt(confirmed)}</span>;
-  return <span style={{ color: 'var(--color-text-light)', fontStyle: 'italic' }}>~{fmtAmt(projected)}</span>;
+  if (confirmed) return <span style={{ color: isCurrent ? 'var(--color-fg)' : 'var(--color-accent)' }}>{fmtAmt(confirmed, demo)}</span>;
+  return <span style={{ color: 'var(--color-text-light)', fontStyle: 'italic' }}>~{fmtAmt(projected, demo)}</span>;
 }
 
 // ---------------------------------------------------------------------------
@@ -3440,6 +3513,7 @@ function cellVisible(cell: BillingSummaryCell | null, filter: StatusFilter): boo
 }
 
 function BillingGrid({ data, statusFilter = 'all' }: { data: BillingSummaryData; statusFilter?: StatusFilter }) {
+  const { demo } = useDemoMode();
   const { months, companies, current_month } = data;
 
   // Compute per-cell visibility then totals from visible cells only
@@ -3540,7 +3614,7 @@ function BillingGrid({ data, statusFilter = 'all' }: { data: BillingSummaryData;
                   );
                 })}
                 <td style={{ ...TD, fontWeight: 600, borderLeft: '1px solid var(--color-border)' }}>
-                  {coRowTotal > 0 ? fmtAmt(coRowTotal) : <span style={{ color: 'var(--color-border)' }}>—</span>}
+                  {coRowTotal > 0 ? fmtAmt(coRowTotal, demo) : <span style={{ color: 'var(--color-border)' }}>—</span>}
                 </td>
               </tr>
             );
@@ -3551,11 +3625,11 @@ function BillingGrid({ data, statusFilter = 'all' }: { data: BillingSummaryData;
             <td style={{ padding: '4px 8px', fontWeight: 600, fontSize: 'var(--text-sm)' }}>Total</td>
             {activeMonths.map(m => (
               <td key={m} style={{ ...TD, fontWeight: 600 }}>
-                {monthTotals[months.indexOf(m)] > 0 ? fmtAmt(monthTotals[months.indexOf(m)]) : <span style={{ color: 'var(--color-border)' }}>—</span>}
+                {monthTotals[months.indexOf(m)] > 0 ? fmtAmt(monthTotals[months.indexOf(m)], demo) : <span style={{ color: 'var(--color-border)' }}>—</span>}
               </td>
             ))}
             <td style={{ ...TD, fontWeight: 700, borderLeft: '1px solid var(--color-border)' }}>
-              {fmtAmt(grandTotal)}
+              {fmtAmt(grandTotal, demo)}
             </td>
           </tr>
           {statusFilter === 'all' && (
@@ -3565,12 +3639,12 @@ function BillingGrid({ data, statusFilter = 'all' }: { data: BillingSummaryData;
                 const amt = monthUnpaidTotals[months.indexOf(m)];
                 return (
                   <td key={m} style={{ ...TD, fontWeight: 500, color: 'var(--color-text-light)' }}>
-                    {amt > 0 ? fmtAmt(amt) : <span style={{ color: 'var(--color-border)' }}>—</span>}
+                    {amt > 0 ? fmtAmt(amt, demo) : <span style={{ color: 'var(--color-border)' }}>—</span>}
                   </td>
                 );
               })}
               <td style={{ ...TD, fontWeight: 600, borderLeft: '1px solid var(--color-border)', color: 'var(--color-text-light)' }}>
-                {grandUnpaid > 0 ? fmtAmt(grandUnpaid) : '—'}
+                {grandUnpaid > 0 ? fmtAmt(grandUnpaid, demo) : '—'}
               </td>
             </tr>
           )}
@@ -3585,6 +3659,7 @@ function BillingGrid({ data, statusFilter = 'all' }: { data: BillingSummaryData;
 // ---------------------------------------------------------------------------
 
 function CashReceivedView({ data }: { data: BillingSummaryData }) {
+  const { demo } = useDemoMode();
   const { months, current_month, payments_by_month, payments_total } = data;
   const activeMonths = months.filter(m => m <= current_month || payments_by_month[m] > 0);
 
@@ -3608,7 +3683,7 @@ function CashReceivedView({ data }: { data: BillingSummaryData }) {
                   {label}
                 </td>
                 <td style={{ padding: '4px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                  {amt > 0 ? `$${amt.toFixed(2)}` : <span style={{ color: 'var(--color-border)' }}>—</span>}
+                  {amt > 0 ? (demo ? '—' : `$${amt.toFixed(2)}`) : <span style={{ color: 'var(--color-border)' }}>—</span>}
                 </td>
               </tr>
             );
@@ -3618,7 +3693,7 @@ function CashReceivedView({ data }: { data: BillingSummaryData }) {
           <tr style={{ borderTop: '2px solid var(--color-border)' }}>
             <td style={{ padding: '4px 8px', fontWeight: 600 }}>Total</td>
             <td style={{ padding: '4px 8px', textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
-              {payments_total > 0 ? `$${payments_total.toFixed(2)}` : <span style={{ color: 'var(--color-text-light)' }}>—</span>}
+              {payments_total > 0 ? (demo ? '—' : `$${payments_total.toFixed(2)}`) : <span style={{ color: 'var(--color-text-light)' }}>—</span>}
             </td>
           </tr>
         </tfoot>
@@ -3637,13 +3712,11 @@ function CashReceivedView({ data }: { data: BillingSummaryData }) {
 // ---------------------------------------------------------------------------
 
 function SummaryView() {
-  const currentYear = new Date().getFullYear();
-  const [year, setYear] = useState(currentYear);
+  const { year } = useBillingScope();
   const [tab, setTab] = useState<'billing' | 'cash'>('billing');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const { data, isLoading, refetch } = useBillingSummary(year);
 
-  const yearOptions = Array.from({ length: 4 }, (_, i) => currentYear - 1 + i);
   const tabStyle = (active: boolean): React.CSSProperties => ({
     padding: '3px 12px', fontSize: 'var(--text-sm)', cursor: 'pointer',
     borderBottom: active ? '2px solid var(--color-fg)' : '2px solid transparent',
@@ -3655,9 +3728,6 @@ function SummaryView() {
     <div>
       <div style={{ display: 'flex', gap: 'var(--space-md)', alignItems: 'center', marginBottom: 'var(--space-md)', flexWrap: 'wrap' }}>
         <h2 style={{ margin: 0 }}>Summary</h2>
-        <select value={year} onChange={e => setYear(Number(e.target.value))} style={{ fontSize: 'var(--text-sm)' }}>
-          {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
-        </select>
         <Link to={`/billing/annual/${year}`} style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-light)' }}>
           Annual view →
         </Link>
@@ -3765,8 +3835,9 @@ function initPendingMap(p: BillingPayment): Record<number, InvCheck> {
 }
 
 function PaymentsView() {
+  const { demo } = useDemoMode();
+  const { year, month } = useBillingScope();
   const [showUnmatchedOnly, setShowUnmatchedOnly] = useState(false);
-  const [dateFilter, setDateFilter] = useState<BillingDateState>(defaultDateFilter());
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [pendingMap, setPendingMap] = useState<Record<number, InvCheck>>({});
   const [saving, setSaving] = useState(false);
@@ -3781,7 +3852,13 @@ function PaymentsView() {
   const removeMut = useRemoveBillingPaymentAssignment();
   const updatePaymentMut = useUpdateBillingPayment();
 
-  const filteredPayments = payments.filter(p => matchesDateFilter(p.date, dateFilter));
+  useEffect(() => { setSelectedId(null); setPendingMap({}); }, [year, month]);
+
+  const filteredPayments = payments.filter(p => {
+    const yr = Number(p.date.slice(0, 4));
+    const mo = Number(p.date.slice(5, 7));
+    return yr === year && (month === null || mo === month);
+  });
   const openInvoices = allInvoices.filter(inv => !['paid', 'cancelled'].includes(inv.status));
   const selected = filteredPayments.find(p => p.id === selectedId) ?? null;
   const unmatchedCount = filteredPayments.filter(p => p.assignments.length === 0).length;
@@ -3894,9 +3971,6 @@ function PaymentsView() {
 
   return (
     <div>
-      <div style={{ display: 'flex', gap: 'var(--space-md)', alignItems: 'center', marginBottom: 'var(--space-sm)', flexWrap: 'wrap' }}>
-        <BillingDateFilter value={dateFilter} onChange={f => { setDateFilter(f); setSelectedId(null); setPendingMap({}); }} />
-      </div>
       <div style={{ display: 'flex', gap: 'var(--space-md)', alignItems: 'center', marginBottom: 'var(--space-lg)', flexWrap: 'wrap' }}>
         <button onClick={() => handleSync(false)} disabled={syncMut.isPending}>
           {syncMut.isPending ? 'Syncing…' : 'Sync from LunchMoney'}
@@ -3954,7 +4028,7 @@ function PaymentsView() {
                         : <em style={{ color: 'var(--color-text-light)' }}>{p.payee || '—'}</em>}
                     </td>
                     <td style={{ padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                      {fmtAmt(Math.abs(p.amount))}
+                      {fmtAmt(Math.abs(p.amount), demo)}
                     </td>
                     <td style={{ padding: '4px 8px' }} onClick={e => e.stopPropagation()}>
                       <select
@@ -3995,7 +4069,7 @@ function PaymentsView() {
                     Total ({filteredPayments.length})
                   </td>
                   <td style={{ padding: '5px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                    {fmtAmt(filteredPayments.reduce((s, p) => s + Math.abs(p.amount), 0))}
+                    {fmtAmt(filteredPayments.reduce((s, p) => s + Math.abs(p.amount), 0), demo)}
                   </td>
                   <td colSpan={2} />
                 </tr>
@@ -4010,7 +4084,7 @@ function PaymentsView() {
             <>
               <p style={{ fontWeight: 600, marginBottom: 2 }}>{selected.notes || selected.payee || '(no payee)'}</p>
               <p style={{ color: 'var(--color-text-light)', fontSize: 'var(--text-xs)', marginBottom: 'var(--space-md)' }}>
-                {selected.date} · {fmtAmt(Math.abs(selected.amount))}
+                {selected.date} · {fmtAmt(Math.abs(selected.amount), demo)}
               </p>
 
               {openInvoices.length === 0 ? (
@@ -4073,7 +4147,7 @@ function PaymentsView() {
                               <span style={{ fontVariantNumeric: 'tabular-nums' }}>{inv.invoice_number}</span>
                               {isSuggested && <span style={{ color: '#e9a040', marginLeft: 4 }}>◑</span>}
                               <span style={{ color: 'var(--color-text-light)', marginLeft: 4, fontSize: 'var(--text-xs)' }}>
-                                {fmtAmt(inv.total_amount)}
+                                {fmtAmt(inv.total_amount, demo)}
                               </span>
                             </span>
                             {isChecked && (
@@ -4128,39 +4202,146 @@ const navStyle = ({ isActive }: { isActive: boolean }) => ({
   fontWeight: isActive ? 600 : undefined,
 } as React.CSSProperties);
 
+function BillingScopeBar() {
+  const { year, month, company, setYear, setMonth, setCompany } = useBillingScope();
+  const { demo, toggle } = useDemoMode();
+  const curYear = new Date().getFullYear();
+  const yearOptions = Array.from({ length: 5 }, (_, i) => curYear - 2 + i);
+  const { data: companies = [] } = useBillingCompanies();
+
+  // Month button: use explicit colors (var(--color-fg) is not defined in tufte.css)
+  const mBtn = (active: boolean): React.CSSProperties => ({
+    padding: '2px 7px',
+    fontSize: 'var(--text-xs)',
+    border: active ? '1px solid #555' : '1px solid var(--color-border)',
+    borderRadius: 3,
+    background: active ? '#333' : 'transparent',
+    color: active ? '#fff' : 'var(--color-text-light)',
+    fontWeight: active ? 700 : 400,
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+  });
+
+  return (
+    <div style={{ display: 'flex', gap: 5, alignItems: 'center', marginBottom: 'var(--space-lg)', flexWrap: 'wrap', padding: '6px 0', borderBottom: '1px solid var(--color-border)' }}>
+      <select value={year} onChange={e => setYear(Number(e.target.value))} style={{ fontSize: 'var(--text-sm)' }}>
+        {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
+      </select>
+      {([null, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as (number | null)[]).map(m => (
+        <button key={m ?? 'all'} onClick={() => setMonth(m)} style={mBtn(month === m)}>
+          {m === null ? 'All' : MONTH_LABELS[m - 1]}
+        </button>
+      ))}
+      {/* Company dropdown: groups + individual companies */}
+      <select
+        value={company}
+        onChange={e => setCompany(e.target.value)}
+        style={{ fontSize: 'var(--text-sm)', marginLeft: 4 }}
+      >
+        <option value="">All companies</option>
+        <optgroup label="── Groups ──">
+          <option value={SCOPE_COMPANY_PREPAID}>Prepaid clients</option>
+          <option value={SCOPE_COMPANY_PERIODIC}>Periodic billing</option>
+        </optgroup>
+        <optgroup label="── Companies ──">
+          {companies.map(co => <option key={co.id} value={String(co.id)}>{co.name}</option>)}
+        </optgroup>
+      </select>
+      <button
+        onClick={toggle}
+        style={{
+          marginLeft: 'auto',
+          fontSize: 'var(--text-xs)',
+          padding: '2px 8px',
+          border: '1px solid var(--color-border)',
+          borderRadius: 3,
+          background: demo ? 'var(--color-accent, #6b7280)' : 'transparent',
+          color: demo ? '#fff' : 'var(--color-text-light)',
+          cursor: 'pointer',
+        }}
+      >
+        {demo ? 'Demo On' : 'Demo'}
+      </button>
+    </div>
+  );
+}
+
 function BillingNav() {
+  const { year, month } = useBillingScope();
   const onPrepare = useMatch('/billing/prepare/*');
   const onInvoices = useMatch('/billing/invoices/*');
   const onSummary = useMatch('/billing/summary') || useMatch('/billing/annual/*');
   const onPayments = useMatch('/billing/payments');
+  // Prepare link: use scope year/month; if month is null (all), fall back to prepLink()
+  const prepTo = month !== null ? `/billing/prepare/${year}/${month}` : prepLink();
   return (
-    <nav style={{ display: 'flex', gap: 'var(--space-lg)', marginBottom: 'var(--space-xl)', fontSize: 'var(--text-sm)', borderBottom: '1px solid var(--color-border)', paddingBottom: 'var(--space-sm)' }}>
+    <nav style={{ display: 'flex', gap: 'var(--space-lg)', marginBottom: 'var(--space-md)', fontSize: 'var(--text-sm)', borderBottom: '1px solid var(--color-border)', paddingBottom: 'var(--space-sm)' }}>
       <NavLink to="/billing" end style={navStyle}>Queue</NavLink>
       <NavLink to="/billing/sessions" style={navStyle}>Sessions</NavLink>
       <NavLink to="/billing/invoices" style={() => navStyle({ isActive: !!onInvoices })}>Invoices</NavLink>
       <NavLink to="/billing/payments" style={() => navStyle({ isActive: !!onPayments })}>Payments</NavLink>
       <NavLink to="/billing/summary" style={() => navStyle({ isActive: !!onSummary })}>Summary</NavLink>
-      <NavLink to={prepLink()} style={() => navStyle({ isActive: !!onPrepare })}>Prepare</NavLink>
+      <NavLink to={prepTo} style={() => navStyle({ isActive: !!onPrepare })}>Prepare</NavLink>
     </nav>
   );
 }
 
 export function BillingPage() {
+  const [demo, setDemo] = useState<boolean>(() => localStorage.getItem('billing-demo-mode') === 'true');
+  const toggle = () => setDemo(prev => {
+    const next = !prev;
+    localStorage.setItem('billing-demo-mode', String(next));
+    return next;
+  });
+
+  const scopeInit = defaultScope();
+  const [scopeYear, setScopeYear] = useState(scopeInit.year);
+  const [scopeMonth, setScopeMonth] = useState<number | null>(scopeInit.month);
+  const [scopeCompany, setScopeCompany] = useState<string>(scopeInit.company);
+  const scope: BillingScopeCtx = {
+    year: scopeYear, month: scopeMonth, company: scopeCompany,
+    setYear: setScopeYear, setMonth: setScopeMonth, setCompany: setScopeCompany,
+  };
+
   return (
-    <div>
-      <h1>Billing</h1>
-      <BillingNav />
-      <Routes>
-        <Route path="/" element={<UnprocessedQueue />} />
-        <Route path="/sessions" element={<SessionsView />} />
-        <Route path="/invoices" element={<InvoicesListView />} />
-        <Route path="/invoices/:id" element={<InvoiceDetailView />} />
-        <Route path="/payments" element={<PaymentsView />} />
-        <Route path="/summary" element={<SummaryView />} />
-        <Route path="/annual/:year" element={<AnnualSummaryView />} />
-        <Route path="/prepare/:year/:month" element={<InvoicePrepPage />} />
-        <Route path="*" element={<Navigate to="/billing" replace />} />
-      </Routes>
-    </div>
+    <DemoModeContext.Provider value={{ demo, toggle }}>
+      <BillingScopeContext.Provider value={scope}>
+        <div>
+          <h1>Billing</h1>
+          {demo && (
+            <div style={{
+              background: '#f59e0b',
+              color: '#1c1917',
+              padding: '6px 14px',
+              borderRadius: 4,
+              fontSize: 'var(--text-sm)',
+              fontWeight: 600,
+              marginBottom: 'var(--space-md)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 'var(--space-sm)',
+            }}>
+              Demo Mode — dollar amounts hidden.
+              <button onClick={toggle} style={{ background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: 'var(--text-sm)', padding: 0, color: '#1c1917' }}>
+                Turn off ×
+              </button>
+            </div>
+          )}
+          <BillingNav />
+          <BillingScopeBar />
+          <Routes>
+            <Route path="/" element={<UnprocessedQueue />} />
+            <Route path="/sessions" element={<SessionsView />} />
+            <Route path="/invoices" element={<InvoicesListView />} />
+            <Route path="/invoices/:id" element={<InvoiceDetailView />} />
+            <Route path="/payments" element={<PaymentsView />} />
+            <Route path="/summary" element={<SummaryView />} />
+            <Route path="/annual/:year" element={<AnnualSummaryView />} />
+            <Route path="/prepare/:year/:month" element={<InvoicePrepPage />} />
+            <Route path="*" element={<Navigate to="/billing" replace />} />
+          </Routes>
+        </div>
+      </BillingScopeContext.Provider>
+    </DemoModeContext.Provider>
   );
 }

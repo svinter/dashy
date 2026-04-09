@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useBillingPrepData, useGenerateInvoices } from '../api/hooks';
 import type { BillingPrepCompany, BillingSession, BillingGenerateResult } from '../api/types';
-import { BillingDateFilter } from './BillingPage';
+import { BillingDateFilter, useDemoMode } from './BillingPage';
 import type { BillingDateState } from './BillingPage';
 
 // ---------------------------------------------------------------------------
@@ -139,6 +139,7 @@ function Stage1({
   onToggle: (id: number) => void;
   onNext: () => void;
 }) {
+  const { demo } = useDemoMode();
   return (
     <div>
       <p style={{ color: 'var(--color-text-light)', fontSize: 'var(--text-sm)', marginBottom: 'var(--space-lg)' }}>
@@ -169,7 +170,7 @@ function Stage1({
               <div style={{ padding: '8px 12px' }}>
                 <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)', marginBottom: 4, display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ fontWeight: 600 }}>Confirmed</span>
-                  <span>{co.confirmed_total_hours.toFixed(2)}h · <strong>${co.confirmed_total_amount.toFixed(2)}</strong></span>
+                  <span>{co.confirmed_total_hours.toFixed(2)}h · <strong>{demo ? '—' : `$${co.confirmed_total_amount.toFixed(2)}`}</strong></span>
                 </div>
                 <SessionMiniTable sessions={co.confirmed_sessions} />
               </div>
@@ -182,7 +183,7 @@ function Stage1({
                   <span style={{ fontWeight: 600 }}>Projected (banana) — select to include</span>
                   {includedProjected.length > 0 && (
                     <span style={{ color: '#b8860b' }}>
-                      {includedProjected.reduce((s, r) => s + r.duration_hours, 0).toFixed(2)}h · ${projTotal.toFixed(2)} selected
+                      {includedProjected.reduce((s, r) => s + r.duration_hours, 0).toFixed(2)}h · {demo ? '—' : `$${projTotal.toFixed(2)}`} selected
                     </span>
                   )}
                 </div>
@@ -196,7 +197,7 @@ function Stage1({
                     <span style={{ width: 90, color: 'var(--color-text-light)', flexShrink: 0 }}>{s.date}</span>
                     <span style={{ flex: 1 }}>{s.client_name}</span>
                     <span style={{ color: 'var(--color-text-light)', width: 48, textAlign: 'right' }}>{s.duration_hours.toFixed(2)}h</span>
-                    <span style={{ width: 72, textAlign: 'right' }}>${s.amount.toFixed(2)}</span>
+                    <span style={{ width: 72, textAlign: 'right' }}>{demo ? '—' : `$${s.amount.toFixed(2)}`}</span>
                   </label>
                 ))}
               </div>
@@ -204,11 +205,11 @@ function Stage1({
 
             {/* Company subtotal */}
             <div style={{ padding: '6px 12px', borderTop: '1px solid var(--color-border)', fontSize: 'var(--text-sm)', display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-lg)', background: 'var(--color-bg-subtle, transparent)' }}>
-              <span style={{ color: 'var(--color-text-light)' }}>confirmed <strong>${co.confirmed_total_amount.toFixed(2)}</strong></span>
+              <span style={{ color: 'var(--color-text-light)' }}>confirmed <strong>{demo ? '—' : `$${co.confirmed_total_amount.toFixed(2)}`}</strong></span>
               {includedProjected.length > 0 && (
-                <span style={{ color: '#b8860b' }}>+ projected <strong>${projTotal.toFixed(2)}</strong></span>
+                <span style={{ color: '#b8860b' }}>+ projected <strong>{demo ? '—' : `$${projTotal.toFixed(2)}`}</strong></span>
               )}
-              <span>= <strong>${(co.confirmed_total_amount + projTotal).toFixed(2)}</strong></span>
+              <span>= <strong>{demo ? '—' : `$${(co.confirmed_total_amount + projTotal).toFixed(2)}`}</strong></span>
             </div>
           </div>
         );
@@ -222,6 +223,7 @@ function Stage1({
 }
 
 function SessionMiniTable({ sessions }: { sessions: BillingSession[] }) {
+  const { demo } = useDemoMode();
   return (
     <div>
       {sessions.map(s => (
@@ -229,7 +231,7 @@ function SessionMiniTable({ sessions }: { sessions: BillingSession[] }) {
           <span style={{ width: 90, color: 'var(--color-text-light)', flexShrink: 0 }}>{s.date}</span>
           <span style={{ flex: 1 }}>{s.client_name}</span>
           <span style={{ color: 'var(--color-text-light)', width: 48, textAlign: 'right', flexShrink: 0 }}>{s.duration_hours.toFixed(2)}h</span>
-          <span style={{ width: 72, textAlign: 'right', flexShrink: 0 }}>${s.amount.toFixed(2)}</span>
+          <span style={{ width: 72, textAlign: 'right', flexShrink: 0 }}>{demo ? '—' : `$${s.amount.toFixed(2)}`}</span>
           {s.obsidian_link && (
             <a href={s.obsidian_link} title="Obsidian note" style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)', textDecoration: 'none', flexShrink: 0 }}>◆</a>
           )}
@@ -295,6 +297,7 @@ function ExpensePanel({
   expenses: LocalExpense[];
   onChange: (exps: LocalExpense[]) => void;
 }) {
+  const { demo } = useDemoMode();
   const [desc, setDesc] = useState('');
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [amount, setAmount] = useState('');
@@ -324,7 +327,7 @@ function ExpensePanel({
             <span style={{ flex: 1 }}>{exp.description}</span>
             <span style={{ color: 'var(--color-text-light)', width: 90, flexShrink: 0 }}>{exp.date}</span>
             <span style={{ width: 80, textAlign: 'right', color: exp.amount < 0 ? 'var(--color-error)' : undefined, flexShrink: 0 }}>
-              {exp.amount < 0 ? '-' : ''}${Math.abs(exp.amount).toFixed(2)}
+              {demo ? '—' : `${exp.amount < 0 ? '-' : ''}$${Math.abs(exp.amount).toFixed(2)}`}
             </span>
             <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)', width: 70, flexShrink: 0 }}>{exp.type}</span>
             <button className="btn-link" style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)' }} onClick={() => remove(exp.localId)}>×</button>
@@ -398,6 +401,7 @@ function Stage3({
   isPending?: boolean;
   error?: string | null;
 }) {
+  const { demo } = useDemoMode();
   const activeCompanies = companies.filter(co => draftByCompany.has(co.id) && (draftByCompany.get(co.id)?.length ?? 0) > 0);
 
   const grandTotal = activeCompanies.reduce((sum, co) => {
@@ -418,7 +422,7 @@ function Stage3({
           <input type="date" value={servicesDate} onChange={e => onSetServicesDate(e.target.value)} />
         </div>
         <div style={{ marginLeft: 'auto', alignSelf: 'flex-end', fontSize: 'var(--text-sm)', color: 'var(--color-text-light)' }}>
-          Grand total: <strong style={{ fontSize: 'var(--text-base)' }}>${grandTotal.toFixed(2)}</strong>
+          Grand total: <strong style={{ fontSize: 'var(--text-base)' }}>{demo ? '—' : `$${grandTotal.toFixed(2)}`}</strong>
         </div>
       </div>
 
@@ -430,7 +434,7 @@ function Stage3({
             <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--color-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <strong style={{ fontSize: 'var(--text-sm)' }}>{co.name}</strong>
               <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-light)' }}>
-                Invoice total: <strong style={{ color: 'var(--color-fg)' }}>${total.toFixed(2)}</strong>
+                Invoice total: <strong style={{ color: 'var(--color-fg)' }}>{demo ? '—' : `$${total.toFixed(2)}`}</strong>
               </span>
             </div>
             <div style={{ padding: '6px 12px', borderBottom: '1px solid var(--color-border)', display: 'flex', alignItems: 'center', gap: 8, background: 'color-mix(in srgb, var(--color-border) 12%, transparent)' }}>
@@ -575,6 +579,7 @@ function DraftLineRow({
 // ---------------------------------------------------------------------------
 
 function Stage4({ result, onBack }: { result: BillingGenerateResult; onBack: () => void }) {
+  const { demo } = useDemoMode();
   const navigate = useNavigate();
   return (
     <div>
@@ -595,7 +600,7 @@ function Stage4({ result, onBack }: { result: BillingGenerateResult; onBack: () 
             <tr key={inv.invoice_number} style={{ borderBottom: '1px solid var(--color-border)' }}>
               <td style={{ padding: '4px 8px' }}>{inv.company_name}</td>
               <td style={{ padding: '4px 8px', fontFamily: 'monospace' }}>{inv.invoice_number}</td>
-              <td style={{ padding: '4px 8px', textAlign: 'right' }}>${inv.total_amount.toFixed(2)}</td>
+              <td style={{ padding: '4px 8px', textAlign: 'right' }}>{demo ? '—' : `$${inv.total_amount.toFixed(2)}`}</td>
               <td style={{ padding: '4px 8px', color: 'var(--color-text-light)' }}>{inv.status}</td>
             </tr>
           ))}
