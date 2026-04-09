@@ -1,10 +1,10 @@
 # -*- mode: python ; coding: utf-8 -*-
-# dashboard.spec — PyInstaller build specification for Personal Dashboard
+# dashboard.spec — PyInstaller build specification for Dashy
 #
 # Usage:
 #   1. Build frontend first: cd app/frontend && npm ci && npm run build
 #   2. Run: pyinstaller dashboard.spec --clean --noconfirm
-#   3. Output: dist/Dashboard.app
+#   3. Output: dist/Dashy.app
 
 import os
 from pathlib import Path
@@ -189,7 +189,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="Dashboard",
+    name="Dashy",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -205,17 +205,17 @@ coll = COLLECT(
     a.datas,
     strip=False,
     upx=False,
-    name="Dashboard",
+    name="Dashy",
 )
 
 app = BUNDLE(
     coll,
-    name="Dashboard.app",
+    name="Dashy.app",
     icon="Dashboard.app/Contents/Resources/AppIcon.icns",
     bundle_identifier="com.personal-dashboard.app",
     info_plist={
-        "CFBundleName": "Dashboard",
-        "CFBundleDisplayName": "Personal Dashboard",
+        "CFBundleName": "Dashy",
+        "CFBundleDisplayName": "Dashy",
         "CFBundleVersion": os.environ.get("APP_VERSION", "1.0.0"),
         "CFBundleShortVersionString": os.environ.get("APP_VERSION", "1.0.0"),
         "LSMinimumSystemVersion": "12.0",

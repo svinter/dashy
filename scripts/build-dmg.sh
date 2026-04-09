@@ -13,11 +13,11 @@
 set -euo pipefail
 
 VERSION="${1:-1.0.0}"
-APP_NAME="Dashboard"
-DMG_NAME="PersonalDashboard-${VERSION}-macOS"
+APP_NAME="Dashy"
+DMG_NAME="Dashy-${VERSION}-macOS"
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
-echo "=== Building Personal Dashboard v${VERSION} ==="
+echo "=== Building Dashy v${VERSION} ==="
 
 cd "$PROJECT_ROOT"
 
@@ -67,7 +67,7 @@ if command -v create-dmg &> /dev/null; then
     # Accessibility permissions. Try it, but fall back to hdiutil if the DMG
     # is not produced.
     create-dmg \
-        --volname "Personal Dashboard" \
+        --volname "Dashy" \
         --volicon "Dashboard.app/Contents/Resources/AppIcon.icns" \
         --window-pos 200 120 \
         --window-size 600 400 \
@@ -89,7 +89,7 @@ if [ "$DMG_CREATED" = false ]; then
     ln -s /Applications "$STAGE_DIR/Applications"
 
     hdiutil create \
-        -volname "Personal Dashboard" \
+        -volname "Dashy" \
         -srcfolder "$STAGE_DIR" \
         -ov -format UDZO \
         "dist/${DMG_NAME}.dmg"

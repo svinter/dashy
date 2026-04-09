@@ -58,4 +58,3 @@ app/frontend/node_modules/
 app/frontend/dist/app/backend/billing_seed.json
 app/backend/dashy_billing_seed.json
 app/backend/billing_seed.json
-.github/workflows/

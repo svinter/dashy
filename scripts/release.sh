@@ -39,7 +39,7 @@ fi
 echo ""
 ./scripts/build-dmg.sh "$VERSION"
 
-DMG_PATH="dist/PersonalDashboard-${VERSION}-macOS.dmg"
+DMG_PATH="dist/Dashy-${VERSION}-macOS.dmg"
 if [ ! -f "$DMG_PATH" ]; then
     echo "ERROR: DMG not found at $DMG_PATH"
     exit 1
@@ -76,7 +76,7 @@ fi
 NOTES="${NOTES}
 
 ## Install
-Download \`PersonalDashboard-${VERSION}-macOS.dmg\`, drag to Applications, and launch."
+Download \`Dashy-${VERSION}-macOS.dmg\`, drag to Applications, and launch."
 
 echo ""
 echo "--- Release preview ---"
