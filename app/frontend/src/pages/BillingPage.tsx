@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, createContext, useContext } from 'react';
 import { NavLink, Link, Routes, Route, Navigate, useMatch, useNavigate, useParams } from 'react-router-dom';
+import { openExternal } from '../api/client';
 import { InvoicePrepPage } from './InvoicePrepPage';
 import {
   useBillingUnprocessed,
@@ -583,7 +584,8 @@ function SessionRow({ session: s, companies, blocks = [], onUpdate, onDelete, on
       </td>
       <td style={{ textAlign: 'center' }}>
         {s.obsidian_link
-          ? <a href={s.obsidian_link} title="Open in Obsidian" style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)', textDecoration: 'none' }}>◆</a>
+          ? <a href={s.obsidian_link} title="Open in Obsidian" style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)', textDecoration: 'none' }}
+               onClick={e => { e.preventDefault(); openExternal(s.obsidian_link!); }}>◆</a>
           : <span style={{ opacity: 0.2, fontSize: 'var(--text-xs)' }}>◇</span>}
       </td>
       <td style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-light)', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -1451,7 +1453,7 @@ function UnprocessedRow({ event: ev, companies, companyAbbrev, expectedRevenue, 
         {ev.obsidian?.found && (
           <a href={ev.obsidian.obsidian_link} title="Open in Obsidian"
             style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)', textDecoration: 'none', flexShrink: 0 }}
-            onClick={e => e.stopPropagation()}>◆</a>
+            onClick={e => { e.preventDefault(); e.stopPropagation(); openExternal(ev.obsidian!.obsidian_link); }}>◆</a>
         )}
         <span style={{ width: 314, flexShrink: 0, fontSize: 'var(--text-sm)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.summary}</span>
         <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-light)', width: 52, flexShrink: 0 }}>
@@ -1489,7 +1491,8 @@ function UnprocessedRow({ event: ev, companies, companyAbbrev, expectedRevenue, 
             <span>{formatDate(ev.start_time)} {formatTime(ev.start_time)}–{formatTime(ev.end_time)}</span>
             <span>Slot: {ev.slot_hours.toFixed(2)}h</span>
             {ev.obsidian?.found
-              ? <a href={ev.obsidian.obsidian_link} style={{ color: 'var(--color-accent)' }}>
+              ? <a href={ev.obsidian.obsidian_link} style={{ color: 'var(--color-accent)' }}
+                   onClick={e => { e.preventDefault(); openExternal(ev.obsidian!.obsidian_link); }}>
                   {ev.obsidian.duration_hours ? `Note: ${ev.obsidian.duration_hours.toFixed(2)}h` : 'Note found (no duration)'}
                 </a>
               : <span>No Obsidian note</span>}
