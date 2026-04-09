@@ -30,7 +30,10 @@
       "Bash(git commit -m ':*)",
       "Bash(npm run:*)",
       "Bash(./node_modules/.bin/tsc --noEmit)",
-      "Bash(/Users/stevevinter/dashy/app/frontend/node_modules/.bin/tsc:*)"
+      "Bash(/Users/stevevinter/dashy/app/frontend/node_modules/.bin/tsc:*)",
+      "Bash(git commit:*)",
+      "Bash(make release:*)",
+      "WebFetch(domain:github.com)"
     ]
   }
 }
