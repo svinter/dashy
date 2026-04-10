@@ -8090,3 +8090,490 @@ span.news-item-title {
   margin: 0;
 }
 
+/* ── Coaching Module ── */
+
+.coaching-module {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.coaching-sub-nav {
+  display: flex;
+  gap: var(--space-lg);
+  padding: var(--space-sm) 0 var(--space-md) 0;
+  border-bottom: 1px solid var(--color-border);
+  margin-bottom: var(--space-md);
+  flex-shrink: 0;
+}
+
+.coaching-sub-nav-link {
+  font-size: var(--text-sm);
+  color: var(--color-text-light);
+  text-decoration: none;
+  padding-bottom: 2px;
+}
+
+.coaching-sub-nav-link:hover {
+  color: var(--color-text);
+}
+
+.coaching-sub-nav-link.active {
+  color: var(--color-text);
+  border-bottom: 2px solid var(--color-text);
+}
+
+/* Client Filter */
+
+.coaching-filter {
+  margin-bottom: var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  max-width: 560px;
+}
+
+.coaching-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  align-items: center;
+}
+
+.coaching-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: var(--text-xs);
+  background: var(--color-highlight);
+  border-radius: 3px;
+  padding: 1px 5px;
+  color: var(--color-text);
+}
+
+.coaching-filter-chip--company {
+  background: var(--color-accent-subtle, #e8f0fe);
+  color: var(--color-accent, #2563eb);
+}
+
+.coaching-filter-chip-remove {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  padding: 0;
+  font-size: 1em;
+  line-height: 1;
+  opacity: 0.6;
+}
+
+.coaching-filter-chip-remove:hover {
+  opacity: 1;
+}
+
+.coaching-filter-clear {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: var(--text-xs);
+  color: var(--color-text-light);
+  padding: 0;
+  text-decoration: underline;
+}
+
+.coaching-filter-autocomplete {
+  font-size: var(--text-sm);
+  min-height: 1.4em;
+}
+
+.coaching-filter-ac-company {
+  font-variant: small-caps;
+  letter-spacing: 0.04em;
+}
+
+.coaching-filter-ac-hint {
+  font-size: var(--text-xs);
+  color: var(--color-text-light);
+  margin-left: 4px;
+}
+
+.coaching-filter-input {
+  font-size: var(--text-sm);
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  padding: 3px 6px;
+  width: 100%;
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+.coaching-filter-input:focus {
+  outline: 1px solid var(--color-accent, #2563eb);
+  border-color: var(--color-accent, #2563eb);
+}
+
+/* Clients Page */
+
+.coaching-clients-page {
+  overflow-y: auto;
+  flex: 1;
+}
+
+.coaching-client-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+.coaching-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.coaching-group-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-md);
+  padding: var(--space-xs) 0;
+  border-bottom: 1px solid var(--color-border);
+  margin-bottom: var(--space-xs);
+}
+
+.coaching-group-name {
+  font-size: var(--text-sm);
+  font-variant: small-caps;
+  letter-spacing: 0.08em;
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.coaching-group-meta {
+  font-size: var(--text-xs);
+  color: var(--color-text-light);
+}
+
+.coaching-client-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-md);
+  padding: 3px 0;
+  flex-wrap: wrap;
+}
+
+.coaching-client-name {
+  font-size: var(--text-sm);
+  min-width: 160px;
+  flex-shrink: 0;
+}
+
+.coaching-client-sessions {
+  font-size: var(--text-xs);
+  color: var(--color-text-light);
+  min-width: 70px;
+  flex-shrink: 0;
+}
+
+.coaching-client-last {
+  font-size: var(--text-xs);
+  color: var(--color-text-light);
+  min-width: 160px;
+}
+
+.coaching-client-next {
+  font-size: var(--text-xs);
+  color: var(--color-text-light);
+  min-width: 100px;
+}
+
+.coaching-client-meta-dim {
+  opacity: 0.4;
+}
+
+.coaching-client-links {
+  display: flex;
+  gap: var(--space-sm);
+  margin-left: auto;
+}
+
+.coaching-link-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: var(--text-xs);
+  color: var(--color-accent, #2563eb);
+  padding: 0;
+  text-decoration: underline;
+}
+
+.coaching-link-btn:hover {
+  opacity: 0.7;
+}
+
+.coaching-prepaid-badge {
+  font-size: var(--text-xs);
+  background: var(--color-highlight);
+  border-radius: 3px;
+  padding: 1px 5px;
+  color: var(--color-text-light);
+  flex-shrink: 0;
+}
+
+.coaching-loading,
+.coaching-error,
+.coaching-empty,
+.coaching-placeholder {
+  font-size: var(--text-sm);
+  color: var(--color-text-light);
+  padding: var(--space-md) 0;
+}
+
+/* Vinny iframe */
+
+.coaching-vinny {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.coaching-vinny-frame {
+  flex: 1;
+  width: 100%;
+  border: none;
+  min-height: 0;
+}
+
+/* Word Cloud Page */
+
+.wordcloud-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  flex: 1;
+  min-height: 0;
+}
+
+.wordcloud-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-lg);
+  align-items: center;
+}
+
+.wordcloud-control-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-size: var(--text-sm);
+  color: var(--color-text-light);
+}
+
+.wordcloud-session-input {
+  width: 52px;
+  font-size: var(--text-sm);
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  padding: 2px 5px;
+  text-align: center;
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+.wordcloud-recency-slider {
+  width: 120px;
+  accent-color: var(--color-accent, #2563eb);
+}
+
+.wordcloud-recency-value {
+  font-size: var(--text-xs);
+  color: var(--color-text);
+  min-width: 24px;
+}
+
+.wordcloud-status {
+  font-size: var(--text-xs);
+  color: var(--color-text-light);
+}
+
+.wordcloud-container {
+  width: 100%;
+  height: 400px;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-bg);
+}
+
+.wordcloud-container svg {
+  display: block;
+}
+
+/* Word cloud popover */
+
+.wordcloud-popover {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  padding: var(--space-md);
+  min-width: 220px;
+  max-width: 300px;
+}
+
+.wordcloud-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-sm);
+}
+
+.wordcloud-popover-word {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.wordcloud-popover-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1.1em;
+  color: var(--color-text-light);
+  padding: 0;
+  line-height: 1;
+}
+
+.wordcloud-popover-close:hover {
+  color: var(--color-text);
+}
+
+.wordcloud-popover-subhead {
+  font-size: var(--text-xs);
+  color: var(--color-text-light);
+  margin-bottom: var(--space-xs);
+}
+
+.wordcloud-popover-sessions {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.wordcloud-popover-session-link {
+  font-size: var(--text-xs) !important;
+  white-space: nowrap;
+}
+
+/* Vinny offline */
+
+.coaching-vinny-offline {
+  padding: var(--space-lg) 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-light);
+}
+
+.coaching-vinny-offline-title {
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: var(--space-sm);
+}
+
+.coaching-vinny-offline-cmd {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--text-xs);
+  background: var(--color-highlight);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: 3px;
+  margin: var(--space-xs) 0;
+  display: inline-block;
+}
+
+/* All chip */
+
+.coaching-filter-chip--all {
+  background: none;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-light);
+  font-style: italic;
+}
+
+/* HelpPopover */
+
+.help-popover-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.help-popover {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.12);
+  padding: var(--space-lg);
+  min-width: 340px;
+  max-width: 480px;
+}
+
+.help-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-md);
+}
+
+.help-popover-title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.help-popover-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1.2em;
+  color: var(--color-text-light);
+  padding: 0;
+  line-height: 1;
+}
+
+.help-popover-close:hover {
+  color: var(--color-text);
+}
+
+.help-popover-table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.help-popover-table tr + tr td {
+  padding-top: var(--space-xs);
+}
+
+.help-popover-keys {
+  white-space: nowrap;
+  padding-right: var(--space-md);
+  vertical-align: top;
+}
+
+.help-popover-keys kbd {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--text-xs);
+  background: var(--color-highlight);
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  padding: 1px 5px;
+  color: var(--color-text);
+}
+
+.help-popover-desc {
+  font-size: var(--text-sm);
+  color: var(--color-text-light);
+  vertical-align: top;
+}
+

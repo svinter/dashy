@@ -20,6 +20,7 @@ export function Sidebar() {
   const onRampPage = pathname.startsWith('/ramp');
   const onClaudePage = pathname.startsWith('/claude');
   const onBillingPage = pathname.startsWith('/billing');
+  const onCoachingPage = pathname.startsWith('/coaching');
   const { data: badgeCounts } = useBillingBadgeCounts(onBillingPage);
   const queueCount = badgeCounts?.queue_count ?? 0;
   const unmatchedCount = badgeCounts?.unmatched_payments_count ?? 0;
@@ -143,6 +144,13 @@ export function Sidebar() {
           <NavLink to="/issues">Issues</NavLink>
           <NavLink to="/docs">Docs</NavLink>
           {(active.has('google') || active.has('granola')) && <NavLink to="/meetings">Meetings</NavLink>}
+          <NavLink to="/coaching">Coaching</NavLink>
+          {onCoachingPage && <>
+            <NavLink to="/coaching/clients" className="sidebar-sub-link">Clients</NavLink>
+            <NavLink to="/coaching/wordcloud" className="sidebar-sub-link">Cloud</NavLink>
+            <NavLink to="/coaching/setup" className="sidebar-sub-link">Setup</NavLink>
+            <NavLink to="/coaching/vinny" className="sidebar-sub-link">Vinny</NavLink>
+          </>}
           <NavLink to="/billing">
             Billing
             {!onBillingPage && (queueCount > 0 || unmatchedCount > 0) && (

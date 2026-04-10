@@ -42,6 +42,7 @@ const AgentPage = lazy(() => import('./pages/AgentPage').then(m => ({ default: m
 const SandboxPage = lazy(() => import('./pages/SandboxPage').then(m => ({ default: m.SandboxPage })));
 const CodeSearchPage = lazy(() => import('./pages/CodeSearchPage').then(m => ({ default: m.CodeSearchPage })));
 const BillingPage = lazy(() => import('./pages/BillingPage').then(m => ({ default: m.BillingPage })));
+const CoachingPage = lazy(() => import('./pages/CoachingPage').then(m => ({ default: m.CoachingPage })));
 
 
 const queryClient = new QueryClient({
@@ -155,6 +156,7 @@ function AppContent() {
               <Route path="/longform" element={<Navigate to="/docs" replace />} />
               <Route path="/writing" element={<Navigate to="/docs" replace />} />
               <Route path="/meetings" element={<MeetingsPage />} />
+              <Route path="/coaching/*" element={<CoachingPage />} />
               <Route path="/news" element={<NewsPage />} />
               <Route path="/team" element={<Navigate to="/people" replace />} />
               <Route path="/people" element={<PeoplePage />} />

@@ -42,6 +42,7 @@ from routers import (
     changes,
     claude,
     claude_sessions,
+    coaching,
     dashboard,
     docs,
     drive_api,
@@ -153,6 +154,7 @@ if is_demo_mode():
 # API routes (must be registered before the SPA catch-all)
 app.include_router(billing.router)
 app.include_router(billing_pdf.router)
+app.include_router(coaching.router)
 app.include_router(dashboard.router)
 app.include_router(people.router)
 app.include_router(notes.router)
