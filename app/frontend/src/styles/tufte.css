@@ -8123,6 +8123,15 @@ span.news-item-title {
   border-bottom: 2px solid var(--color-text);
 }
 
+.coaching-demo-btn {
+  margin-left: auto;
+  font-size: var(--text-xs);
+  padding: 2px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
 /* Client Filter */
 
 .coaching-filter {

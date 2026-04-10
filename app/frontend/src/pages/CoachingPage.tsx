@@ -186,6 +186,8 @@ interface CoachingFilterCtx {
   effectiveIds: Set<number> | null;
   /** All active client IDs (flat list) */
   allClientIds: number[];
+  demo: boolean;
+  toggleDemo: () => void;
 }
 
 const CoachingFilterContext = createContext<CoachingFilterCtx>({
@@ -195,6 +197,8 @@ const CoachingFilterContext = createContext<CoachingFilterCtx>({
   onSelectionChange: () => {},
   effectiveIds: null,
   allClientIds: [],
+  demo: false,
+  toggleDemo: () => {},
 });
 
 function useCoachingFilter() {
@@ -470,7 +474,7 @@ function ClientRow({ client }: { client: CoachingClient }) {
 }
 
 function ClientsPage() {
-  const { groups, selection, effectiveIds } = useCoachingFilter();
+  const { groups, selection, effectiveIds, demo } = useCoachingFilter();
 
   if (groups.length === 0) return <div className="coaching-loading">Loading…</div>;
 
@@ -489,7 +493,7 @@ function ClientsPage() {
               <span className="coaching-group-name">{group.company_name.toUpperCase()}</span>
               {group.default_rate != null && (
                 <span className="coaching-group-meta">
-                  ${group.default_rate.toFixed(0)}/hr · {group.active_client_count} active client{group.active_client_count !== 1 ? 's' : ''}
+                  {demo ? '••/hr' : `$${group.default_rate.toFixed(0)}/hr`} · {group.active_client_count} active client{group.active_client_count !== 1 ? 's' : ''}
                 </span>
               )}
             </div>
@@ -783,6 +787,8 @@ export function CoachingPage() {
   const { data, isLoading } = useCoachingClients();
   const [selection, setSelection] = useState<FilterSelection[]>([]);
   const [allChip, setAllChip] = useState(true);
+  const [demo, setDemo] = useState(false);
+  const toggleDemo = useCallback(() => setDemo(d => !d), []);
 
   const groups = data?.groups ?? [];
 
@@ -808,7 +814,9 @@ export function CoachingPage() {
     onSelectionChange: handleSelectionChange,
     effectiveIds,
     allClientIds,
-  }), [groups, selection, allChip, handleSelectionChange, effectiveIds, allClientIds]);
+    demo,
+    toggleDemo,
+  }), [groups, selection, allChip, handleSelectionChange, effectiveIds, allClientIds, demo, toggleDemo]);
 
   return (
     <CoachingFilterContext.Provider value={ctx}>
@@ -826,6 +834,13 @@ export function CoachingPage() {
           <NavLink to="/coaching/vinny" className={({ isActive }) => isActive ? 'coaching-sub-nav-link active' : 'coaching-sub-nav-link'}>
             Vinny
           </NavLink>
+          <button
+            onClick={toggleDemo}
+            className="coaching-demo-btn"
+            style={{ background: demo ? 'var(--color-accent, #6b7280)' : 'transparent', color: demo ? '#fff' : 'var(--color-text-light)' }}
+          >
+            {demo ? 'Demo On' : 'Demo'}
+          </button>
         </nav>
 
         {/* Shared client filter — visible on all Coaching pages */}

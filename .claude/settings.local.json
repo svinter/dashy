@@ -33,7 +33,9 @@
       "Bash(/Users/stevevinter/dashy/app/frontend/node_modules/.bin/tsc:*)",
       "Bash(git commit:*)",
       "Bash(make release:*)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(npm install:*)",
+      "Bash(npm list:*)"
     ]
   }
 }
