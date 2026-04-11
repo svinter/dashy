@@ -72,7 +72,7 @@ from routers import (
     weather,
     whatsapp,
 )
-from routers.sync import sync_granola, sync_meeting_files
+from routers.sync import sync_granola, sync_meeting_files, sync_note_creation
 from utils.person_matching import rebuild_from_db
 
 app = FastAPI(title="Dashy")
@@ -337,6 +337,8 @@ def startup():
 
         if is_enabled("granola"):
             _step("sync_granola", sync_granola)
+
+        _step("sync_note_creation", sync_note_creation)
 
         from routers.sync import start_auto_sync
 

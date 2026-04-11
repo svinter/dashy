@@ -767,6 +767,273 @@ function VinnyPage() {
 }
 
 // ---------------------------------------------------------------------------
+// OperationsPage
+// ---------------------------------------------------------------------------
+
+interface GranolaStatus {
+  running: boolean;
+  last_run: string | null;
+  last_result: {
+    fetched: number;
+    matched: number;
+    written: number;
+    skipped_existing: number;
+    unmatched: string[];
+    errors: string[];
+  } | null;
+  last_error: string | null;
+}
+
+interface NotesStatus {
+  running: boolean;
+  last_run: string | null;
+  last_result: {
+    daily_created: number;
+    meeting_created: number;
+    meeting_updated: number;
+    skipped: number;
+  } | null;
+  last_error: string | null;
+  config: { days_ahead: number };
+}
+
+function formatRunTime(iso: string | null): string {
+  if (!iso) return 'Never';
+  const d = new Date(iso);
+  const now = new Date();
+  const diffMs = now.getTime() - d.getTime();
+  const diffMin = Math.floor(diffMs / 60000);
+  if (diffMin < 1) return 'Just now';
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
+function OperationsPage() {
+  const [granolaDaysBack, setGranolaDaysBack] = useState(30);
+  const [granolaForce, setGranolaForce] = useState(false);
+  const [granolaRunning, setGranolaRunning] = useState(false);
+  const [granolaStatus, setGranolaStatus] = useState<GranolaStatus | null>(null);
+  const [granolaError, setGranolaError] = useState<string | null>(null);
+
+  const [notesRunning, setNotesRunning] = useState(false);
+  const [notesStatus, setNotesStatus] = useState<NotesStatus | null>(null);
+  const [notesError, setNotesError] = useState<string | null>(null);
+  const [daysAhead, setDaysAhead] = useState<number | null>(null);
+  const [savingDays, setSavingDays] = useState(false);
+
+  // Load initial status
+  useEffect(() => {
+    api.get<GranolaStatus>('/coaching/granola/status').then(setGranolaStatus).catch(() => null);
+    api.get<NotesStatus>('/coaching/notes/status').then(s => {
+      setNotesStatus(s);
+      setDaysAhead(s.config?.days_ahead ?? 5);
+    }).catch(() => null);
+  }, []);
+
+  const handleGranolaSync = async () => {
+    setGranolaRunning(true);
+    setGranolaError(null);
+    try {
+      const result = await api.post<{ status: string; result: GranolaStatus['last_result'] }>(
+        `/coaching/granola/sync?days_back=${granolaDaysBack}&force=${granolaForce}`
+      );
+      const updated = await api.get<GranolaStatus>('/coaching/granola/status');
+      setGranolaStatus(updated);
+    } catch (e: unknown) {
+      setGranolaError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setGranolaRunning(false);
+    }
+  };
+
+  const handleNotesCreate = async () => {
+    setNotesRunning(true);
+    setNotesError(null);
+    try {
+      await api.post('/coaching/notes/create');
+      const updated = await api.get<NotesStatus>('/coaching/notes/status');
+      setNotesStatus(updated);
+    } catch (e: unknown) {
+      setNotesError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setNotesRunning(false);
+    }
+  };
+
+  const handleDaysAheadSave = async (val: number) => {
+    setSavingDays(true);
+    try {
+      const result = await api.patch<{ config: { days_ahead: number } }>('/coaching/notes/config', { days_ahead: val });
+      setDaysAhead(result.config.days_ahead);
+    } catch (e) {
+      // ignore
+    } finally {
+      setSavingDays(false);
+    }
+  };
+
+  const gr = granolaStatus;
+  const ns = notesStatus;
+
+  return (
+    <div className="coaching-operations">
+      <h2 className="coaching-operations-title">Operations</h2>
+
+      {/* Granola Sync Card */}
+      <div className="ops-card">
+        <div className="ops-card-header">
+          <div>
+            <div className="ops-card-title">Granola Notes Sync</div>
+            <div className="ops-card-desc">
+              Copies Granola AI summaries into Obsidian session notes automatically after each meeting.
+            </div>
+          </div>
+        </div>
+
+        <div className="ops-card-status">
+          {gr?.last_run ? (
+            <span>
+              Last run: {formatRunTime(gr.last_run)}
+              {gr.last_result && (
+                <span className="ops-card-counts">
+                  {' · '}{gr.last_result.fetched} fetched
+                  {' · '}{gr.last_result.written} written
+                  {(gr.last_result.skipped_existing ?? 0) > 0 && (
+                    <span> · {gr.last_result.skipped_existing} already synced</span>
+                  )}
+                  {gr.last_result.unmatched.length > 0 && (
+                    <span> · {gr.last_result.unmatched.length} unmatched</span>
+                  )}
+                  {gr.last_result.errors.length > 0 && (
+                    <span style={{ color: 'var(--color-error, #c0392b)' }}> · {gr.last_result.errors.length} errors</span>
+                  )}
+                </span>
+              )}
+              {gr.last_error && <span style={{ color: 'var(--color-error, #c0392b)' }}> · Error: {gr.last_error}</span>}
+            </span>
+          ) : (
+            <span style={{ color: 'var(--color-text-light)' }}>Never run</span>
+          )}
+        </div>
+
+        {granolaError && (
+          <div className="ops-card-error">{granolaError}</div>
+        )}
+
+        {gr?.last_result?.unmatched && gr.last_result.unmatched.length > 0 && (
+          <details className="ops-card-unmatched">
+            <summary>{gr.last_result.unmatched.length} unmatched notes</summary>
+            <ul>
+              {gr.last_result.unmatched.map((t, i) => <li key={i}>{t}</li>)}
+            </ul>
+          </details>
+        )}
+
+        <div className="ops-card-controls">
+          <label className="ops-label">
+            Date range:
+            <select
+              className="ops-select"
+              value={granolaDaysBack}
+              onChange={e => setGranolaDaysBack(Number(e.target.value))}
+              disabled={granolaRunning}
+            >
+              <option value={7}>Last 7 days</option>
+              <option value={14}>Last 14 days</option>
+              <option value={30}>Last 30 days</option>
+              <option value={60}>Last 60 days</option>
+              <option value={90}>Last 90 days</option>
+            </select>
+          </label>
+          <label className="ops-label ops-force-label">
+            <input
+              type="checkbox"
+              checked={granolaForce}
+              onChange={e => setGranolaForce(e.target.checked)}
+              disabled={granolaRunning}
+            />
+            Force re-sync
+          </label>
+          <button
+            className="ops-run-btn"
+            onClick={handleGranolaSync}
+            disabled={granolaRunning}
+          >
+            {granolaRunning ? 'Syncing…' : 'Sync Now'}
+          </button>
+        </div>
+      </div>
+
+      {/* Note Creation Card */}
+      <div className="ops-card">
+        <div className="ops-card-header">
+          <div>
+            <div className="ops-card-title">Daily &amp; Meeting Note Creation</div>
+            <div className="ops-card-desc">
+              Creates Obsidian notes for upcoming coaching sessions up to N days in advance.
+            </div>
+          </div>
+        </div>
+
+        <div className="ops-card-status">
+          {ns?.last_run ? (
+            <span>
+              Last run: {formatRunTime(ns.last_run)}
+              {ns.last_result && (
+                <span className="ops-card-counts">
+                  {ns.last_result.daily_created > 0 && <span> · {ns.last_result.daily_created} daily created</span>}
+                  {ns.last_result.meeting_created > 0 && <span> · {ns.last_result.meeting_created} meeting created</span>}
+                  {ns.last_result.meeting_updated > 0 && <span> · {ns.last_result.meeting_updated} updated</span>}
+                  {(ns.last_result.daily_created === 0 && ns.last_result.meeting_created === 0 && ns.last_result.meeting_updated === 0) && (
+                    <span> · all up to date</span>
+                  )}
+                </span>
+              )}
+              {ns.last_error && <span style={{ color: 'var(--color-error, #c0392b)' }}> · Error: {ns.last_error}</span>}
+            </span>
+          ) : (
+            <span style={{ color: 'var(--color-text-light)' }}>Never run</span>
+          )}
+        </div>
+
+        {notesError && (
+          <div className="ops-card-error">{notesError}</div>
+        )}
+
+        <div className="ops-card-controls">
+          <label className="ops-label">
+            Days ahead:
+            <input
+              type="number"
+              className="ops-number-input"
+              value={daysAhead ?? 5}
+              min={1}
+              max={30}
+              disabled={notesRunning || savingDays}
+              onChange={e => setDaysAhead(Number(e.target.value))}
+              onBlur={e => {
+                const v = Math.max(1, Math.min(30, Number(e.target.value)));
+                setDaysAhead(v);
+                handleDaysAheadSave(v);
+              }}
+            />
+          </label>
+          <button
+            className="ops-run-btn"
+            onClick={handleNotesCreate}
+            disabled={notesRunning}
+          >
+            {notesRunning ? 'Running…' : 'Run Now'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Coaching Module Root — owns filter state, provides context
 // ---------------------------------------------------------------------------
 
@@ -833,6 +1100,9 @@ export function CoachingPage() {
           <NavLink to="/coaching/vinny" className={({ isActive }) => isActive ? 'coaching-sub-nav-link active' : 'coaching-sub-nav-link'}>
             Vinny
           </NavLink>
+          <NavLink to="/coaching/operations" className={({ isActive }) => isActive ? 'coaching-sub-nav-link active' : 'coaching-sub-nav-link'}>
+            Operations
+          </NavLink>
           <button
             onClick={toggleDemo}
             className="coaching-demo-btn"
@@ -858,6 +1128,7 @@ export function CoachingPage() {
           <Route path="wordcloud" element={<WordCloudPage />} />
           <Route path="setup" element={<SetupPage />} />
           <Route path="vinny" element={<VinnyPage />} />
+          <Route path="operations" element={<OperationsPage />} />
         </Routes>
       </div>
     </CoachingFilterContext.Provider>

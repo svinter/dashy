@@ -1,6 +1,7 @@
 import json
 import re
-from datetime import date
+import threading
+from datetime import date, datetime
 from pathlib import Path
 
 import httpx
@@ -553,3 +554,132 @@ def get_wordcloud(body: WordCloudRequest):
         "sessions_analyzed": sessions_analyzed,
         "clients": clients_analyzed,
     }
+
+
+# ---------------------------------------------------------------------------
+# Granola Notes Sync  (POST /coaching/granola/sync, GET /coaching/granola/status)
+# ---------------------------------------------------------------------------
+
+_granola_sync_lock = threading.Lock()
+_granola_sync_running = False
+_granola_last_result: dict | None = None
+_granola_last_run: str | None = None
+_granola_last_error: str | None = None
+
+
+@router.post("/granola/sync")
+def trigger_granola_sync(days_back: int = 30, force: bool = False):
+    """Trigger a Granola notes sync. Runs synchronously (blocking).
+
+    force=True appends to notes that already have Granola content (with a datestamp header).
+    Default (force=False) skips those notes.
+    """
+    global _granola_sync_running, _granola_last_result, _granola_last_run, _granola_last_error
+
+    with _granola_sync_lock:
+        if _granola_sync_running:
+            raise HTTPException(status_code=409, detail="Granola sync already in progress")
+        _granola_sync_running = True
+
+    try:
+        from connectors.granola_notes import sync_granola_notes
+
+        result = sync_granola_notes(days_back=days_back, force=force)
+        with _granola_sync_lock:
+            _granola_last_result = result
+            _granola_last_run = datetime.now().isoformat()
+            _granola_last_error = None
+        return {"status": "ok", "result": result}
+    except Exception as e:
+        with _granola_sync_lock:
+            _granola_last_error = str(e)
+            _granola_last_run = datetime.now().isoformat()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        with _granola_sync_lock:
+            _granola_sync_running = False
+
+
+@router.get("/granola/status")
+def granola_sync_status():
+    """Return last Granola sync run info."""
+    return {
+        "running": _granola_sync_running,
+        "last_run": _granola_last_run,
+        "last_result": _granola_last_result,
+        "last_error": _granola_last_error,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Note Creation  (POST /coaching/notes/create, GET /coaching/notes/status,
+#                 PATCH /coaching/notes/config)
+# ---------------------------------------------------------------------------
+
+_notes_lock = threading.Lock()
+_notes_running = False
+_notes_last_result: dict | None = None
+_notes_last_run: str | None = None
+_notes_last_error: str | None = None
+
+
+@router.post("/notes/create")
+def trigger_note_creation():
+    """Trigger daily & meeting note creation for the configured days_ahead window."""
+    global _notes_running, _notes_last_result, _notes_last_run, _notes_last_error
+
+    with _notes_lock:
+        if _notes_running:
+            raise HTTPException(status_code=409, detail="Note creation already in progress")
+        _notes_running = True
+
+    try:
+        from app_config import get_note_creation_config
+        from connectors.note_creator import create_upcoming_notes
+
+        cfg = get_note_creation_config()
+        days_ahead = int(cfg.get("days_ahead", 5))
+        result = create_upcoming_notes(days_ahead=days_ahead)
+        with _notes_lock:
+            _notes_last_result = result
+            _notes_last_run = datetime.now().isoformat()
+            _notes_last_error = None
+        return {"status": "ok", "result": result}
+    except Exception as e:
+        with _notes_lock:
+            _notes_last_error = str(e)
+            _notes_last_run = datetime.now().isoformat()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        with _notes_lock:
+            _notes_running = False
+
+
+@router.get("/notes/status")
+def note_creation_status():
+    """Return last note creation run info plus current config."""
+    from app_config import get_note_creation_config
+
+    cfg = get_note_creation_config()
+    return {
+        "running": _notes_running,
+        "last_run": _notes_last_run,
+        "last_result": _notes_last_result,
+        "last_error": _notes_last_error,
+        "config": cfg,
+    }
+
+
+class NoteCreationConfigUpdate(BaseModel):
+    days_ahead: int
+
+
+@router.patch("/notes/config")
+def update_note_creation_config_endpoint(body: NoteCreationConfigUpdate):
+    """Update note creation configuration."""
+    from app_config import update_note_creation_config
+
+    if body.days_ahead < 1 or body.days_ahead > 30:
+        raise HTTPException(status_code=400, detail="days_ahead must be between 1 and 30")
+    cfg = update_note_creation_config({"days_ahead": body.days_ahead})
+    return {"status": "ok", "config": cfg}

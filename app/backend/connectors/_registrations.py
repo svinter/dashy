@@ -165,7 +165,7 @@ register(
     )
 )
 
-# --- Granola ---
+# --- Granola (MCP / local cache) ---
 register(
     ConnectorInfo(
         id="granola",
@@ -183,6 +183,28 @@ register(
         default_enabled=False,
         sync_fn="connectors.granola.sync_granola_meetings",
         check_fn="routers.auth._check_granola",
+        capabilities=["meeting_notes"],
+    )
+)
+
+# --- Granola Notes (Public API) ---
+register(
+    ConnectorInfo(
+        id="granola_notes",
+        name="Granola Notes API",
+        description="Syncs Granola AI summaries into Obsidian session notes via the Granola public API",
+        category="token",
+        secret_keys=["GRANOLA_API_KEY"],
+        help_steps=[
+            "Go to app.granola.ai → Settings → API and generate an API key",
+            "Copy the key and paste it below",
+            "Enable this connector to auto-sync Granola summaries into Obsidian after each meeting",
+        ],
+        help_url="https://app.granola.ai",
+        sync_sources=["granola_notes"],
+        default_enabled=False,
+        sync_fn="connectors.granola_notes.sync_granola_notes",
+        check_fn=None,
         capabilities=["meeting_notes"],
     )
 )

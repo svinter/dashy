@@ -482,8 +482,8 @@ def import_seed(force: bool = False):
             db.execute(
                 """INSERT INTO billing_clients
                    (name, company_id, rate_override, prepaid, obsidian_name, employee_id, active,
-                    client_type, gdrive_folder_url, gdrive_coaching_docs_url)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    client_type, gdrive_folder_url, gdrive_coaching_docs_url, email)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     cl["name"],
                     company_id,
@@ -495,6 +495,7 @@ def import_seed(force: bool = False):
                     cl.get("client_type"),
                     cl.get("gdrive_folder_url") or None,
                     cl.get("gdrive_coaching_docs_url") or None,
+                    cl.get("email") or None,
                 ),
             )
             inserted_clients += 1

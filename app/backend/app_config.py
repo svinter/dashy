@@ -28,6 +28,7 @@ ALLOWED_SECRET_KEYS = frozenset(
         "MICROSOFT_CLIENT_SECRET",
         "MICROSOFT_TENANT_ID",
         "LUNCHMONEY_API_KEY",
+        "GRANOLA_API_KEY",
     }
 )
 
@@ -219,3 +220,24 @@ def update_billing_settings(updates: dict) -> dict:
     """Merge updates into the billing section of config.json."""
     save_config({"billing": updates})
     return get_billing_settings()
+
+
+# ---------------------------------------------------------------------------
+# Note creation settings
+# ---------------------------------------------------------------------------
+
+DEFAULT_NOTE_CREATION_CONFIG: dict = {
+    "days_ahead": 5,
+}
+
+
+def get_note_creation_config() -> dict:
+    """Return note creation configuration from config.json."""
+    stored = load_config().get("note_creation", {})
+    return {**DEFAULT_NOTE_CREATION_CONFIG, **stored}
+
+
+def update_note_creation_config(updates: dict) -> dict:
+    """Merge updates into the note_creation section of config.json."""
+    save_config({"note_creation": updates})
+    return get_note_creation_config()

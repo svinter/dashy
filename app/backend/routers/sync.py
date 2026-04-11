@@ -389,6 +389,54 @@ def sync_news():
         _handle_sync_error("news", e, time.monotonic() - t0)
 
 
+def sync_granola_notes():
+    if not _is_enabled("granola_notes"):
+        return
+    # Rate-limit to once every 2 hours
+    try:
+        with get_db_connection(readonly=True) as db:
+            row = db.execute(
+                "SELECT last_sync_at FROM sync_state WHERE source = 'granola_notes'"
+            ).fetchone()
+            if row and row["last_sync_at"]:
+                last = datetime.fromisoformat(row["last_sync_at"])
+                if (datetime.now() - last).total_seconds() < 7200:
+                    return
+    except Exception:
+        pass
+    t0 = time.monotonic()
+    try:
+        from connectors.granola_notes import sync_granola_notes as _sync
+
+        result = _sync(days_back=30)
+        items = result.get("written", 0)
+        _update_sync_state("granola_notes", "success", None, items, elapsed=time.monotonic() - t0)
+    except ImportError:
+        _update_sync_state("granola_notes", "error", "granola_notes connector not available", 0)
+    except Exception as e:
+        _handle_sync_error("granola_notes", e, time.monotonic() - t0)
+
+
+def sync_note_creation():
+    """Create/update upcoming coaching notes in Obsidian vault."""
+    # Note creation doesn't require a connector to be enabled — it uses the vault path
+    # but we only run it if granola_notes connector exists (shares same ecosystem)
+    t0 = time.monotonic()
+    try:
+        from app_config import get_note_creation_config
+        from connectors.note_creator import create_upcoming_notes
+
+        cfg = get_note_creation_config()
+        days_ahead = int(cfg.get("days_ahead", 5))
+        result = create_upcoming_notes(days_ahead=days_ahead)
+        items = result.get("daily_created", 0) + result.get("meeting_created", 0) + result.get("meeting_updated", 0)
+        _update_sync_state("note_creation", "success", None, items, elapsed=time.monotonic() - t0)
+    except ImportError:
+        _update_sync_state("note_creation", "error", "note_creator connector not available", 0)
+    except Exception as e:
+        _handle_sync_error("note_creation", e, time.monotonic() - t0)
+
+
 def sync_obsidian():
     if not _is_enabled("obsidian"):
         return
@@ -517,6 +565,16 @@ def _run_full_sync():
         if _is_enabled("obsidian"):
             local_fns.append(("obsidian", sync_obsidian))
         _run_group(local_fns, max_workers=3)
+
+        if _sync_cancel.is_set():
+            return
+
+        # Note creation — runs on every cycle (daily notes need fresh creation)
+        _tracked("note_creation", sync_note_creation)
+
+        # Granola Notes API sync — rate-limited to once every 2 hours inside sync_granola_notes()
+        if _is_enabled("granola_notes"):
+            _tracked("granola_notes", sync_granola_notes)
 
         if _sync_cancel.is_set():
             return

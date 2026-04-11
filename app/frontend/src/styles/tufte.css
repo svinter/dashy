@@ -8497,6 +8497,143 @@ span.news-item-title {
   display: inline-block;
 }
 
+/* Operations page */
+
+.coaching-operations {
+  padding: var(--space-md) var(--space-lg);
+  max-width: 680px;
+}
+
+.coaching-operations-title {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  margin: 0 0 var(--space-md);
+  color: var(--color-text);
+}
+
+.ops-card {
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: var(--space-md);
+  margin-bottom: var(--space-md);
+  background: var(--color-surface, var(--color-bg));
+}
+
+.ops-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: var(--space-sm);
+}
+
+.ops-card-title {
+  font-weight: 600;
+  font-size: var(--text-base);
+  color: var(--color-text);
+  margin-bottom: 3px;
+}
+
+.ops-card-desc {
+  font-size: var(--text-sm);
+  color: var(--color-text-light);
+  line-height: 1.4;
+}
+
+.ops-card-status {
+  font-size: var(--text-sm);
+  color: var(--color-text-light);
+  margin: var(--space-sm) 0;
+}
+
+.ops-card-counts {
+  color: var(--color-text);
+}
+
+.ops-card-error {
+  font-size: var(--text-sm);
+  color: var(--color-error, #c0392b);
+  background: rgba(192, 57, 43, 0.07);
+  border-radius: 4px;
+  padding: 4px 8px;
+  margin: var(--space-xs) 0;
+}
+
+.ops-card-unmatched {
+  font-size: var(--text-sm);
+  color: var(--color-text-light);
+  margin: var(--space-xs) 0 var(--space-sm);
+}
+
+.ops-card-unmatched summary {
+  cursor: pointer;
+}
+
+.ops-card-unmatched ul {
+  margin: 4px 0 0 16px;
+  padding: 0;
+}
+
+.ops-card-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+}
+
+.ops-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-sm);
+  color: var(--color-text-light);
+}
+
+.ops-select {
+  font-size: var(--text-sm);
+  padding: 3px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+.ops-number-input {
+  width: 52px;
+  font-size: var(--text-sm);
+  padding: 3px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  text-align: center;
+}
+
+.ops-force-label {
+  color: var(--color-text-light);
+  gap: 4px;
+}
+
+.ops-run-btn {
+  margin-left: auto;
+  font-size: var(--text-sm);
+  padding: 5px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.ops-run-btn:hover:not(:disabled) {
+  background: var(--color-highlight);
+}
+
+.ops-run-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* All chip */
 
 .coaching-filter-chip--all {
