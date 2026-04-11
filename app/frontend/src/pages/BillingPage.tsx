@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, createContext, useContext } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo, createContext, useContext } from 'react';
 import { NavLink, Link, Routes, Route, Navigate, useMatch, useNavigate, useParams } from 'react-router-dom';
 import { openExternal } from '../api/client';
 import { InvoicePrepPage } from './InvoicePrepPage';
@@ -42,8 +42,8 @@ import {
   useBillingProjects,
 } from '../api/hooks';
 import type { BillingUnprocessedEvent, BillingCompany, BillingProject, BillingSession, BillingPrepaidBlock, BillingInvoice, BillingInvoiceDetail, BillingSummaryData, BillingSummaryCell, BillingPayment, BillingLunchMoneySyncResult, InvoiceLineInput, InvoiceBulkImportRow, InvoiceBulkImportResult } from '../api/types';
-import { HelpPopover } from './CoachingPage';
-import type { HelpShortcut } from './CoachingPage';
+import { ClientFilterBar, HelpPopover } from '../components/shared/ClientFilterBar';
+import type { HelpShortcut } from '../components/shared/ClientFilterBar';
 
 // ---------------------------------------------------------------------------
 // Demo Mode context — hides all dollar amounts across the billing module
@@ -61,6 +61,7 @@ export function useDemoMode() { return useContext(DemoModeContext); }
 const BILLING_PREPAID_ID       = -2;  // companies with at least one prepaid client
 const BILLING_PERIODIC_ID      = -3;  // invoice-billed companies with no prepaid clients
 const BILLING_ALL_PROJECTS_ID  = -4;  // all active projects (.j symbolic group)
+const BILLING_INDIVIDUAL_ID    = -5;  // individual-billed companies (.i symbolic group)
 
 // Kept for any references in sub-routes (InvoicePrepPage, etc.)
 const SCOPE_COMPANY_PREPAID  = 'g:prepaid';
@@ -118,6 +119,7 @@ function buildBillingSearchIndex(companies: BillingCompany[], projects: BillingP
     { label: 'Prepaid', id: BILLING_PREPAID_ID },
     { label: 'Periodic billing', id: BILLING_PERIODIC_ID },
     { label: 'All projects', id: BILLING_ALL_PROJECTS_ID },
+    { label: 'Individual billing', id: BILLING_INDIVIDUAL_ID },
     ...companies.map(co => ({ label: co.name, id: co.id })),
   ].sort((a, b) => {
     // Keep symbolic groups first
@@ -145,9 +147,10 @@ function matchBillingItems(
   projectItems: { label: string; id: number; company_name: string }[] = []
 ): BillingFilterSelection[] {
   if (!text) return [];
-  if (text === '.j') {
-    return [{ type: 'company' as const, id: BILLING_ALL_PROJECTS_ID, label: 'All projects' }];
-  }
+  if (text === '.j') return [{ type: 'company' as const, id: BILLING_ALL_PROJECTS_ID, label: 'All projects' }];
+  if (text === '.i') return [{ type: 'company' as const, id: BILLING_INDIVIDUAL_ID, label: 'Individual billing' }];
+  if (text === '.d') return [{ type: 'company' as const, id: BILLING_PERIODIC_ID, label: 'Periodic billing' }];
+  if (text === '.p') return [{ type: 'company' as const, id: BILLING_PREPAID_ID, label: 'Prepaid' }];
   if (text.startsWith("'")) {
     const q = text.slice(1).toLowerCase();
     return projectItems.filter(p => p.label.toLowerCase().includes(q))
@@ -191,6 +194,8 @@ function computeEffectiveCompanyIds(
         companies.filter(co => co.billing_method === 'invoice' && !co.clients.some(cl => cl.prepaid)).forEach(co => ids.add(co.id));
       } else if (s.id === BILLING_ALL_PROJECTS_ID) {
         projects.filter(p => p.active).forEach(p => ids.add(p.company_id));
+      } else if (s.id === BILLING_INDIVIDUAL_ID) {
+        companies.filter(co => co.billing_method === 'individual').forEach(co => ids.add(co.id));
       } else if (s.id !== null) {
         ids.add(s.id);
       }
@@ -234,10 +239,13 @@ const BILLING_SHORTCUTS: HelpShortcut[] = [
   { keys: 'Escape', description: 'Clear search text' },
   { keys: '← →', description: 'Cycle through multiple matches' },
   { keys: 'Return', description: 'Add current match to selection' },
-  { keys: ". prefix", description: "Match company name only  (e.g. .prep)" },
-  { keys: ", prefix", description: "Match person first or last name  (e.g. ,smith)" },
+  { keys: '. prefix', description: 'Match company name only  (e.g. .acme)' },
+  { keys: ', prefix', description: 'Match person first or last name  (e.g. ,smith)' },
   { keys: "' prefix", description: "Match project name  (e.g. 'boston)" },
-  { keys: '.j', description: 'Select all active projects' },
+  { keys: '.i', description: 'Individual billing clients' },
+  { keys: '.p', description: 'Prepaid clients' },
+  { keys: '.d', description: 'Periodic billing (invoiced)' },
+  { keys: '.j', description: 'All active projects' },
   { keys: '- prefix', description: 'Remove from selection  (e.g. -acme)' },
   { keys: '⌘/ or ⌘?', description: 'Show this help' },
 ];
@@ -251,115 +259,26 @@ interface BillingClientFilterProps {
 }
 
 function BillingClientFilter({ companies, projects = [], selection, allChip, onSelectionChange }: BillingClientFilterProps) {
-  const [text, setText] = useState('');
-  const [matchIndex, setMatchIndex] = useState(0);
-  const [helpOpen, setHelpOpen] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const { cos, clients, projectItems } = buildBillingSearchIndex(companies, projects);
-  const removing = text.startsWith('-');
-  const queryText = removing ? text.slice(1) : text;
-  const matches = matchBillingItems(queryText, cos, clients, projectItems);
-  const currentMatch = matches[matchIndex] ?? null;
-  const multipleMatches = matches.length > 1;
-
-  useEffect(() => { setMatchIndex(0); }, [text]);
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.metaKey && e.key === 'f') { e.preventDefault(); inputRef.current?.focus(); return; }
-      if (e.metaKey && (e.key === '/' || e.key === '?')) { e.preventDefault(); setHelpOpen(h => !h); return; }
-    };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, []);
-
-  const addToSelection = useCallback((item: BillingFilterSelection) => {
-    if (!selection.find(s => s.type === item.type && s.id === item.id)) {
-      onSelectionChange([...selection, item], false);
-    }
-  }, [selection, onSelectionChange]);
-
-  const removeFromSelection = useCallback((item: BillingFilterSelection) => {
-    const next = selection.filter(s => !(s.type === item.type && s.id === item.id));
-    onSelectionChange(next, allChip && next.length === 0);
-  }, [selection, allChip, onSelectionChange]);
-
-  const clearToAll = useCallback(() => {
-    onSelectionChange([], true);
-    setText('');
-  }, [onSelectionChange]);
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Escape') { e.preventDefault(); setText(''); return; }
-    if ((e.metaKey || e.ctrlKey) && e.key === 'a') { e.preventDefault(); clearToAll(); return; }
-    if ((e.metaKey || e.ctrlKey) && e.key === '.') { e.preventDefault(); inputRef.current?.blur(); setText(''); return; }
-    if (e.key === 'ArrowLeft') { e.preventDefault(); if (multipleMatches) setMatchIndex(i => (i - 1 + matches.length) % matches.length); return; }
-    if (e.key === 'ArrowRight') { e.preventDefault(); if (multipleMatches) setMatchIndex(i => (i + 1) % matches.length); return; }
-    if (e.key === 'Enter' && currentMatch) {
-      e.preventDefault();
-      if (removing) removeFromSelection(currentMatch);
-      else addToSelection(currentMatch);
-      setText('');
-    }
-  };
-
-  const showingAll = selection.length === 0;
+  const { cos, clients, projectItems } = useMemo(
+    () => buildBillingSearchIndex(companies, projects),
+    [companies, projects]
+  );
+  const matchFn = useCallback(
+    (text: string) => matchBillingItems(text, cos, clients, projectItems),
+    [cos, clients, projectItems]
+  );
 
   return (
-    <div className="coaching-filter" style={{ marginLeft: 4 }}>
-      <HelpPopover title="Billing filter shortcuts" shortcuts={BILLING_SHORTCUTS} isOpen={helpOpen} onClose={() => setHelpOpen(false)} />
-
-      {(allChip || selection.length > 0) && (
-        <div className="coaching-filter-chips">
-          {allChip && showingAll ? (
-            <span className="coaching-filter-chip coaching-filter-chip--all">
-              All
-              <button className="coaching-filter-chip-remove" onClick={() => onSelectionChange([], false)}>×</button>
-            </span>
-          ) : (
-            selection.map((item, i) => (
-              <span key={i} className={`coaching-filter-chip${item.type === 'company' ? ' coaching-filter-chip--company' : ''}`}>
-                {item.label}
-                <button className="coaching-filter-chip-remove" onClick={() => removeFromSelection(item)}>×</button>
-              </span>
-            ))
-          )}
-          {selection.length > 0 && (
-            <button className="coaching-filter-clear" onClick={clearToAll}>clear</button>
-          )}
-        </div>
-      )}
-
-      {text && (
-        <div className="coaching-filter-autocomplete">
-          {currentMatch ? (
-            <span style={{ color: multipleMatches ? 'var(--color-text-light)' : 'var(--color-text)' }}>
-              {removing && <span style={{ opacity: 0.5 }}>−</span>}
-              {currentMatch.type === 'company'
-                ? <span className="coaching-filter-ac-company">{currentMatch.label}</span>
-                : currentMatch.type === 'project'
-                  ? <span style={{ color: '#7B52AB' }}>{currentMatch.label}</span>
-                  : <span>{currentMatch.label}</span>}
-              {multipleMatches && <span className="coaching-filter-ac-hint"> ← → to cycle</span>}
-            </span>
-          ) : (
-            <span style={{ color: 'var(--color-text-light)', fontStyle: 'italic' }}>no match</span>
-          )}
-        </div>
-      )}
-
-      <input
-        ref={inputRef}
-        className="coaching-filter-input"
-        type="text"
-        value={text}
-        onChange={e => setText(e.target.value)}
-        onKeyDown={handleKeyDown}
-        placeholder="filter… (⌘F · ' for project · .j all projects · ⌘?)"
-        spellCheck={false}
-      />
-    </div>
+    <ClientFilterBar
+      selection={selection}
+      allChip={allChip}
+      onSelectionChange={onSelectionChange}
+      matchFn={matchFn}
+      placeholder="filter… (⌘F · .p prepaid · .j projects · ⌘?)"
+      helpTitle="Billing filter shortcuts"
+      shortcuts={BILLING_SHORTCUTS}
+      style={{ marginLeft: 4 }}
+    />
   );
 }
 
