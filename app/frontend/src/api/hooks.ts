@@ -72,6 +72,7 @@ import type {
   SandboxApp,
   BillingCompany,
   BillingClient,
+  BillingProject,
   BillingSettings,
   BillingSeedStatus,
   BillingUnprocessedEvent,
@@ -2169,6 +2170,45 @@ export function useDeleteBillingClient() {
   });
 }
 
+export function useBillingProjects(companyId?: number, activeOnly = false) {
+  return useQuery({
+    queryKey: ['billing-projects', companyId, activeOnly],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (companyId !== undefined) params.set('company_id', String(companyId));
+      if (activeOnly) params.set('active_only', 'true');
+      const qs = params.toString();
+      return api.get<BillingProject[]>(`/billing/projects${qs ? '?' + qs : ''}`);
+    },
+  });
+}
+
+export function useCreateBillingProject() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Partial<BillingProject> & { company_id: number }) =>
+      api.post<BillingProject>('/billing/projects', body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['billing-projects'] }),
+  });
+}
+
+export function useUpdateBillingProject() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...update }: { id: number } & Partial<BillingProject>) =>
+      api.patch<BillingProject>(`/billing/projects/${id}`, update),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['billing-projects'] }),
+  });
+}
+
+export function useDeleteBillingProject() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.delete(`/billing/projects/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['billing-projects'] }),
+  });
+}
+
 export function useBillingSettings() {
   return useQuery({
     queryKey: ['billing-settings'],
@@ -2225,11 +2265,31 @@ export function useConfirmBillingSession() {
     mutationFn: (body: {
       calendar_event_id: string;
       client_id?: number | null;
+      project_id?: number | null;
       company_id?: number | null;
       duration_hours: number;
       notes?: string;
     }) => api.post<BillingSession>('/billing/sessions/confirm', body),
     onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['billing-unprocessed'] });
+      qc.invalidateQueries({ queryKey: ['billing-badge-counts'] });
+      qc.invalidateQueries({ queryKey: ['billing-sessions'] });
+    },
+  });
+}
+
+export function useConfirmPastBanana() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: {
+      calendar_event_id: string;
+      client_id?: number | null;
+      company_id?: number | null;
+      duration_hours: number;
+      notes?: string;
+    }) => api.post<{ need_reauth?: boolean } & Partial<BillingSession>>('/billing/sessions/confirm-past-banana', body),
+    onSuccess: (data) => {
+      if (data.need_reauth) return;
       qc.invalidateQueries({ queryKey: ['billing-unprocessed'] });
       qc.invalidateQueries({ queryKey: ['billing-badge-counts'] });
       qc.invalidateQueries({ queryKey: ['billing-sessions'] });

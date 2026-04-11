@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, createContext, useContext } from 'react';
+import { useState, useRef, useEffect, useCallback, createContext, useContext } from 'react';
 import { NavLink, Link, Routes, Route, Navigate, useMatch, useNavigate, useParams } from 'react-router-dom';
 import { openExternal } from '../api/client';
 import { InvoicePrepPage } from './InvoicePrepPage';
@@ -38,8 +38,12 @@ import {
   useAddInvoiceLine,
   useBillingDismissedSessions,
   useBillingSyncCalendar,
+  useConfirmPastBanana,
+  useBillingProjects,
 } from '../api/hooks';
-import type { BillingUnprocessedEvent, BillingCompany, BillingSession, BillingPrepaidBlock, BillingInvoice, BillingInvoiceDetail, BillingSummaryData, BillingSummaryCell, BillingPayment, BillingLunchMoneySyncResult, InvoiceLineInput, InvoiceBulkImportRow, InvoiceBulkImportResult } from '../api/types';
+import type { BillingUnprocessedEvent, BillingCompany, BillingProject, BillingSession, BillingPrepaidBlock, BillingInvoice, BillingInvoiceDetail, BillingSummaryData, BillingSummaryCell, BillingPayment, BillingLunchMoneySyncResult, InvoiceLineInput, InvoiceBulkImportRow, InvoiceBulkImportResult } from '../api/types';
+import { HelpPopover } from './CoachingPage';
+import type { HelpShortcut } from './CoachingPage';
 
 // ---------------------------------------------------------------------------
 // Demo Mode context — hides all dollar amounts across the billing module
@@ -53,50 +57,311 @@ export function useDemoMode() { return useContext(DemoModeContext); }
 // Billing scope context — global year / month / company persisted for session
 // ---------------------------------------------------------------------------
 
-// company is a string: '' = all, numeric string = single company ID,
-// or a group key constant below.
-const SCOPE_COMPANY_PREPAID  = 'g:prepaid';   // companies with at least one prepaid client
-const SCOPE_COMPANY_PERIODIC = 'g:periodic';  // invoice-billed companies with no prepaid clients
+// Symbolic company IDs used in the billing client filter
+const BILLING_PREPAID_ID       = -2;  // companies with at least one prepaid client
+const BILLING_PERIODIC_ID      = -3;  // invoice-billed companies with no prepaid clients
+const BILLING_ALL_PROJECTS_ID  = -4;  // all active projects (.j symbolic group)
+
+// Kept for any references in sub-routes (InvoicePrepPage, etc.)
+const SCOPE_COMPANY_PREPAID  = 'g:prepaid';
+const SCOPE_COMPANY_PERIODIC = 'g:periodic';
+
+// ---------------------------------------------------------------------------
+// Billing client filter — selection model
+// ---------------------------------------------------------------------------
+
+interface BillingFilterSelection {
+  type: 'company' | 'client' | 'project';
+  id: number | null;
+  label: string;
+}
 
 interface BillingScopeCtx {
   year: number;
   month: number | null;   // 1–12, null = all months
-  company: string;        // '' | numeric-string | group key
+  /** null = show all companies; Set = only show these company IDs */
+  effectiveCompanyIds: Set<number> | null;
+  billingFilterSel: BillingFilterSelection[];
+  billingAllChip: boolean;
   setYear: (y: number) => void;
   setMonth: (m: number | null) => void;
-  setCompany: (c: string) => void;
+  setBillingFilter: (sel: BillingFilterSelection[], allChip: boolean) => void;
 }
 
-function defaultScope(): Pick<BillingScopeCtx, 'year' | 'month' | 'company'> {
+function defaultScope(): Pick<BillingScopeCtx, 'year' | 'month'> {
   const d = new Date();
   // d.getMonth() is 0-based; its value equals the previous month in 1-based numbering
-  const prevMonth = d.getMonth(); // 0 means January → previous month is December
+  const prevMonth = d.getMonth();
   return {
     year: prevMonth === 0 ? d.getFullYear() - 1 : d.getFullYear(),
     month: prevMonth === 0 ? 12 : prevMonth,
-    company: '',
   };
-}
-
-/**
- * For group filter keys, returns the set of company IDs that match.
- * Returns null when company is '' (all) or a single numeric company.
- */
-function resolveGroupIds(company: string, companies: BillingCompany[]): Set<number> | null {
-  if (company === SCOPE_COMPANY_PREPAID)
-    return new Set(companies.filter(co => co.clients.some(cl => cl.prepaid)).map(co => co.id));
-  if (company === SCOPE_COMPANY_PERIODIC)
-    return new Set(companies.filter(co => co.billing_method === 'invoice' && !co.clients.some(cl => cl.prepaid)).map(co => co.id));
-  return null;
 }
 
 const BillingScopeContext = createContext<BillingScopeCtx>({
   ...defaultScope(),
+  effectiveCompanyIds: null,
+  billingFilterSel: [],
+  billingAllChip: false,
   setYear: () => {},
   setMonth: () => {},
-  setCompany: () => {},
+  setBillingFilter: () => {},
 });
 function useBillingScope() { return useContext(BillingScopeContext); }
+
+// ---------------------------------------------------------------------------
+// Billing client filter — search index, matching, effectiveCompanyIds
+// ---------------------------------------------------------------------------
+
+function buildBillingSearchIndex(companies: BillingCompany[], projects: BillingProject[] = []) {
+  const cos: { label: string; id: number }[] = [
+    { label: 'Prepaid', id: BILLING_PREPAID_ID },
+    { label: 'Periodic billing', id: BILLING_PERIODIC_ID },
+    { label: 'All projects', id: BILLING_ALL_PROJECTS_ID },
+    ...companies.map(co => ({ label: co.name, id: co.id })),
+  ].sort((a, b) => {
+    // Keep symbolic groups first
+    if (a.id < 0 && b.id >= 0) return -1;
+    if (a.id >= 0 && b.id < 0) return 1;
+    return a.label.localeCompare(b.label);
+  });
+  const clients: { label: string; id: number; company_name: string }[] = companies
+    .flatMap(co => co.clients.map(cl => ({ label: cl.name, id: cl.id, company_name: co.name })))
+    .sort((a, b) => a.label.localeCompare(b.label));
+  const projectItems: { label: string; id: number; company_name: string }[] = projects
+    .filter(p => p.active)
+    .map(p => {
+      const co = companies.find(c => c.id === p.company_id);
+      return { label: p.name, id: p.id, company_name: co?.name ?? '' };
+    })
+    .sort((a, b) => a.label.localeCompare(b.label));
+  return { cos, clients, projectItems };
+}
+
+function matchBillingItems(
+  text: string,
+  cos: { label: string; id: number }[],
+  clients: { label: string; id: number; company_name: string }[],
+  projectItems: { label: string; id: number; company_name: string }[] = []
+): BillingFilterSelection[] {
+  if (!text) return [];
+  if (text === '.j') {
+    return [{ type: 'company' as const, id: BILLING_ALL_PROJECTS_ID, label: 'All projects' }];
+  }
+  if (text.startsWith("'")) {
+    const q = text.slice(1).toLowerCase();
+    return projectItems.filter(p => p.label.toLowerCase().includes(q))
+      .map(p => ({ type: 'project' as const, id: p.id, label: `◆ ${p.label}` }));
+  }
+  if (text.startsWith('.')) {
+    const q = text.slice(1).toLowerCase();
+    return cos.filter(c => c.label.toLowerCase().startsWith(q))
+      .map(c => ({ type: 'company' as const, id: c.id, label: c.label }));
+  }
+  if (text.startsWith(',')) {
+    const q = text.slice(1).toLowerCase();
+    return clients.filter(c => c.label.toLowerCase().split(' ').some(p => p.startsWith(q)))
+      .map(c => ({ type: 'client' as const, id: c.id, label: c.label }));
+  }
+  const q = text.toLowerCase();
+  const matchedCos: BillingFilterSelection[] = cos
+    .filter(c => c.label.toLowerCase().startsWith(q))
+    .map(c => ({ type: 'company' as const, id: c.id, label: c.label }));
+  const matchedClients: BillingFilterSelection[] = clients
+    .filter(c => c.label.toLowerCase().split(' ').some(p => p.startsWith(q)))
+    .map(c => ({ type: 'client' as const, id: c.id, label: c.label }));
+  const matchedProjects: BillingFilterSelection[] = projectItems
+    .filter(p => p.label.toLowerCase().split(' ').some(w => w.startsWith(q)))
+    .map(p => ({ type: 'project' as const, id: p.id, label: `◆ ${p.label}` }));
+  return [...matchedCos, ...matchedClients, ...matchedProjects];
+}
+
+function computeEffectiveCompanyIds(
+  sel: BillingFilterSelection[],
+  companies: BillingCompany[],
+  projects: BillingProject[] = []
+): Set<number> | null {
+  if (sel.length === 0) return null;
+  const ids = new Set<number>();
+  for (const s of sel) {
+    if (s.type === 'company') {
+      if (s.id === BILLING_PREPAID_ID) {
+        companies.filter(co => co.clients.some(cl => cl.prepaid)).forEach(co => ids.add(co.id));
+      } else if (s.id === BILLING_PERIODIC_ID) {
+        companies.filter(co => co.billing_method === 'invoice' && !co.clients.some(cl => cl.prepaid)).forEach(co => ids.add(co.id));
+      } else if (s.id === BILLING_ALL_PROJECTS_ID) {
+        projects.filter(p => p.active).forEach(p => ids.add(p.company_id));
+      } else if (s.id !== null) {
+        ids.add(s.id);
+      }
+    } else if (s.type === 'client' && s.id !== null) {
+      const co = companies.find(co => co.clients.some(cl => cl.id === s.id));
+      if (co) ids.add(co.id);
+    } else if (s.type === 'project' && s.id !== null) {
+      const pr = projects.find(p => p.id === s.id);
+      if (pr) ids.add(pr.company_id);
+    }
+  }
+  return ids;
+}
+
+// ---------------------------------------------------------------------------
+// Shared scope button style (used in BillingScopeBar and InvoicesListView)
+// ---------------------------------------------------------------------------
+
+function scopeBtn(active: boolean): React.CSSProperties {
+  return {
+    padding: '2px 7px',
+    fontSize: 'var(--text-xs)',
+    border: active ? '1px solid #555' : '1px solid var(--color-border)',
+    borderRadius: 3,
+    background: active ? '#333' : 'transparent',
+    color: active ? '#fff' : 'var(--color-text-light)',
+    fontWeight: active ? 700 : 400,
+    cursor: 'pointer',
+    whiteSpace: 'nowrap' as const,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// BillingClientFilter component
+// ---------------------------------------------------------------------------
+
+const BILLING_SHORTCUTS: HelpShortcut[] = [
+  { keys: '⌘F', description: 'Focus client search box' },
+  { keys: '⌘A', description: 'Show all clients (clear filter)' },
+  { keys: '⌘.', description: 'Finish editing (collapse autocomplete)' },
+  { keys: 'Escape', description: 'Clear search text' },
+  { keys: '← →', description: 'Cycle through multiple matches' },
+  { keys: 'Return', description: 'Add current match to selection' },
+  { keys: ". prefix", description: "Match company name only  (e.g. .prep)" },
+  { keys: ", prefix", description: "Match person first or last name  (e.g. ,smith)" },
+  { keys: "' prefix", description: "Match project name  (e.g. 'boston)" },
+  { keys: '.j', description: 'Select all active projects' },
+  { keys: '- prefix', description: 'Remove from selection  (e.g. -acme)' },
+  { keys: '⌘/ or ⌘?', description: 'Show this help' },
+];
+
+interface BillingClientFilterProps {
+  companies: BillingCompany[];
+  projects?: BillingProject[];
+  selection: BillingFilterSelection[];
+  allChip: boolean;
+  onSelectionChange: (sel: BillingFilterSelection[], allChip: boolean) => void;
+}
+
+function BillingClientFilter({ companies, projects = [], selection, allChip, onSelectionChange }: BillingClientFilterProps) {
+  const [text, setText] = useState('');
+  const [matchIndex, setMatchIndex] = useState(0);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const { cos, clients, projectItems } = buildBillingSearchIndex(companies, projects);
+  const removing = text.startsWith('-');
+  const queryText = removing ? text.slice(1) : text;
+  const matches = matchBillingItems(queryText, cos, clients, projectItems);
+  const currentMatch = matches[matchIndex] ?? null;
+  const multipleMatches = matches.length > 1;
+
+  useEffect(() => { setMatchIndex(0); }, [text]);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.metaKey && e.key === 'f') { e.preventDefault(); inputRef.current?.focus(); return; }
+      if (e.metaKey && (e.key === '/' || e.key === '?')) { e.preventDefault(); setHelpOpen(h => !h); return; }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, []);
+
+  const addToSelection = useCallback((item: BillingFilterSelection) => {
+    if (!selection.find(s => s.type === item.type && s.id === item.id)) {
+      onSelectionChange([...selection, item], false);
+    }
+  }, [selection, onSelectionChange]);
+
+  const removeFromSelection = useCallback((item: BillingFilterSelection) => {
+    const next = selection.filter(s => !(s.type === item.type && s.id === item.id));
+    onSelectionChange(next, allChip && next.length === 0);
+  }, [selection, allChip, onSelectionChange]);
+
+  const clearToAll = useCallback(() => {
+    onSelectionChange([], true);
+    setText('');
+  }, [onSelectionChange]);
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Escape') { e.preventDefault(); setText(''); return; }
+    if ((e.metaKey || e.ctrlKey) && e.key === 'a') { e.preventDefault(); clearToAll(); return; }
+    if ((e.metaKey || e.ctrlKey) && e.key === '.') { e.preventDefault(); inputRef.current?.blur(); setText(''); return; }
+    if (e.key === 'ArrowLeft') { e.preventDefault(); if (multipleMatches) setMatchIndex(i => (i - 1 + matches.length) % matches.length); return; }
+    if (e.key === 'ArrowRight') { e.preventDefault(); if (multipleMatches) setMatchIndex(i => (i + 1) % matches.length); return; }
+    if (e.key === 'Enter' && currentMatch) {
+      e.preventDefault();
+      if (removing) removeFromSelection(currentMatch);
+      else addToSelection(currentMatch);
+      setText('');
+    }
+  };
+
+  const showingAll = selection.length === 0;
+
+  return (
+    <div className="coaching-filter" style={{ marginLeft: 4 }}>
+      <HelpPopover title="Billing filter shortcuts" shortcuts={BILLING_SHORTCUTS} isOpen={helpOpen} onClose={() => setHelpOpen(false)} />
+
+      {(allChip || selection.length > 0) && (
+        <div className="coaching-filter-chips">
+          {allChip && showingAll ? (
+            <span className="coaching-filter-chip coaching-filter-chip--all">
+              All
+              <button className="coaching-filter-chip-remove" onClick={() => onSelectionChange([], false)}>×</button>
+            </span>
+          ) : (
+            selection.map((item, i) => (
+              <span key={i} className={`coaching-filter-chip${item.type === 'company' ? ' coaching-filter-chip--company' : ''}`}>
+                {item.label}
+                <button className="coaching-filter-chip-remove" onClick={() => removeFromSelection(item)}>×</button>
+              </span>
+            ))
+          )}
+          {selection.length > 0 && (
+            <button className="coaching-filter-clear" onClick={clearToAll}>clear</button>
+          )}
+        </div>
+      )}
+
+      {text && (
+        <div className="coaching-filter-autocomplete">
+          {currentMatch ? (
+            <span style={{ color: multipleMatches ? 'var(--color-text-light)' : 'var(--color-text)' }}>
+              {removing && <span style={{ opacity: 0.5 }}>−</span>}
+              {currentMatch.type === 'company'
+                ? <span className="coaching-filter-ac-company">{currentMatch.label}</span>
+                : currentMatch.type === 'project'
+                  ? <span style={{ color: '#7B52AB' }}>{currentMatch.label}</span>
+                  : <span>{currentMatch.label}</span>}
+              {multipleMatches && <span className="coaching-filter-ac-hint"> ← → to cycle</span>}
+            </span>
+          ) : (
+            <span style={{ color: 'var(--color-text-light)', fontStyle: 'italic' }}>no match</span>
+          )}
+        </div>
+      )}
+
+      <input
+        ref={inputRef}
+        className="coaching-filter-input"
+        type="text"
+        value={text}
+        onChange={e => setText(e.target.value)}
+        onKeyDown={handleKeyDown}
+        placeholder="filter… (⌘F · ' for project · .j all projects · ⌘?)"
+        spellCheck={false}
+      />
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Date / grouping helpers
@@ -541,7 +806,13 @@ function SessionRow({ session: s, companies, blocks = [], onUpdate, onDelete, on
           {s.company_abbrev ?? s.company_name ?? ''}
         </td>
       )}
-      <td style={{ fontSize: 'var(--text-sm)' }}>{s.client_name ?? <span style={{ color: 'var(--color-text-light)' }}>{s.company_name ?? '—'}</span>}</td>
+      <td style={{ fontSize: 'var(--text-sm)' }}>
+        {s.client_name
+          ? s.client_name
+          : s.project_name
+            ? <span style={{ color: '#7B52AB' }}>◆ {s.project_name}</span>
+            : <span style={{ color: 'var(--color-text-light)' }}>{s.company_name ?? '—'}</span>}
+      </td>
       {/* Session number — click to edit */}
       <td style={{ textAlign: 'right', fontSize: 'var(--text-xs)', color: 'var(--color-text-light)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
         {s.client_id != null
@@ -847,7 +1118,7 @@ type SessionViewTab = 'grouped' | 'flat' | 'summary';
 
 function SessionsView() {
   const { demo } = useDemoMode();
-  const { year, month, company, setCompany } = useBillingScope();
+  const { year, month, effectiveCompanyIds, setBillingFilter } = useBillingScope();
   const [unconfirmedOnly, setUnconfirmedOnly] = useState(false);
   const [unlinkedOnly, setUnlinkedOnly] = useState(false);
   const [viewTab, setViewTab] = useState<SessionViewTab>('flat');
@@ -858,11 +1129,8 @@ function SessionsView() {
 
   const monthParam = month !== null ? `${year}-${String(month).padStart(2, '0')}` : String(year);
   const { data: companies = [] } = useBillingCompanies();
-  const groupIds = resolveGroupIds(company, companies);
-  const apiCompanyId = !groupIds && company ? Number(company) : undefined;
   const { data: sessions = [], isLoading, refetch } = useBillingSessions({
     month: monthParam,
-    company_id: apiCompanyId,
     unconfirmed_only: unconfirmedOnly || undefined,
   });
   // Load invoices for the current period for side-by-side comparison in summary tab
@@ -882,9 +1150,9 @@ function SessionsView() {
   function handleDelete(id: number) { del.mutate(id); }
   function handleUnprocess(id: number) { unprocess.mutate(id); }
 
-  // Apply unlinked and group-company filters client-side
+  // Apply unlinked and company filters client-side
   const visibleSessions = sessions.filter(s =>
-    (!groupIds || (s.company_id !== null && groupIds.has(s.company_id))) &&
+    (!effectiveCompanyIds || (s.company_id !== null && effectiveCompanyIds.has(s.company_id))) &&
     (!unlinkedOnly || (s.is_confirmed && s.invoice_line_id === null))
   );
 
@@ -1285,7 +1553,7 @@ function SessionsView() {
                                   style={{ color: '#c0392b', fontWeight: 600, fontSize: 'inherit', fontVariantNumeric: 'tabular-nums' }}
                                   title={`${r.unreconciledCount} confirmed session${r.unreconciledCount === 1 ? '' : 's'} not linked to an invoice line — click to filter`}
                                   onClick={() => {
-                                    setCompany(String(r.id));
+                                    setBillingFilter([{ type: 'company', id: r.id, label: r.name }], false);
                                     setUnlinkedOnly(true);
                                     setUnconfirmedOnly(false);
                                     setViewTab('flat');
@@ -1362,6 +1630,7 @@ interface RowProps {
     companyId: number | null,
     durationHours: number,
     notes: string,
+    projectId?: number | null,
   ) => void;
   onDismiss: (ev: BillingUnprocessedEvent) => void;
 }
@@ -1369,12 +1638,14 @@ interface RowProps {
 function UnprocessedRow({ event: ev, companies, companyAbbrev, expectedRevenue, onConfirm, onDismiss }: RowProps) {
   const { demo } = useDemoMode();
   const [expanded, setExpanded] = useState(false);
+  const { data: allProjects = [] } = useBillingProjects();
 
   // Company selector — pre-filled from inferred company
   const [companyId, setCompanyId] = useState<number | ''>(ev.inferred_company_id ?? '');
 
-  // Client selector — pre-filled from inferred client; NO_CLIENT = company-only
+  // Client/project selector — pre-filled from inferred client; NO_CLIENT = company-only; string 'p:N' = project N
   const [clientId, setClientId] = useState<number | '' | typeof NO_CLIENT>(ev.inferred_client_id ?? '');
+  const [projectId, setProjectId] = useState<number | null>(null);
 
   const [duration, setDuration] = useState(String(ev.duration_hours.toFixed(2)));
   const [notes, setNotes] = useState('');
@@ -1388,35 +1659,49 @@ function UnprocessedRow({ event: ev, companies, companyAbbrev, expectedRevenue, 
     }
   }
 
-  // When client changes, sync company to the client's company
+  // When client/project changes, sync company
   function handleClientChange(val: string) {
     if (val === NO_CLIENT) {
       setClientId(NO_CLIENT);
+      setProjectId(null);
     } else if (val === '') {
       setClientId('');
+      setProjectId(null);
+    } else if (val.startsWith('p:')) {
+      const pid = Number(val.slice(2));
+      setProjectId(pid);
+      setClientId('');
+      const pr = allProjects.find(p => p.id === pid);
+      if (pr) setCompanyId(pr.company_id);
     } else {
       const numId = Number(val);
       setClientId(numId);
+      setProjectId(null);
       const cl = companies.flatMap(co => co.clients).find(c => c.id === numId);
       if (cl) setCompanyId(cl.company_id);
     }
   }
 
   const noClient = clientId === NO_CLIENT;
+  const isProject = projectId !== null;
   const filteredClients = companyId
     ? companies.find(co => co.id === companyId)?.clients.filter(cl => cl.active) ?? []
     : companies.flatMap(co => co.clients.filter(cl => cl.active));
+  const filteredProjects = companyId
+    ? allProjects.filter(p => p.company_id === companyId && p.active)
+    : allProjects.filter(p => p.active);
 
   const selectedClient = !noClient && clientId !== ''
     ? companies.flatMap(co => co.clients).find(cl => cl.id === Number(clientId))
     : null;
   const selectedCompany = companyId ? companies.find(co => co.id === companyId) : null;
+  const selectedProject = isProject ? allProjects.find(p => p.id === projectId) : null;
   const effectiveRate = selectedClient?.rate_override
     ?? selectedCompany?.default_rate
     ?? null;
 
   const isConfidenceHigh = ev.inferred_confidence >= 0.75;
-  const canConfirm = noClient ? !!companyId && notes.trim().length > 0 : !!clientId;
+  const canConfirm = isProject ? !!projectId : noClient ? !!companyId && notes.trim().length > 0 : !!clientId;
 
   // Session number preview — fetched when a client is selected
   const nextNumClientId = (!noClient && clientId !== '' && typeof clientId === 'number') ? clientId : null;
@@ -1424,11 +1709,17 @@ function UnprocessedRow({ event: ev, companies, companyAbbrev, expectedRevenue, 
   if (nextNumClientId != null) console.log('[next-number] client_id=', nextNumClientId, '→', nextNumData);
 
   // Derive display values from local state so edits are reflected immediately in the collapsed row
-  const displayAbbrev = selectedCompany?.abbrev ?? companyAbbrev ?? null;
-  const displayClient = selectedClient?.name ?? (noClient ? null : ev.inferred_client_name ?? null);
-  const displayRevenue = effectiveRate != null
-    ? Math.round(parseFloat(duration || '0') * effectiveRate * 100) / 100
-    : expectedRevenue ?? null;
+  const displayAbbrev = selectedProject
+    ? (companies.find(co => co.id === selectedProject.company_id)?.abbrev ?? companyAbbrev ?? null)
+    : (selectedCompany?.abbrev ?? companyAbbrev ?? null);
+  const displayClient = selectedProject
+    ? `◆ ${selectedProject.name}`
+    : selectedClient?.name ?? (noClient ? null : ev.inferred_client_name ?? null);
+  const displayRevenue = isProject
+    ? (selectedProject?.billing_type === 'fixed' ? 0 : null)
+    : effectiveRate != null
+      ? Math.round(parseFloat(duration || '0') * effectiveRate * 100) / 100
+      : expectedRevenue ?? null;
 
   return (
     <div style={{ border: '1px solid var(--color-border)', borderRadius: 4, marginBottom: 'var(--space-xs)', background: expanded ? 'var(--color-bg)' : undefined }}>
@@ -1514,11 +1805,11 @@ function UnprocessedRow({ event: ev, companies, companyAbbrev, expectedRevenue, 
               </select>
             </div>
 
-            {/* Client selector */}
+            {/* Client/Project selector */}
             <div>
-              <label style={{ fontSize: 'var(--text-xs)', display: 'block', color: 'var(--color-text-light)', marginBottom: 2 }}>Client</label>
+              <label style={{ fontSize: 'var(--text-xs)', display: 'block', color: 'var(--color-text-light)', marginBottom: 2 }}>Who</label>
               <select
-                value={clientId === NO_CLIENT ? NO_CLIENT : (clientId === '' ? '' : String(clientId))}
+                value={isProject ? `p:${projectId}` : clientId === NO_CLIENT ? NO_CLIENT : (clientId === '' ? '' : String(clientId))}
                 onChange={e => handleClientChange(e.target.value)}
                 style={{ minWidth: 180 }}
               >
@@ -1531,6 +1822,11 @@ function UnprocessedRow({ event: ev, companies, companyAbbrev, expectedRevenue, 
                       </optgroup>
                     ))
                 }
+                {filteredProjects.length > 0 && (
+                  <optgroup label="── Projects ──">
+                    {filteredProjects.map(p => <option key={`p:${p.id}`} value={`p:${p.id}`}>◆ {p.name}</option>)}
+                  </optgroup>
+                )}
                 <option value={NO_CLIENT}>— no specific client —</option>
               </select>
             </div>
@@ -1562,6 +1858,20 @@ function UnprocessedRow({ event: ev, companies, companyAbbrev, expectedRevenue, 
                 {demo ? '—' : `$${selectedCompany.default_rate}/hr → `}{demo ? '' : <strong>{`$${(parseFloat(duration || '0') * selectedCompany.default_rate).toFixed(2)}`}</strong>}
               </div>
             )}
+
+            {/* Project rate preview */}
+            {isProject && selectedProject && (
+              <div style={{ fontSize: 'var(--text-sm)', color: '#7B52AB', alignSelf: 'flex-end', paddingBottom: 4 }}>
+                {selectedProject.billing_type === 'fixed'
+                  ? <span>Fixed project — <strong>$0</strong> per session</span>
+                  : (() => {
+                      const pr = selectedProject.rate_override ?? selectedCompany?.default_rate ?? null;
+                      return pr
+                        ? <span>{demo ? '—' : `$${pr}/hr → `}{demo ? '' : <strong>{`$${(parseFloat(duration || '0') * pr).toFixed(2)}`}</strong>}</span>
+                        : <span style={{ opacity: 0.6 }}>No rate set</span>;
+                    })()}
+              </div>
+            )}
           </div>
 
           {/* Description / notes — required for no-client, optional otherwise */}
@@ -1584,9 +1894,13 @@ function UnprocessedRow({ event: ev, companies, companyAbbrev, expectedRevenue, 
               disabled={!canConfirm}
               onClick={() => {
                 if (!canConfirm) return;
-                const cId = noClient ? null : Number(clientId);
-                const coId = noClient ? Number(companyId) : null;
-                onConfirm(ev, cId, coId, parseFloat(duration || '0'), notes);
+                if (isProject) {
+                  onConfirm(ev, null, null, parseFloat(duration || '0'), notes, projectId);
+                } else {
+                  const cId = noClient ? null : Number(clientId);
+                  const coId = noClient ? Number(companyId) : null;
+                  onConfirm(ev, cId, coId, parseFloat(duration || '0'), notes);
+                }
               }}
             >
               Confirm session
@@ -1609,6 +1923,112 @@ function UnprocessedRow({ event: ev, companies, companyAbbrev, expectedRevenue, 
 // ---------------------------------------------------------------------------
 // Unprocessed queue
 // ---------------------------------------------------------------------------
+// Past banana section — banana events whose date is before today
+// ---------------------------------------------------------------------------
+
+interface PastBananaRowProps {
+  event: BillingUnprocessedEvent;
+  companies: BillingCompany[];
+  expectedRevenue: number | null;
+  onNeedReauth: () => void;
+  onPrepaidWarning: (msg: string) => void;
+}
+
+function PastBananaRow({ event: ev, companies, expectedRevenue, onNeedReauth, onPrepaidWarning }: PastBananaRowProps) {
+  const { demo } = useDemoMode();
+  const confirmPastBanana = useConfirmPastBanana();
+  const [loading, setLoading] = useState(false);
+
+  const isConfidenceHigh = ev.inferred_confidence >= 0.75;
+  const canConfirm = ev.inferred_client_id != null;
+
+  // Days between event date and today
+  const daysAgo = Math.floor(
+    (Date.now() - new Date(ev.start_time.slice(0, 10) + 'T00:00:00').getTime()) / 86_400_000
+  );
+
+  async function handleCheck(e: React.ChangeEvent<HTMLInputElement>) {
+    e.preventDefault();
+    if (!canConfirm || loading) return;
+    setLoading(true);
+    try {
+      const result = await confirmPastBanana.mutateAsync({
+        calendar_event_id: ev.calendar_event_id,
+        client_id: ev.inferred_client_id,
+        company_id: ev.inferred_company_id ?? null,
+        duration_hours: ev.duration_hours,
+        notes: '',
+      });
+      if (result.need_reauth) {
+        onNeedReauth();
+      } else if (result.no_active_prepaid_block) {
+        onPrepaidWarning(`${ev.inferred_client_name ?? 'Client'} — session confirmed but no active prepaid block found`);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Find company abbrev from companies list
+  const coId = ev.inferred_company_id
+    ?? (ev.inferred_client_id ? companies.flatMap(co => co.clients).find(c => c.id === ev.inferred_client_id)?.company_id : null);
+  const co = coId ? companies.find(c => c.id === coId) : null;
+  const abbrev = co?.abbrev ?? co?.name ?? null;
+
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 'var(--space-sm)',
+      padding: '5px 10px', borderBottom: '1px solid var(--color-border-faint)',
+      background: '#fdf8f0',
+    }}>
+      {loading ? (
+        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)', width: 16, textAlign: 'center' }}>…</span>
+      ) : (
+        <input
+          type="checkbox"
+          disabled={!canConfirm}
+          title={canConfirm
+            ? `Confirm: update GCal color → grape, then confirm session for ${ev.inferred_client_name}`
+            : 'No client inferred — expand below to assign manually'}
+          onChange={handleCheck}
+          style={{ cursor: canConfirm ? 'pointer' : 'not-allowed', flexShrink: 0 }}
+        />
+      )}
+      <span style={{ width: 90, fontSize: 'var(--text-sm)', flexShrink: 0, color: 'var(--color-text-light)' }}>
+        {formatDate(ev.start_time)}
+      </span>
+      <span style={{ fontSize: 'var(--text-xs)', color: '#b45309', flexShrink: 0 }}>
+        {daysAgo}d ago
+      </span>
+      {abbrev && (
+        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)', flexShrink: 0, minWidth: 28 }}>
+          {abbrev}
+        </span>
+      )}
+      {ev.inferred_client_name && (
+        <span style={{
+          fontSize: 'var(--text-sm)', flexShrink: 0, width: 160,
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          opacity: isConfidenceHigh ? 1 : 0.65,
+        }}>
+          {confidenceBadge(ev.inferred_confidence)} {ev.inferred_client_name}
+        </span>
+      )}
+      <span style={{
+        fontSize: 'var(--text-sm)', color: 'var(--color-text-light)',
+        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexGrow: 1,
+      }}>
+        {ev.summary}
+      </span>
+      <span style={{ marginLeft: 'auto', fontSize: 'var(--text-sm)', color: 'var(--color-text-light)', flexShrink: 0, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+        {Math.round(ev.duration_hours * 60)}min
+        {expectedRevenue != null && !demo ? ` · $${expectedRevenue.toFixed(2)}` : ''}
+      </span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 
 function UnprocessedQueue() {
   const { demo } = useDemoMode();
@@ -1619,12 +2039,13 @@ function UnprocessedQueue() {
   const unprocess = useUnprocessBillingSession();
   const syncCalendar = useBillingSyncCalendar();
 
-  const { year, month, company } = useBillingScope();
+  const { year, month, effectiveCompanyIds } = useBillingScope();
   const [showBanana, setShowBanana] = useState(true);
   const [showDismissed, setShowDismissed] = useState(false);
   const [syncMsg, setSyncMsg] = useState('');
   const { data: dismissedSessions = [] } = useBillingDismissedSessions();
   const [blockWarnings, setBlockWarnings] = useState<string[]>([]);
+  const [needReauth, setNeedReauth] = useState(false);
 
   // Helper: look up effective rate for an event from companies data
   function effectiveRate(ev: BillingUnprocessedEvent): number | null {
@@ -1655,25 +2076,37 @@ function UnprocessedQueue() {
     return co?.abbrev ?? co?.name ?? null;
   }
 
-  const groupIds = resolveGroupIds(company, companies);
-  const singleCoId = !groupIds && company ? Number(company) : null;
-
+  const today = new Date().toISOString().slice(0, 10);
   const events = data?.events ?? [];
+
+  // Past banana events: banana color, date < today, matching company filter.
+  // Shown in a separate "Past" section above all month groupings.
+  const pastBanana = events
+    .filter(ev => {
+      if (ev.color_id !== '5') return false;
+      if (ev.start_time.slice(0, 10) >= today) return false;
+      if (effectiveCompanyIds) {
+        const coId = ev.inferred_company_id;
+        if (!coId || !effectiveCompanyIds.has(coId)) return false;
+      }
+      return true;
+    })
+    .sort((a, b) => b.start_time.localeCompare(a.start_time)); // newest-first
+
+  const pastBananaIds = new Set(pastBanana.map(ev => ev.calendar_event_id));
+
   const visible = events
     .filter(ev => {
+      if (pastBananaIds.has(ev.calendar_event_id)) return false; // shown in Past section
       if (!showBanana && ev.color_id === '5') return false;
       const dateStr = ev.start_time.slice(0, 10);
       const evYear = Number(dateStr.slice(0, 4));
       const evMonth = Number(dateStr.slice(5, 7));
       if (evYear !== year) return false;
       if (month !== null && evMonth !== month) return false;
-      if (company) {
+      if (effectiveCompanyIds) {
         const coId = ev.inferred_company_id;
-        if (groupIds !== null) {
-          if (!coId || !groupIds.has(coId)) return false;
-        } else {
-          if (coId !== singleCoId) return false;
-        }
+        if (!coId || !effectiveCompanyIds.has(coId)) return false;
       }
       return true;
     })
@@ -1783,6 +2216,46 @@ function UnprocessedQueue() {
         </div>
       )}
 
+      {/* ── Past banana section ── */}
+      {pastBanana.length > 0 && (
+        <div style={{ marginBottom: 'var(--space-xl)' }}>
+          <div style={{
+            fontWeight: 700, fontSize: 'var(--text-sm)', padding: '5px 8px',
+            borderBottom: '2px solid #d97706',
+            marginBottom: 'var(--space-xs)',
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            background: 'color-mix(in srgb, #fef3c7 40%, transparent)',
+          }}>
+            <span style={{ color: '#92400e' }}>⚠ Past — calendar still shows banana ({pastBanana.length})</span>
+            <span style={{ fontWeight: 400, fontSize: 'var(--text-xs)', color: '#b45309' }}>
+              Check box to recolor → grape and confirm
+            </span>
+          </div>
+          {needReauth && (
+            <div style={{
+              padding: '6px 10px', marginBottom: 4,
+              background: 'color-mix(in srgb, #fca5a5 25%, transparent)',
+              border: '1px solid #f87171', borderRadius: 4,
+              fontSize: 'var(--text-sm)', color: '#7f1d1d',
+            }}>
+              <strong>Calendar write access required.</strong>{' '}
+              Go to <strong>Settings → Google Authentication</strong>, switch to <em>Read+Write</em> mode, then re-authenticate.
+              <button className="btn-link" style={{ marginLeft: 8, fontSize: 'var(--text-xs)' }} onClick={() => setNeedReauth(false)}>×</button>
+            </div>
+          )}
+          {pastBanana.map(ev => (
+            <PastBananaRow
+              key={ev.calendar_event_id}
+              event={ev}
+              companies={companies}
+              expectedRevenue={expectedRevenue(ev)}
+              onNeedReauth={() => setNeedReauth(true)}
+              onPrepaidWarning={msg => setBlockWarnings(w => [...w, msg])}
+            />
+          ))}
+        </div>
+      )}
+
       {monthEntries.map(([monthKey, mEvents]) => {
         const mHours = mEvents.reduce((s, e) => s + e.duration_hours, 0);
         const mRevenue = mEvents.reduce((s, e) => s + (expectedRevenue(e) ?? 0), 0);
@@ -1810,9 +2283,9 @@ function UnprocessedQueue() {
                   companies={companies}
                   companyAbbrev={abbrev}
                   expectedRevenue={rev}
-                  onConfirm={(ev, clientId, companyId, durationHours, notes) => {
+                  onConfirm={(ev, clientId, companyId, durationHours, notes, projectId) => {
                     confirm.mutate(
-                      { calendar_event_id: ev.calendar_event_id, client_id: clientId, company_id: companyId, duration_hours: durationHours, notes },
+                      { calendar_event_id: ev.calendar_event_id, client_id: clientId, company_id: companyId, duration_hours: durationHours, notes, project_id: projectId },
                       {
                         onSuccess: (session) => {
                           if (session.no_active_prepaid_block) {
@@ -2527,21 +3000,19 @@ function NewInvoiceModal({ companies, onClose }: NewInvoiceModalProps) {
 
 function InvoicesListView() {
   const { demo } = useDemoMode();
-  const { year, month, company } = useBillingScope();
+  const { year, month, effectiveCompanyIds } = useBillingScope();
   const navigate = useNavigate();
-  const [filterStatus, setFilterStatus] = useState('');
+  const [filterStatusBtn, setFilterStatusBtn] = useState<'all' | 'draft' | 'unpaid' | 'paid'>('all');
   const [filterUnlinked, setFilterUnlinked] = useState(false);
-  const { data: companies = [] } = useBillingCompanies();
-  const groupIds = resolveGroupIds(company, companies);
-  const apiCompanyId = !groupIds && company ? Number(company) : undefined;
+  const apiStatus = filterStatusBtn === 'all' || filterStatusBtn === 'unpaid' ? undefined : filterStatusBtn;
   const { data: allInvoices = [], isLoading, refetch } = useBillingInvoices({
-    company_id: apiCompanyId,
-    status: filterStatus || undefined,
+    status: apiStatus,
     period_month: month !== null ? `${year}-${String(month).padStart(2, '0')}` : undefined,
     period_year: month === null ? year : undefined,
   });
   const invoices = allInvoices
-    .filter(inv => !groupIds || (inv.company_id !== null && groupIds.has(inv.company_id)))
+    .filter(inv => filterStatusBtn !== 'unpaid' || inv.status === 'sent' || inv.status === 'partial')
+    .filter(inv => !effectiveCompanyIds || (inv.company_id !== null && effectiveCompanyIds.has(inv.company_id)))
     .filter(inv => !filterUnlinked || inv.unlinked_session_count > 0);
   const deleteMut = useDeleteBillingInvoice();
   const deleteAllMut = useDeleteBillingInvoicesBulk();
@@ -2578,14 +3049,13 @@ function InvoicesListView() {
         <button className="btn-link" style={{ fontSize: 'var(--text-sm)' }} onClick={() => setShowImportCsv(true)}>Import CSV</button>
         <button className="btn-link" style={{ marginLeft: 'auto', fontSize: 'var(--text-sm)' }} onClick={() => refetch()}>↻</button>
       </div>
-      <div style={{ display: 'flex', gap: 'var(--space-md)', alignItems: 'center', marginBottom: 'var(--space-md)', flexWrap: 'wrap' }}>
-        <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{ fontSize: 'var(--text-sm)' }}>
-          <option value="">All statuses</option>
-          <option value="draft">Draft</option>
-          <option value="sent">Sent</option>
-          <option value="paid">Paid</option>
-          <option value="partial">Partial</option>
-        </select>
+      <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginBottom: 'var(--space-md)', flexWrap: 'wrap' }}>
+        {(['all', 'draft', 'unpaid', 'paid'] as const).map(s => (
+          <button key={s} onClick={() => setFilterStatusBtn(s)} style={scopeBtn(filterStatusBtn === s)}>
+            {s === 'all' ? 'All' : s.charAt(0).toUpperCase() + s.slice(1)}
+          </button>
+        ))}
+        <span style={{ width: 8 }} />
         <button
           className="btn-link"
           style={{ fontSize: 'var(--text-sm)', color: filterUnlinked ? '#e67e22' : 'var(--color-text-light)', fontWeight: filterUnlinked ? 600 : undefined }}
@@ -4066,24 +4536,12 @@ const navStyle = ({ isActive }: { isActive: boolean }) => ({
 } as React.CSSProperties);
 
 function BillingScopeBar() {
-  const { year, month, company, setYear, setMonth, setCompany } = useBillingScope();
+  const { year, month, billingFilterSel, billingAllChip, setYear, setMonth, setBillingFilter } = useBillingScope();
   const { demo, toggle } = useDemoMode();
   const curYear = new Date().getFullYear();
   const yearOptions = Array.from({ length: 5 }, (_, i) => curYear - 2 + i);
   const { data: companies = [] } = useBillingCompanies();
-
-  // Month button: use explicit colors (var(--color-fg) is not defined in tufte.css)
-  const mBtn = (active: boolean): React.CSSProperties => ({
-    padding: '2px 7px',
-    fontSize: 'var(--text-xs)',
-    border: active ? '1px solid #555' : '1px solid var(--color-border)',
-    borderRadius: 3,
-    background: active ? '#333' : 'transparent',
-    color: active ? '#fff' : 'var(--color-text-light)',
-    fontWeight: active ? 700 : 400,
-    cursor: 'pointer',
-    whiteSpace: 'nowrap',
-  });
+  const { data: projects = [] } = useBillingProjects();
 
   return (
     <div style={{ display: 'flex', gap: 5, alignItems: 'center', marginBottom: 'var(--space-lg)', flexWrap: 'wrap', padding: '6px 0', borderBottom: '1px solid var(--color-border)' }}>
@@ -4091,25 +4549,17 @@ function BillingScopeBar() {
         {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
       </select>
       {([null, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as (number | null)[]).map(m => (
-        <button key={m ?? 'all'} onClick={() => setMonth(m)} style={mBtn(month === m)}>
+        <button key={m ?? 'all'} onClick={() => setMonth(m)} style={scopeBtn(month === m)}>
           {m === null ? 'All' : MONTH_LABELS[m - 1]}
         </button>
       ))}
-      {/* Company dropdown: groups + individual companies */}
-      <select
-        value={company}
-        onChange={e => setCompany(e.target.value)}
-        style={{ fontSize: 'var(--text-sm)', marginLeft: 4 }}
-      >
-        <option value="">All companies</option>
-        <optgroup label="── Groups ──">
-          <option value={SCOPE_COMPANY_PREPAID}>Prepaid clients</option>
-          <option value={SCOPE_COMPANY_PERIODIC}>Periodic billing</option>
-        </optgroup>
-        <optgroup label="── Companies ──">
-          {companies.map(co => <option key={co.id} value={String(co.id)}>{co.name}</option>)}
-        </optgroup>
-      </select>
+      <BillingClientFilter
+        companies={companies}
+        projects={projects}
+        selection={billingFilterSel}
+        allChip={billingAllChip}
+        onSelectionChange={setBillingFilter}
+      />
       <button
         onClick={toggle}
         style={{
@@ -4160,10 +4610,24 @@ export function BillingPage() {
   const scopeInit = defaultScope();
   const [scopeYear, setScopeYear] = useState(scopeInit.year);
   const [scopeMonth, setScopeMonth] = useState<number | null>(scopeInit.month);
-  const [scopeCompany, setScopeCompany] = useState<string>(scopeInit.company);
+  const [billingFilterSel, setBillingFilterSelState] = useState<BillingFilterSelection[]>([]);
+  const [billingAllChip, setBillingAllChip] = useState(false);
+  const { data: allCompanies = [] } = useBillingCompanies();
+  const { data: allProjects = [] } = useBillingProjects();
+
+  function setBillingFilter(sel: BillingFilterSelection[], allChip: boolean) {
+    setBillingFilterSelState(sel);
+    setBillingAllChip(allChip);
+  }
+
+  const effectiveCompanyIds = computeEffectiveCompanyIds(billingFilterSel, allCompanies, allProjects);
+
   const scope: BillingScopeCtx = {
-    year: scopeYear, month: scopeMonth, company: scopeCompany,
-    setYear: setScopeYear, setMonth: setScopeMonth, setCompany: setScopeCompany,
+    year: scopeYear, month: scopeMonth,
+    effectiveCompanyIds,
+    billingFilterSel, billingAllChip,
+    setYear: setScopeYear, setMonth: setScopeMonth,
+    setBillingFilter,
   };
 
   return (

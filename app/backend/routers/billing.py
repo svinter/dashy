@@ -78,6 +78,30 @@ class ClientUpdate(BaseModel):
     active: Optional[bool] = None
 
 
+class ProjectCreate(BaseModel):
+    name: str
+    company_id: int
+    billing_type: str = "hourly"
+    fixed_amount: Optional[float] = None
+    rate_override: Optional[float] = None
+    obsidian_name: Optional[str] = None
+    gdrive_folder_url: Optional[str] = None
+    gdrive_coaching_docs_url: Optional[str] = None
+    active: bool = True
+
+
+class ProjectUpdate(BaseModel):
+    name: Optional[str] = None
+    company_id: Optional[int] = None
+    billing_type: Optional[str] = None
+    fixed_amount: Optional[float] = None
+    rate_override: Optional[float] = None
+    obsidian_name: Optional[str] = None
+    gdrive_folder_url: Optional[str] = None
+    gdrive_coaching_docs_url: Optional[str] = None
+    active: Optional[bool] = None
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -88,6 +112,9 @@ COMPANY_COLS = {"name", "abbrev", "default_rate", "billing_method", "payment_met
 
 CLIENT_COLS = {"name", "company_id", "rate_override", "prepaid", "obsidian_name",
                "employee_id", "active"}
+
+PROJECT_COLS = {"name", "company_id", "billing_type", "fixed_amount", "rate_override",
+                "obsidian_name", "gdrive_folder_url", "gdrive_coaching_docs_url", "active"}
 
 
 def _row_to_dict(row) -> dict:
@@ -296,6 +323,68 @@ def delete_client(client_id: int):
 
 
 # ---------------------------------------------------------------------------
+# Projects
+# ---------------------------------------------------------------------------
+
+@router.get("/projects")
+def list_projects(company_id: Optional[int] = None, active_only: bool = False):
+    with get_db_connection(readonly=True) as db:
+        q = "SELECT * FROM billing_projects WHERE 1=1"
+        params: list = []
+        if company_id is not None:
+            q += " AND company_id = ?"
+            params.append(company_id)
+        if active_only:
+            q += " AND active = 1"
+        q += " ORDER BY name"
+        rows = db.execute(q, params).fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+@router.post("/projects", status_code=201)
+def create_project(body: ProjectCreate):
+    with get_write_db() as db:
+        cur = db.execute(
+            """INSERT INTO billing_projects
+               (name, company_id, billing_type, fixed_amount, rate_override,
+                obsidian_name, gdrive_folder_url, gdrive_coaching_docs_url, active)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (body.name, body.company_id, body.billing_type, body.fixed_amount,
+             body.rate_override, body.obsidian_name, body.gdrive_folder_url,
+             body.gdrive_coaching_docs_url, int(body.active)),
+        )
+        db.commit()
+        row = db.execute("SELECT * FROM billing_projects WHERE id = ?", (cur.lastrowid,)).fetchone()
+    return _row_to_dict(row)
+
+
+@router.patch("/projects/{project_id}")
+def update_project(project_id: int, body: ProjectUpdate):
+    fields = {k: v for k, v in body.model_dump(exclude_unset=True).items()}
+    if "active" in fields and fields["active"] is not None:
+        fields["active"] = int(fields["active"])
+    clause, params = _build_update(fields, PROJECT_COLS)
+    if not clause:
+        raise HTTPException(status_code=400, detail="No valid fields to update")
+    params.append(project_id)
+    with get_write_db() as db:
+        db.execute(f"UPDATE billing_projects SET {clause} WHERE id = ?", params)
+        db.commit()
+        row = db.execute("SELECT * FROM billing_projects WHERE id = ?", (project_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Project not found")
+    return _row_to_dict(row)
+
+
+@router.delete("/projects/{project_id}")
+def delete_project(project_id: int):
+    with get_write_db() as db:
+        db.execute("DELETE FROM billing_projects WHERE id = ?", (project_id,))
+        db.commit()
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
 # Seed import
 # ---------------------------------------------------------------------------
 
@@ -304,10 +393,12 @@ def seed_status():
     with get_db_connection(readonly=True) as db:
         company_count = db.execute("SELECT COUNT(*) FROM billing_companies").fetchone()[0]
         client_count = db.execute("SELECT COUNT(*) FROM billing_clients").fetchone()[0]
+        project_count = db.execute("SELECT COUNT(*) FROM billing_projects").fetchone()[0]
     return {
         "seeded": company_count > 0,
         "company_count": company_count,
         "client_count": client_count,
+        "project_count": project_count,
         "seed_file_exists": SEED_PATH.exists(),
     }
 
@@ -330,17 +421,19 @@ def import_seed(force: bool = False):
             # Disable FK checks so we can clear only master-data tables
             # without touching sessions, invoices, or payments.
             db.execute("PRAGMA foreign_keys=OFF")
+            db.execute("DELETE FROM billing_projects")
             db.execute("DELETE FROM billing_clients")
             db.execute("DELETE FROM billing_companies")
             # Reset autoincrement sequences so re-imported rows get the same
             # IDs they had before, keeping billing_sessions FK references valid.
-            db.execute("DELETE FROM sqlite_sequence WHERE name IN ('billing_clients', 'billing_companies')")
+            db.execute("DELETE FROM sqlite_sequence WHERE name IN ('billing_projects', 'billing_clients', 'billing_companies')")
             db.execute("PRAGMA foreign_keys=ON")
             db.commit()
 
     seed = json.loads(SEED_PATH.read_text())
     companies_data = seed.get("companies", [])
     clients_data = seed.get("clients", [])
+    projects_data = seed.get("projects", [])
     provider_data = seed.get("provider", {})
 
     # Build a name→id map for employees for optional cross-referencing
@@ -351,6 +444,7 @@ def import_seed(force: bool = False):
     company_by_name: dict[str, int] = {}
     inserted_companies = 0
     inserted_clients = 0
+    inserted_projects = 0
 
     with get_write_db() as db:
         for co in companies_data:
@@ -405,6 +499,32 @@ def import_seed(force: bool = False):
             )
             inserted_clients += 1
 
+        for pr in projects_data:
+            company_name = pr.get("company", "")
+            company_id = company_by_name.get(company_name)
+            if company_id is None:
+                logger.warning("Seed project %r references unknown company %r — skipping", pr["name"], company_name)
+                continue
+
+            db.execute(
+                """INSERT INTO billing_projects
+                   (name, company_id, billing_type, fixed_amount, rate_override,
+                    obsidian_name, gdrive_folder_url, gdrive_coaching_docs_url, active)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    pr["name"],
+                    company_id,
+                    pr.get("billing_type", "hourly"),
+                    pr.get("fixed_amount"),
+                    pr.get("rate_override"),
+                    pr.get("obsidian_name", pr["name"]),
+                    pr.get("gdrive_folder_url") or None,
+                    pr.get("gdrive_coaching_docs_url") or None,
+                    int(pr.get("active", True)),
+                ),
+            )
+            inserted_projects += 1
+
         db.commit()
         relinked = _relink_sessions_after_import(db)
 
@@ -416,6 +536,7 @@ def import_seed(force: bool = False):
         "ok": True,
         "companies_imported": inserted_companies,
         "clients_imported": inserted_clients,
+        "projects_imported": inserted_projects,
         "sessions_relinked": relinked,
         "provider_imported": bool(provider_data),
     }
@@ -787,10 +908,11 @@ def _session_to_dict(row) -> dict:
 
 class SessionConfirm(BaseModel):
     calendar_event_id: str
-    client_id: Optional[int] = None   # null for "no specific client"
-    company_id: Optional[int] = None  # required when client_id is null
+    client_id: Optional[int] = None    # null for "no specific client"
+    company_id: Optional[int] = None   # required when client_id and project_id are null
+    project_id: Optional[int] = None   # alternative to client_id — session belongs to a project
     duration_hours: float
-    notes: Optional[str] = None       # used as invoice description when no client
+    notes: Optional[str] = None        # used as invoice description when no client
 
 
 class SessionDismiss(BaseModel):
@@ -821,8 +943,8 @@ class SessionCreate(BaseModel):
     is_confirmed: bool = True
 
 
-SESSION_ALLOWED = {"client_id", "company_id", "date", "duration_hours", "rate", "amount",
-                   "notes", "obsidian_note_path", "is_confirmed", "dismissed",
+SESSION_ALLOWED = {"client_id", "project_id", "company_id", "date", "duration_hours", "rate",
+                   "amount", "notes", "obsidian_note_path", "is_confirmed", "dismissed",
                    "prepaid_block_id", "session_number"}
 
 
@@ -962,8 +1084,8 @@ def confirm_session(body: SessionConfirm):
       - client_id set: normal path — looks up client for rate/obsidian_name/company
       - client_id null + company_id set: company-only session; notes used as description
     """
-    if not body.client_id and not body.company_id:
-        raise HTTPException(status_code=422, detail="Either client_id or company_id is required")
+    if not body.client_id and not body.project_id and not body.company_id:
+        raise HTTPException(status_code=422, detail="Either client_id, project_id, or company_id is required")
 
     with get_write_db() as db:
         ev = db.execute(
@@ -973,11 +1095,14 @@ def confirm_session(body: SessionConfirm):
         if not ev:
             raise HTTPException(status_code=404, detail="Calendar event not found")
 
-        is_confirmed = True  # user explicitly confirmed; _promote_banana_sessions handles color update later
+        is_confirmed = True
         date_str = ev["start_time"][:10]
+        is_prepaid = False
+        note_path = None
+        project_id_to_save = None
 
         if body.client_id:
-            # Normal path: look up client for rate, company, obsidian name
+            # Normal client path
             cl = db.execute(
                 "SELECT bc.*, bco.default_rate, bco.id as co_id "
                 "FROM billing_clients bc JOIN billing_companies bco ON bco.id = bc.company_id "
@@ -994,8 +1119,34 @@ def confirm_session(body: SessionConfirm):
             obsidian_name = cl["obsidian_name"] or cl["name"]
             note_info = _lookup_obsidian_note(date_str, obsidian_name)
             note_path = note_info["path"] if note_info else f"8 Meetings/{date_str} - {obsidian_name}.md"
+
+        elif body.project_id:
+            # Project path: session belongs to a project, not a specific client
+            pr = db.execute(
+                "SELECT bp.*, bco.default_rate, bco.id as co_id "
+                "FROM billing_projects bp JOIN billing_companies bco ON bco.id = bp.company_id "
+                "WHERE bp.id = ?", (body.project_id,)
+            ).fetchone()
+            if not pr:
+                raise HTTPException(status_code=404, detail="Project not found")
+
+            if pr["billing_type"] == "fixed":
+                # Fixed-rate: session records hours but $0 (billed separately)
+                rate = None
+                amount = 0.0
+            else:
+                rate = pr["rate_override"] if pr["rate_override"] is not None else pr["default_rate"]
+                amount = round(body.duration_hours * (rate or 0), 2)
+
+            company_id = pr["co_id"]
+            project_id_to_save = body.project_id
+
+            obsidian_name = pr["obsidian_name"] or pr["name"]
+            note_info = _lookup_obsidian_note(date_str, obsidian_name)
+            note_path = note_info["path"] if note_info else f"8 Meetings/{date_str} - {obsidian_name}.md"
+
         else:
-            # Company-only path: no client, use company default rate, no obsidian note
+            # Company-only path: no client, no project
             co = db.execute(
                 "SELECT * FROM billing_companies WHERE id = ?", (body.company_id,)
             ).fetchone()
@@ -1005,7 +1156,6 @@ def confirm_session(body: SessionConfirm):
             rate = co["default_rate"]
             amount = round(body.duration_hours * (rate or 0), 2)
             company_id = body.company_id
-            note_path = None
 
         # If an unconfirmed session already exists for this calendar event, UPDATE it
         existing = db.execute(
@@ -1016,24 +1166,26 @@ def confirm_session(body: SessionConfirm):
         if existing:
             db.execute(
                 """UPDATE billing_sessions SET
-                   client_id=?, company_id=?, duration_hours=?, rate=?, amount=?,
+                   client_id=?, project_id=?, company_id=?, duration_hours=?, rate=?, amount=?,
                    is_confirmed=?, color_id=?, obsidian_note_path=?, notes=?
                    WHERE id=?""",
-                (body.client_id, company_id, body.duration_hours, rate, amount,
+                (body.client_id, project_id_to_save, company_id, body.duration_hours, rate, amount,
                  int(is_confirmed), ev["color_id"],
-                 note_path if body.client_id else None,
+                 note_path if (body.client_id or project_id_to_save) else None,
                  body.notes or "", existing["id"]),
             )
             session_id = existing["id"]
         else:
             cur = db.execute(
                 """INSERT INTO billing_sessions
-                   (date, client_id, company_id, duration_hours, rate, amount,
+                   (date, client_id, project_id, company_id, duration_hours, rate, amount,
                     is_confirmed, calendar_event_id, color_id, obsidian_note_path, notes, dismissed)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)""",
-                (date_str, body.client_id, company_id, body.duration_hours,
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)""",
+                (date_str, body.client_id, project_id_to_save, company_id, body.duration_hours,
                  rate, amount, int(is_confirmed), body.calendar_event_id,
-                 ev["color_id"], note_path if body.client_id else None, body.notes or ""),
+                 ev["color_id"],
+                 note_path if (body.client_id or project_id_to_save) else None,
+                 body.notes or ""),
             )
             session_id = cur.lastrowid
 
@@ -1067,11 +1219,192 @@ def confirm_session(body: SessionConfirm):
 
         db.commit()
         row = db.execute(
+            """SELECT bs.*, bc.name as client_name, bc.prepaid, bco.name as company_name,
+                      bco.abbrev as company_abbrev, bp.name as project_name
+               FROM billing_sessions bs
+               LEFT JOIN billing_clients bc ON bc.id = bs.client_id
+               LEFT JOIN billing_companies bco ON bco.id = bs.company_id
+               LEFT JOIN billing_projects bp ON bp.id = bs.project_id
+               WHERE bs.id = ?""", (session_id,)
+        ).fetchone()
+
+    result = _session_to_dict(row)
+    if no_active_prepaid_block:
+        result["no_active_prepaid_block"] = True
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Confirm past banana: update GCal colorId → grape, then confirm session
+# ---------------------------------------------------------------------------
+
+_CALENDAR_WRITE_SCOPES = {
+    "https://www.googleapis.com/auth/calendar",
+    "https://www.googleapis.com/auth/calendar.events",
+}
+
+
+def _has_calendar_write_scope() -> bool:
+    """Return True if the stored Google token includes a calendar write scope."""
+    from config import TOKEN_PATH
+
+    if not TOKEN_PATH.exists():
+        return False
+    try:
+        from google.oauth2.credentials import Credentials
+
+        creds = Credentials.from_authorized_user_file(str(TOKEN_PATH))
+        if not creds.scopes:
+            return True  # scopes not in token — assume sufficient (ADC path)
+        return bool(_CALENDAR_WRITE_SCOPES.intersection(set(creds.scopes)))
+    except Exception:
+        return False
+
+
+@router.post("/sessions/confirm-past-banana", status_code=201)
+def confirm_past_banana(body: SessionConfirm):
+    """Confirm a past banana event: set GCal colorId→grape, then confirm session.
+
+    Returns {"need_reauth": true} if the token lacks calendar write scope.
+    All four steps (GCal update, local calendar_events update, session upsert,
+    prepaid block link) execute as a unit.
+    """
+    if not body.client_id and not body.company_id:
+        raise HTTPException(status_code=422, detail="Either client_id or company_id is required")
+
+    # Step 1 — scope check
+    if not _has_calendar_write_scope():
+        return {"need_reauth": True}
+
+    # Step 2 — update Google Calendar colorId to grape (3)
+    try:
+        from googleapiclient.discovery import build
+        from connectors.google_auth import get_google_credentials
+
+        creds = get_google_credentials()
+        service = build("calendar", "v3", credentials=creds)
+        service.events().patch(
+            calendarId="primary",
+            eventId=body.calendar_event_id,
+            body={"colorId": "3"},
+        ).execute()
+        logger.info("confirm_past_banana: updated GCal event %s colorId → grape", body.calendar_event_id)
+    except Exception as e:
+        logger.error("confirm_past_banana: GCal update failed: %s", e)
+        raise HTTPException(status_code=500, detail=f"Failed to update Google Calendar: {e}")
+
+    # Steps 3+4 — update local DB and confirm session (same logic as confirm_session
+    # but forces color_id='3' regardless of the stored calendar_events value)
+    with get_write_db() as db:
+        # Update local calendar_events so the queue no longer treats it as banana
+        db.execute(
+            "UPDATE calendar_events SET color_id = '3' WHERE id = ?",
+            (body.calendar_event_id,),
+        )
+
+        ev = db.execute(
+            "SELECT start_time, end_time, color_id FROM calendar_events WHERE id = ?",
+            (body.calendar_event_id,),
+        ).fetchone()
+        if not ev:
+            raise HTTPException(status_code=404, detail="Calendar event not found")
+
+        date_str = ev["start_time"][:10]
+        is_prepaid = False
+        note_path = None
+
+        if body.client_id:
+            cl = db.execute(
+                "SELECT bc.*, bco.default_rate, bco.id as co_id "
+                "FROM billing_clients bc JOIN billing_companies bco ON bco.id = bc.company_id "
+                "WHERE bc.id = ?",
+                (body.client_id,),
+            ).fetchone()
+            if not cl:
+                raise HTTPException(status_code=404, detail="Client not found")
+
+            rate = cl["rate_override"] if cl["rate_override"] is not None else cl["default_rate"]
+            is_prepaid = bool(cl["prepaid"])
+            amount = 0.0 if is_prepaid else round(body.duration_hours * (rate or 0), 2)
+            company_id = cl["co_id"]
+
+            obsidian_name = cl["obsidian_name"] or cl["name"]
+            note_info = _lookup_obsidian_note(date_str, obsidian_name)
+            note_path = note_info["path"] if note_info else f"8 Meetings/{date_str} - {obsidian_name}.md"
+        else:
+            co = db.execute(
+                "SELECT * FROM billing_companies WHERE id = ?", (body.company_id,)
+            ).fetchone()
+            if not co:
+                raise HTTPException(status_code=404, detail="Company not found")
+
+            rate = co["default_rate"]
+            amount = round(body.duration_hours * (rate or 0), 2)
+            company_id = body.company_id
+
+        existing = db.execute(
+            "SELECT id FROM billing_sessions WHERE calendar_event_id = ? AND dismissed = 0",
+            (body.calendar_event_id,),
+        ).fetchone()
+
+        if existing:
+            db.execute(
+                """UPDATE billing_sessions SET
+                   client_id=?, company_id=?, duration_hours=?, rate=?, amount=?,
+                   is_confirmed=1, color_id='3', obsidian_note_path=?, notes=?
+                   WHERE id=?""",
+                (body.client_id, company_id, body.duration_hours, rate, amount,
+                 note_path if body.client_id else None,
+                 body.notes or "", existing["id"]),
+            )
+            session_id = existing["id"]
+        else:
+            cur = db.execute(
+                """INSERT INTO billing_sessions
+                   (date, client_id, company_id, duration_hours, rate, amount,
+                    is_confirmed, calendar_event_id, color_id, obsidian_note_path, notes, dismissed)
+                   VALUES (?, ?, ?, ?, ?, ?, 1, ?, '3', ?, ?, 0)""",
+                (date_str, body.client_id, company_id, body.duration_hours,
+                 rate, amount, body.calendar_event_id,
+                 note_path if body.client_id else None, body.notes or ""),
+            )
+            session_id = cur.lastrowid
+
+        no_active_prepaid_block = False
+        if is_prepaid and body.client_id:
+            active_block = db.execute(
+                """SELECT pb.id, pb.hours_purchased,
+                          COALESCE(SUM(bs2.duration_hours), 0) AS hours_used
+                   FROM billing_prepaid_blocks pb
+                   LEFT JOIN billing_sessions bs2
+                          ON bs2.prepaid_block_id = pb.id
+                         AND bs2.dismissed = 0
+                         AND bs2.id != ?
+                   WHERE pb.client_id = ?
+                     AND pb.hours_purchased IS NOT NULL
+                     AND (pb.starting_after_date IS NULL OR pb.starting_after_date <= ?)
+                   GROUP BY pb.id
+                   HAVING hours_used < pb.hours_purchased
+                   ORDER BY pb.starting_after_date ASC
+                   LIMIT 1""",
+                (session_id, body.client_id, date_str),
+            ).fetchone()
+            if active_block:
+                db.execute(
+                    "UPDATE billing_sessions SET prepaid_block_id = ? WHERE id = ?",
+                    (active_block["id"], session_id),
+                )
+            else:
+                no_active_prepaid_block = True
+
+        db.commit()
+        row = db.execute(
             "SELECT bs.*, bc.name as client_name, bc.prepaid, bco.name as company_name, bco.abbrev as company_abbrev "
             "FROM billing_sessions bs "
             "LEFT JOIN billing_clients bc ON bc.id = bs.client_id "
             "LEFT JOIN billing_companies bco ON bco.id = bs.company_id "
-            "WHERE bs.id = ?", (session_id,)
+            "WHERE bs.id = ?",
+            (session_id,),
         ).fetchone()
 
     result = _session_to_dict(row)
@@ -1178,12 +1511,14 @@ def list_sessions(
                    bc.prepaid AS prepaid,
                    bco.name AS company_name,
                    bco.abbrev AS company_abbrev,
+                   bp.name  AS project_name,
                    bil.invoice_id AS invoice_id,
                    COALESCE(bs.session_number, sno.rn) AS display_session_number,
                    block_cum.cumulative_block_hours
             FROM billing_sessions bs
             LEFT JOIN billing_clients bc  ON bc.id  = bs.client_id
             LEFT JOIN billing_companies bco ON bco.id = bs.company_id
+            LEFT JOIN billing_projects bp ON bp.id = bs.project_id
             LEFT JOIN billing_invoice_lines bil ON bil.id = bs.invoice_line_id
             LEFT JOIN sno ON sno.id = bs.id
             LEFT JOIN block_cum ON block_cum.id = bs.id

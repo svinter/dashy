@@ -1195,6 +1195,8 @@ export interface BillingSession {
   date: string;
   client_id: number | null;
   client_name: string | null;
+  project_id: number | null;
+  project_name: string | null;
   company_id: number | null;
   company_name: string | null;
   company_abbrev: string | null;
@@ -1318,7 +1320,21 @@ export interface BillingSeedStatus {
   seeded: boolean;
   company_count: number;
   client_count: number;
+  project_count: number;
   seed_file_exists: boolean;
+}
+
+export interface BillingProject {
+  id: number;
+  name: string;
+  company_id: number;
+  billing_type: 'hourly' | 'fixed';
+  fixed_amount: number | null;
+  rate_override: number | null;
+  obsidian_name: string | null;
+  gdrive_folder_url: string | null;
+  gdrive_coaching_docs_url: string | null;
+  active: boolean;
 }
 
 export interface BillingPrepCompany {

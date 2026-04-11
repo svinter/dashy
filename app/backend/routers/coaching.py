@@ -19,6 +19,7 @@ router = APIRouter(prefix="/api/coaching", tags=["coaching"])
 def get_coaching_clients():
     """
     Return all active clients grouped for the Coaching Clients page.
+    Each company group also includes a `projects` list for active projects.
 
     Groups:
     - Company groups (client_type = 'company'), alphabetical by company name
@@ -133,9 +134,85 @@ def get_coaching_clients():
                 }
             company_groups[cid]["clients"].append(client)
 
+    # --- Fetch active projects and their session stats ---
+    project_rows = db.execute(
+        """SELECT bp.id, bp.name, bp.company_id, bp.billing_type, bp.obsidian_name,
+                  bp.gdrive_coaching_docs_url
+           FROM billing_projects bp
+           WHERE bp.active = 1
+           ORDER BY bp.name"""
+    ).fetchall()
+
+    project_ids = [r["id"] for r in project_rows]
+
+    if project_ids:
+        ph = ",".join("?" * len(project_ids))
+        proj_last_sessions = db.execute(
+            f"""WITH ranked AS (
+                    SELECT project_id, date,
+                           ROW_NUMBER() OVER (PARTITION BY project_id ORDER BY date DESC) AS rn
+                    FROM billing_sessions
+                    WHERE project_id IN ({ph}) AND is_confirmed = 1
+                )
+                SELECT project_id, date FROM ranked WHERE rn = 1""",
+            project_ids,
+        ).fetchall()
+        proj_session_counts = db.execute(
+            f"""SELECT project_id, COUNT(*) as cnt
+                FROM billing_sessions
+                WHERE project_id IN ({ph}) AND is_confirmed = 1
+                GROUP BY project_id""",
+            project_ids,
+        ).fetchall()
+        proj_next_sessions = db.execute(
+            f"""WITH ranked AS (
+                    SELECT project_id, date,
+                           ROW_NUMBER() OVER (PARTITION BY project_id ORDER BY date ASC) AS rn
+                    FROM billing_sessions
+                    WHERE project_id IN ({ph}) AND color_id = '5' AND is_confirmed = 0
+                )
+                SELECT project_id, date FROM ranked WHERE rn = 1""",
+            project_ids,
+        ).fetchall()
+    else:
+        proj_last_sessions = []
+        proj_session_counts = []
+        proj_next_sessions = []
+
+    proj_last_by_id = {r["project_id"]: r["date"] for r in proj_last_sessions}
+    proj_count_by_id = {r["project_id"]: r["cnt"] for r in proj_session_counts}
+    proj_next_by_id = {r["project_id"]: r["date"] for r in proj_next_sessions}
+
+    def build_project(r):
+        last_date_str = proj_last_by_id.get(r["id"])
+        days_ago = None
+        if last_date_str:
+            try:
+                last_date = date.fromisoformat(last_date_str)
+                days_ago = (today - last_date).days
+            except ValueError:
+                pass
+        return {
+            "id": r["id"],
+            "name": r["name"],
+            "billing_type": r["billing_type"],
+            "obsidian_name": r["obsidian_name"],
+            "gdrive_coaching_docs_url": r["gdrive_coaching_docs_url"],
+            "session_count": proj_count_by_id.get(r["id"], 0),
+            "last_session_date": last_date_str,
+            "days_ago": days_ago,
+            "next_session_date": proj_next_by_id.get(r["id"]),
+        }
+
+    # Attach projects to company groups
+    projects_by_company: dict[int, list[dict]] = {}
+    for r in project_rows:
+        projects_by_company.setdefault(r["company_id"], []).append(build_project(r))
+
     sorted_company_groups = sorted(company_groups.values(), key=lambda g: g["company_name"].lower())
     for g in sorted_company_groups:
         g["active_client_count"] = len(g["clients"])
+        g["projects"] = projects_by_company.get(g["company_id"], [])
 
     individual_clients.sort(key=lambda c: c["name"].split()[0].lower())
 
@@ -147,6 +224,7 @@ def get_coaching_clients():
             "default_rate": None,
             "active_client_count": len(individual_clients),
             "clients": individual_clients,
+            "projects": [],
         })
 
     return {"groups": groups}
@@ -293,6 +371,7 @@ def _load_wordcloud_config() -> tuple[set[str], int, int]:
 
 class WordCloudRequest(BaseModel):
     client_ids: list[int]
+    project_ids: list[int] = []
     session_count: int = 10
     recency_weight: float = 0.0
 
@@ -385,6 +464,67 @@ def get_wordcloud(body: WordCloudRequest):
                         word_sessions[token].append({
                             "date": date_str,
                             "client_name": client_name,
+                            "obsidian_name": obsidian_name,
+                            "path": f"8 Meetings/{date_str} - {obsidian_name}.md",
+                        })
+
+    # --- Project sessions ---
+    for project_id in body.project_ids:
+        row = db.execute(
+            "SELECT name, obsidian_name FROM billing_projects WHERE id = ?",
+            (project_id,),
+        ).fetchone()
+        if not row:
+            continue
+
+        project_name = row["name"]
+        obsidian_name = row["obsidian_name"] or project_name
+        clients_analyzed.append(project_name)
+
+        sessions = db.execute(
+            """SELECT date FROM billing_sessions
+               WHERE project_id = ? AND is_confirmed = 1
+               ORDER BY date DESC LIMIT ?""",
+            (project_id, session_count),
+        ).fetchall()
+
+        n = len(sessions)
+        for rank, sess in enumerate(sessions):
+            date_str = sess["date"]
+            fpath = meetings_dir / f"{date_str} - {obsidian_name}.md"
+            if not fpath.exists():
+                continue
+
+            sessions_analyzed += 1
+            try:
+                content = fpath.read_text(encoding="utf-8")
+            except OSError:
+                continue
+
+            text = _extract_note_text(content)
+            tokens = _tokenize(text)
+
+            if recency_weight > 0 and n > 1:
+                w = 1.0 + recency_weight * (1.0 - rank / (n - 1))
+            else:
+                w = 1.0
+
+            seen_in_session: set[str] = set()
+            for token in tokens:
+                if token in stopwords or len(token) < 3:
+                    continue
+                word_freq[token] = word_freq.get(token, 0.0) + w
+                if token not in seen_in_session:
+                    seen_in_session.add(token)
+                    if token not in word_sessions:
+                        word_sessions[token] = []
+                    if not any(
+                        s["date"] == date_str and s["client_name"] == project_name
+                        for s in word_sessions[token]
+                    ):
+                        word_sessions[token].append({
+                            "date": date_str,
+                            "client_name": project_name,
                             "obsidian_name": obsidian_name,
                             "path": f"8 Meetings/{date_str} - {obsidian_name}.md",
                         })

@@ -29,12 +29,26 @@ interface CoachingClient {
   next_session_date: string | null;
 }
 
+interface CoachingProject {
+  id: number;
+  name: string;
+  company_id: number | null;
+  billing_type: 'hourly' | 'fixed';
+  obsidian_name: string | null;
+  gdrive_coaching_docs_url: string | null;
+  last_session_date: string | null;
+  session_count: number;
+  days_ago: number | null;
+  next_session_date: string | null;
+}
+
 interface CoachingGroup {
   company_id: number | null;
   company_name: string;
   default_rate: number | null;
   active_client_count: number;
   clients: CoachingClient[];
+  projects: CoachingProject[];
 }
 
 interface CoachingClientsResponse {
@@ -81,16 +95,17 @@ function useVinnyStatus() {
   });
 }
 
-function useWordCloud(clientIds: number[], sessionCount: number, recencyWeight: number) {
+function useWordCloud(clientIds: number[], projectIds: number[], sessionCount: number, recencyWeight: number) {
   return useQuery({
-    queryKey: ['coaching-wordcloud', clientIds.slice().sort(), sessionCount, recencyWeight],
+    queryKey: ['coaching-wordcloud', clientIds.slice().sort(), projectIds.slice().sort(), sessionCount, recencyWeight],
     queryFn: () =>
       api.post<WordCloudResponse>('/coaching/wordcloud', {
         client_ids: clientIds,
+        project_ids: projectIds,
         session_count: sessionCount,
         recency_weight: recencyWeight,
       }),
-    enabled: clientIds.length > 0,
+    enabled: clientIds.length > 0 || projectIds.length > 0,
     staleTime: 120_000,
   });
 }
@@ -152,6 +167,7 @@ const COACHING_SHORTCUTS: HelpShortcut[] = [
   { keys: 'Return', description: 'Add current match to selection' },
   { keys: '. prefix', description: 'Match company name only  (e.g. .cfs)' },
   { keys: ', prefix', description: 'Match person first or last name  (e.g. ,berg)' },
+  { keys: "' prefix", description: "Match project name  (e.g. 'offsite)" },
   { keys: '- prefix', description: 'Remove from selection  (e.g. -cfs)' },
   { keys: '⌘/ or ⌘?', description: 'Show this help' },
 ];
@@ -165,7 +181,7 @@ const COACHING_SHORTCUTS: HelpShortcut[] = [
 // ---------------------------------------------------------------------------
 
 interface FilterSelection {
-  type: 'company' | 'client';
+  type: 'company' | 'client' | 'project';
   id: number | null;   // INDIVIDUAL_ID (-1) for the Individual symbolic company
   label: string;
   company_name?: string;
@@ -184,8 +200,12 @@ interface CoachingFilterCtx {
   onSelectionChange: (sel: FilterSelection[], allChip: boolean) => void;
   /** null = all clients; Set = specific client IDs */
   effectiveIds: Set<number> | null;
+  /** null = all projects; Set = specific project IDs */
+  effectiveProjectIds: Set<number> | null;
   /** All active client IDs (flat list) */
   allClientIds: number[];
+  /** All active project IDs (flat list) */
+  allProjectIds: number[];
   demo: boolean;
   toggleDemo: () => void;
 }
@@ -196,7 +216,9 @@ const CoachingFilterContext = createContext<CoachingFilterCtx>({
   allChip: false,
   onSelectionChange: () => {},
   effectiveIds: null,
+  effectiveProjectIds: null,
   allClientIds: [],
+  allProjectIds: [],
   demo: false,
   toggleDemo: () => {},
 });
@@ -212,6 +234,7 @@ function useCoachingFilter() {
 function buildSearchIndex(groups: CoachingGroup[]) {
   const companies: { label: string; id: number | null }[] = [];
   const clients: { label: string; client: CoachingClient; company_name: string }[] = [];
+  const projectItems: { label: string; project: CoachingProject; company_name: string }[] = [];
 
   for (const g of groups) {
     if (g.company_id !== null) {
@@ -222,18 +245,30 @@ function buildSearchIndex(groups: CoachingGroup[]) {
     for (const c of g.clients) {
       clients.push({ label: c.name, client: c, company_name: g.company_name });
     }
+    for (const p of (g.projects ?? [])) {
+      projectItems.push({ label: p.name, project: p, company_name: g.company_name });
+    }
   }
   companies.sort((a, b) => a.label.localeCompare(b.label));
   clients.sort((a, b) => a.label.localeCompare(b.label));
-  return { companies, clients };
+  projectItems.sort((a, b) => a.label.localeCompare(b.label));
+  return { companies, clients, projectItems };
 }
 
 function matchItems(
   text: string,
   companies: { label: string; id: number | null }[],
-  clients: { label: string; client: CoachingClient; company_name: string }[]
+  clients: { label: string; client: CoachingClient; company_name: string }[],
+  projectItems: { label: string; project: CoachingProject; company_name: string }[]
 ): FilterSelection[] {
   if (!text) return [];
+
+  if (text.startsWith("'")) {
+    const q = text.slice(1).toLowerCase();
+    return projectItems
+      .filter(p => p.label.toLowerCase().includes(q))
+      .map(p => ({ type: 'project' as const, id: p.project.id, label: `◆ ${p.label}`, company_name: p.company_name }));
+  }
 
   if (text.startsWith('.')) {
     const q = text.slice(1).toLowerCase();
@@ -275,6 +310,24 @@ function getEffectiveIds(selection: FilterSelection[], groups: CoachingGroup[]):
     } else if (sel.type === 'client' && sel.id !== null) {
       ids.add(sel.id);
     }
+    // project selections don't add client IDs
+  }
+  return ids;
+}
+
+function getEffectiveProjectIds(selection: FilterSelection[], groups: CoachingGroup[]): Set<number> | null {
+  if (selection.length === 0) return null;
+  const ids = new Set<number>();
+  for (const sel of selection) {
+    if (sel.type === 'company') {
+      const group = sel.id === INDIVIDUAL_ID
+        ? groups.find(g => g.company_id === null)
+        : groups.find(g => g.company_id === sel.id);
+      if (group) for (const p of (group.projects ?? [])) ids.add(p.id);
+    } else if (sel.type === 'project' && sel.id !== null) {
+      ids.add(sel.id);
+    }
+    // client selections don't add project IDs
   }
   return ids;
 }
@@ -296,10 +349,10 @@ function ClientFilter({ groups, selection, allChip, onSelectionChange }: ClientF
   const [helpOpen, setHelpOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const { companies, clients } = buildSearchIndex(groups);
+  const { companies, clients, projectItems } = buildSearchIndex(groups);
   const removing = text.startsWith('-');
   const queryText = removing ? text.slice(1) : text;
-  const matches = matchItems(queryText, companies, clients);
+  const matches = matchItems(queryText, companies, clients, projectItems);
   const currentMatch = matches[matchIndex] ?? null;
   const multipleMatches = matches.length > 1;
 
@@ -359,7 +412,8 @@ function ClientFilter({ groups, selection, allChip, onSelectionChange }: ClientF
             </span>
           ) : (
             selection.map((item, i) => (
-              <span key={i} className={`coaching-filter-chip${item.type === 'company' ? ' coaching-filter-chip--company' : ''}`}>
+              <span key={i} className={`coaching-filter-chip${item.type === 'company' ? ' coaching-filter-chip--company' : ''}`}
+                style={item.type === 'project' ? { color: '#7B52AB', borderColor: '#7B52AB' } : undefined}>
                 {item.label}
                 <button className="coaching-filter-chip-remove" onClick={() => removeFromSelection(item)}>×</button>
               </span>
@@ -376,9 +430,11 @@ function ClientFilter({ groups, selection, allChip, onSelectionChange }: ClientF
           {currentMatch ? (
             <span style={{ color: multipleMatches ? 'var(--color-text-light)' : 'var(--color-text)' }}>
               {removing && <span style={{ opacity: 0.5 }}>−</span>}
-              {currentMatch.type === 'company'
-                ? <span className="coaching-filter-ac-company">{currentMatch.label}</span>
-                : <span>{currentMatch.label}</span>}
+              {currentMatch.type === 'project'
+                ? <span style={{ color: '#7B52AB' }}>{currentMatch.label}</span>
+                : currentMatch.type === 'company'
+                  ? <span className="coaching-filter-ac-company">{currentMatch.label}</span>
+                  : <span>{currentMatch.label}</span>}
               {multipleMatches && <span className="coaching-filter-ac-hint"> ← → to cycle</span>}
             </span>
           ) : (
@@ -473,16 +529,67 @@ function ClientRow({ client }: { client: CoachingClient }) {
   );
 }
 
+function ProjectRow({ project }: { project: CoachingProject }) {
+  return (
+    <div className="coaching-client-row" style={{ borderLeft: '2px solid #7B52AB', paddingLeft: 8 }}>
+      <span className="coaching-client-name" style={{ color: '#7B52AB' }}>◆ {project.name}</span>
+      <span className="coaching-client-sessions">
+        {project.session_count > 0
+          ? `${project.session_count} session${project.session_count !== 1 ? 's' : ''}`
+          : <span className="coaching-client-meta-dim">—</span>}
+      </span>
+      <span className="coaching-client-last">
+        {project.days_ago != null && project.last_session_date ? (
+          <>
+            {project.days_ago === 0 ? 'today' : `${project.days_ago}d ago`}
+            {' on '}
+            {formatDate(project.last_session_date)}
+            {project.obsidian_name && (
+              <button
+                className="coaching-link-btn"
+                onClick={() => openExternal(obsidianSessionUrl(project.obsidian_name!, project.last_session_date!))}
+                title="Open session note in Obsidian"
+              >→</button>
+            )}
+          </>
+        ) : (
+          <span className="coaching-client-meta-dim">no sessions</span>
+        )}
+      </span>
+      <span className="coaching-client-next">
+        {project.next_session_date
+          ? `next: ${formatDate(project.next_session_date)}`
+          : <span className="coaching-client-meta-dim">next: none</span>}
+      </span>
+      <span style={{ fontSize: 'var(--text-xs)', color: '#7B52AB', opacity: 0.7, marginLeft: 'auto' }}>
+        {project.billing_type === 'fixed' ? 'fixed' : 'hourly'} project
+      </span>
+      <span className="coaching-client-links">
+        {project.obsidian_name && (
+          <button className="coaching-link-btn" onClick={() => openExternal(obsidianClientUrl(project.obsidian_name!))} title="Open project page in Obsidian">notes</button>
+        )}
+        {project.gdrive_coaching_docs_url && (
+          <button className="coaching-link-btn" onClick={() => openExternal(project.gdrive_coaching_docs_url!)} title="Open coaching docs in Drive">ƒolder</button>
+        )}
+      </span>
+    </div>
+  );
+}
+
 function ClientsPage() {
-  const { groups, selection, effectiveIds, demo } = useCoachingFilter();
+  const { groups, selection, effectiveIds, effectiveProjectIds, demo } = useCoachingFilter();
 
   if (groups.length === 0) return <div className="coaching-loading">Loading…</div>;
 
-  const visibleGroups = effectiveIds === null
+  const visibleGroups = (effectiveIds === null && effectiveProjectIds === null)
     ? groups
     : groups
-        .map(g => ({ ...g, clients: g.clients.filter(c => effectiveIds.has(c.id)) }))
-        .filter(g => g.clients.length > 0);
+        .map(g => ({
+          ...g,
+          clients: effectiveIds === null ? g.clients : g.clients.filter(c => effectiveIds.has(c.id)),
+          projects: effectiveProjectIds === null ? (g.projects ?? []) : (g.projects ?? []).filter(p => effectiveProjectIds.has(p.id)),
+        }))
+        .filter(g => g.clients.length > 0 || g.projects.length > 0);
 
   return (
     <div className="coaching-clients-page">
@@ -500,6 +607,14 @@ function ClientsPage() {
             {group.clients.map(client => (
               <ClientRow key={client.id} client={client} />
             ))}
+            {group.projects.length > 0 && (
+              <>
+                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)', padding: '4px 0 2px 8px', opacity: 0.6 }}>── Projects ──</div>
+                {group.projects.map(project => (
+                  <ProjectRow key={project.id} project={project} />
+                ))}
+              </>
+            )}
           </div>
         ))}
         {visibleGroups.length === 0 && selection.length > 0 && (
@@ -624,7 +739,7 @@ function WordCloudCanvas({
 }
 
 function WordCloudPage() {
-  const { effectiveIds, allClientIds } = useCoachingFilter();
+  const { effectiveIds, effectiveProjectIds, allClientIds, allProjectIds } = useCoachingFilter();
   const [sessionCount, setSessionCount] = useState(10);
   const [recencyWeight, setRecencyWeight] = useState(0);
   const [popover, setPopover] = useState<WordPopover | null>(null);
@@ -634,7 +749,12 @@ function WordCloudPage() {
     [effectiveIds, allClientIds]
   );
 
-  const { data, isLoading, error } = useWordCloud(clientIds, sessionCount, recencyWeight);
+  const projectIds = useMemo(
+    () => effectiveProjectIds === null ? allProjectIds : Array.from(effectiveProjectIds),
+    [effectiveProjectIds, allProjectIds]
+  );
+
+  const { data, isLoading, error } = useWordCloud(clientIds, projectIds, sessionCount, recencyWeight);
 
   const handleWordClick = useCallback((word: WordData, x: number, y: number) => {
     setPopover(prev => (prev?.word.text === word.text ? null : { word, x, y }));
@@ -695,8 +815,8 @@ function WordCloudPage() {
       {/* Cloud */}
       {isLoading && <div className="coaching-loading">Generating word cloud…</div>}
       {error && <div className="coaching-error">Failed to generate word cloud.</div>}
-      {!isLoading && clientIds.length === 0 && (
-        <div className="coaching-empty">No clients to analyze. Select clients using the filter above.</div>
+      {!isLoading && clientIds.length === 0 && projectIds.length === 0 && (
+        <div className="coaching-empty">No clients or projects to analyze. Select clients using the filter above.</div>
       )}
       {!isLoading && data && data.words.length === 0 && clientIds.length > 0 && (
         <div className="coaching-empty">No words found in the selected sessions. Notes may be empty or all words were filtered as stop words.</div>
@@ -797,8 +917,18 @@ export function CoachingPage() {
     [groups]
   );
 
+  const allProjectIds = useMemo(
+    () => groups.flatMap(g => (g.projects ?? []).map(p => p.id)),
+    [groups]
+  );
+
   const effectiveIds = useMemo(
     () => getEffectiveIds(selection, groups),
+    [selection, groups]
+  );
+
+  const effectiveProjectIds = useMemo(
+    () => getEffectiveProjectIds(selection, groups),
     [selection, groups]
   );
 
@@ -813,10 +943,12 @@ export function CoachingPage() {
     allChip,
     onSelectionChange: handleSelectionChange,
     effectiveIds,
+    effectiveProjectIds,
     allClientIds,
+    allProjectIds,
     demo,
     toggleDemo,
-  }), [groups, selection, allChip, handleSelectionChange, effectiveIds, allClientIds, demo, toggleDemo]);
+  }), [groups, selection, allChip, handleSelectionChange, effectiveIds, effectiveProjectIds, allClientIds, allProjectIds, demo, toggleDemo]);
 
   return (
     <CoachingFilterContext.Provider value={ctx}>

@@ -34,13 +34,17 @@ import {
   useCreateBillingClient,
   useUpdateBillingClient,
   useDeleteBillingClient,
+  useBillingProjects,
+  useCreateBillingProject,
+  useUpdateBillingProject,
+  useDeleteBillingProject,
   useBillingSeedStatus,
   useImportBillingSeed,
   useBillingSettings,
   useUpdateBillingSettings,
   useCreatePrepaidBlock,
 } from '../api/hooks';
-import type { ServiceAuthStatus, SyncSourceInfo, ConnectorInfo, UserProfile, DashboardIssue, BillingCompany, BillingClient, BillingSettings } from '../api/types';
+import type { ServiceAuthStatus, SyncSourceInfo, ConnectorInfo, UserProfile, DashboardIssue, BillingCompany, BillingClient, BillingProject, BillingSettings } from '../api/types';
 
 function StatusBadge({ status }: { status: ServiceAuthStatus }) {
   const hasSyncErrors = Object.values(status.sync || {}).some(
@@ -1375,6 +1379,10 @@ function BillingTab() {
   const updateClient = useUpdateBillingClient();
   const deleteClient = useDeleteBillingClient();
   const createPrepaidBlock = useCreatePrepaidBlock();
+  const { data: projects } = useBillingProjects();
+  const createProject = useCreateBillingProject();
+  const updateProject = useUpdateBillingProject();
+  const deleteProject = useDeleteBillingProject();
 
   const [expandedCompanies, setExpandedCompanies] = useState<Set<number>>(new Set());
   const [editingCompany, setEditingCompany] = useState<number | null>(null);
@@ -1385,6 +1393,10 @@ function BillingTab() {
   const [addingBlockToClient, setAddingBlockToClient] = useState<number | null>(null);
   const [newBlock, setNewBlock] = useState({ hours_purchased: '', sessions_purchased: '', starting_after_date: '', hours_offset: '' });
   const [blockSaved, setBlockSaved] = useState<number | null>(null);
+  const [editingProject, setEditingProject] = useState<number | null>(null);
+  const [editPrData, setEditPrData] = useState<Partial<BillingProject>>({});
+  const [addingProjectTo, setAddingProjectTo] = useState<number | null>(null);
+  const [newPr, setNewPr] = useState({ name: '', obsidian_name: '', billing_type: 'hourly', fixed_amount: '', rate_override: '' });
 
   // New company form state
   const [newCo, setNewCo] = useState({ name: '', abbrev: '', default_rate: '', billing_method: 'invoice', payment_method: '', ap_email: '', invoice_prefix: '' });
@@ -1475,9 +1487,9 @@ function BillingTab() {
         <section style={{ marginBottom: 'var(--space-xl)', padding: 'var(--space-md)', border: '1px solid var(--color-border)', borderRadius: 4 }}>
           <strong>Seed Data</strong>
           <p style={{ margin: '4px 0 10px', fontSize: 'var(--text-sm)', color: 'var(--color-text-light)' }}>
-            Import companies and clients from <code>dashy_billing_seed.json</code>.
+            Import companies, clients, and projects from <code>dashy_billing_seed.json</code>.
             {seedStatus.seeded
-              ? ` Currently ${seedStatus.company_count} companies and ${seedStatus.client_count} clients. Re-importing will clear and replace all existing companies and clients.`
+              ? ` Currently ${seedStatus.company_count} companies, ${seedStatus.client_count} clients, ${seedStatus.project_count ?? 0} projects. Re-importing will clear and replace all existing companies, clients, and projects.`
               : ' No billing data exists yet.'}
           </p>
           <div style={{ display: 'flex', gap: 'var(--space-sm)', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -1494,7 +1506,7 @@ function BillingTab() {
                 className="btn-primary"
                 disabled={importSeed.isPending}
                 onClick={() => {
-                  if (window.confirm(`Re-import seed data? This will delete all ${seedStatus.company_count} existing companies and their clients, then re-import from the seed file.`))
+                  if (window.confirm(`Re-import seed data? This will delete all ${seedStatus.company_count} existing companies, their clients, and projects, then re-import from the seed file.`))
                     importSeed.mutate(true);
                 }}
               >
@@ -1503,7 +1515,7 @@ function BillingTab() {
             )}
             {importSeed.isSuccess && (importSeed.data as { companies_imported?: number; clients_imported?: number }) && (
               <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-success, #1a6631)' }}>
-                ✓ Imported {(importSeed.data as { companies_imported: number }).companies_imported} companies and {(importSeed.data as { clients_imported: number }).clients_imported} clients
+                ✓ Imported {(importSeed.data as { companies_imported: number }).companies_imported} companies, {(importSeed.data as { clients_imported: number }).clients_imported} clients, {(importSeed.data as { projects_imported?: number }).projects_imported ?? 0} projects
               </span>
             )}
             {importSeed.isError && (
@@ -1785,6 +1797,154 @@ function BillingTab() {
           <button className="btn-link" style={{ marginTop: 'var(--space-md)' }} onClick={() => setAddingCompany(true)}>
             + add company
           </button>
+        )}
+      </section>
+
+      {/* Projects section */}
+      <section style={{ marginTop: 'var(--space-xl)' }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-md)', marginBottom: 'var(--space-md)' }}>
+          <h2 style={{ margin: 0 }}>Projects</h2>
+          <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-light)' }}>
+            {seedStatus?.project_count ?? (projects?.length ?? 0)} projects
+          </span>
+        </div>
+
+        {(companies ?? []).filter(co => (projects ?? []).some(p => p.company_id === co.id)).map(co => {
+          const coProjects = (projects ?? []).filter(p => p.company_id === co.id && (showInactive || p.active));
+          if (coProjects.length === 0 && addingProjectTo !== co.id) return null;
+          return (
+            <div key={co.id} style={{ marginBottom: 'var(--space-md)', border: '1px solid var(--color-border)', borderRadius: 4, padding: 'var(--space-sm)' }}>
+              <div style={{ fontSize: 'var(--text-sm)', fontWeight: 600, marginBottom: 'var(--space-xs)', color: 'var(--color-text-light)' }}>
+                {co.name}
+              </div>
+              {coProjects.map(pr => (
+                <div key={pr.id} style={{ marginBottom: 'var(--space-xs)', paddingLeft: 8, borderLeft: '2px solid var(--color-border)' }}>
+                  {editingProject === pr.id ? (
+                    <div style={{ display: 'flex', gap: 'var(--space-xs)', flexWrap: 'wrap', alignItems: 'center' }}>
+                      <input value={editPrData.name ?? pr.name} onChange={e => setEditPrData(d => ({ ...d, name: e.target.value }))} style={{ flex: '1 1 120px', fontSize: 'var(--text-sm)' }} />
+                      <input value={editPrData.obsidian_name ?? pr.obsidian_name ?? ''} onChange={e => setEditPrData(d => ({ ...d, obsidian_name: e.target.value }))} placeholder="Obsidian name" style={{ flex: '1 1 120px', fontSize: 'var(--text-sm)' }} />
+                      <select value={editPrData.billing_type ?? pr.billing_type} onChange={e => setEditPrData(d => ({ ...d, billing_type: e.target.value as 'hourly' | 'fixed' }))} style={{ fontSize: 'var(--text-sm)' }}>
+                        <option value="hourly">hourly</option>
+                        <option value="fixed">fixed</option>
+                      </select>
+                      {(editPrData.billing_type ?? pr.billing_type) === 'fixed' && (
+                        <input type="number" value={editPrData.fixed_amount ?? pr.fixed_amount ?? ''} onChange={e => setEditPrData(d => ({ ...d, fixed_amount: parseFloat(e.target.value) || null }))} placeholder="Fixed amount" style={{ width: 90, fontSize: 'var(--text-sm)' }} />
+                      )}
+                      {(editPrData.billing_type ?? pr.billing_type) === 'hourly' && (
+                        <input type="number" value={editPrData.rate_override ?? pr.rate_override ?? ''} onChange={e => setEditPrData(d => ({ ...d, rate_override: parseFloat(e.target.value) || null }))} placeholder="Rate override" style={{ width: 90, fontSize: 'var(--text-sm)' }} />
+                      )}
+                      <label style={{ fontSize: 'var(--text-xs)', display: 'flex', gap: 3, alignItems: 'center' }}>
+                        <input type="checkbox" checked={editPrData.active ?? pr.active} onChange={e => setEditPrData(d => ({ ...d, active: e.target.checked }))} /> active
+                      </label>
+                      <button className="btn-primary" style={{ fontSize: 'var(--text-xs)' }} onClick={() => {
+                        updateProject.mutate({ id: pr.id, ...editPrData }, {
+                          onSuccess: () => { setEditingProject(null); setEditPrData({}); },
+                        });
+                      }}>Save</button>
+                      <button className="btn-link" style={{ fontSize: 'var(--text-xs)' }} onClick={() => { setEditingProject(null); setEditPrData({}); }}>Cancel</button>
+                      <button className="btn-link" style={{ fontSize: 'var(--text-xs)', color: 'var(--color-error)' }} onClick={() => {
+                        if (window.confirm(`Delete project "${pr.name}"?`)) deleteProject.mutate(pr.id);
+                      }}>Delete</button>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', gap: 'var(--space-sm)', alignItems: 'center', fontSize: 'var(--text-sm)' }}>
+                      <span style={{ flex: 1 }}>{pr.name}</span>
+                      <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)' }}>
+                        {pr.billing_type === 'fixed' ? `fixed $${pr.fixed_amount?.toLocaleString() ?? '—'}` : `hourly${pr.rate_override ? ` $${pr.rate_override}/hr` : ''}`}
+                      </span>
+                      {!pr.active && <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)' }}>(inactive)</span>}
+                      <button className="btn-link" style={{ fontSize: 'var(--text-xs)' }} onClick={() => { setEditingProject(pr.id); setEditPrData({}); }}>edit</button>
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              {addingProjectTo === co.id ? (
+                <div style={{ display: 'flex', gap: 'var(--space-xs)', marginTop: 'var(--space-xs)', flexWrap: 'wrap', alignItems: 'center' }}>
+                  <input autoFocus value={newPr.name} onChange={e => setNewPr(d => ({ ...d, name: e.target.value, obsidian_name: e.target.value }))} placeholder="Project name" style={{ flex: '1 1 130px', fontSize: 'var(--text-sm)' }} />
+                  <input value={newPr.obsidian_name} onChange={e => setNewPr(d => ({ ...d, obsidian_name: e.target.value }))} placeholder="Obsidian name" style={{ flex: '1 1 130px', fontSize: 'var(--text-sm)' }} />
+                  <select value={newPr.billing_type} onChange={e => setNewPr(d => ({ ...d, billing_type: e.target.value }))} style={{ fontSize: 'var(--text-sm)' }}>
+                    <option value="hourly">hourly</option>
+                    <option value="fixed">fixed</option>
+                  </select>
+                  {newPr.billing_type === 'fixed' && (
+                    <input type="number" value={newPr.fixed_amount} onChange={e => setNewPr(d => ({ ...d, fixed_amount: e.target.value }))} placeholder="Fixed amount" style={{ width: 90, fontSize: 'var(--text-sm)' }} />
+                  )}
+                  {newPr.billing_type === 'hourly' && (
+                    <input type="number" value={newPr.rate_override} onChange={e => setNewPr(d => ({ ...d, rate_override: e.target.value }))} placeholder="Rate override" style={{ width: 90, fontSize: 'var(--text-sm)' }} />
+                  )}
+                  <button className="btn-primary" style={{ fontSize: 'var(--text-xs)' }} onClick={() => {
+                    if (!newPr.name.trim()) return;
+                    createProject.mutate({
+                      name: newPr.name.trim(),
+                      company_id: co.id,
+                      billing_type: newPr.billing_type as 'hourly' | 'fixed',
+                      fixed_amount: newPr.billing_type === 'fixed' ? (parseFloat(newPr.fixed_amount) || null) : null,
+                      rate_override: newPr.billing_type === 'hourly' ? (parseFloat(newPr.rate_override) || null) : null,
+                      obsidian_name: newPr.obsidian_name.trim() || newPr.name.trim(),
+                    });
+                    setNewPr({ name: '', obsidian_name: '', billing_type: 'hourly', fixed_amount: '', rate_override: '' });
+                    setAddingProjectTo(null);
+                  }}>Add</button>
+                  <button className="btn-link" style={{ fontSize: 'var(--text-xs)' }} onClick={() => setAddingProjectTo(null)}>Cancel</button>
+                </div>
+              ) : (
+                <button className="btn-link" style={{ fontSize: 'var(--text-xs)', marginTop: 'var(--space-xs)' }} onClick={() => setAddingProjectTo(co.id)}>
+                  + add project
+                </button>
+              )}
+            </div>
+          );
+        })}
+
+        {/* Add project to any company not yet shown */}
+        {(companies ?? []).filter(co => !(projects ?? []).some(p => p.company_id === co.id)).length > 0 && (
+          <div style={{ marginTop: 'var(--space-sm)' }}>
+            {addingProjectTo !== null && !(projects ?? []).some(p => p.company_id === addingProjectTo) ? (
+              <div style={{ border: '1px solid var(--color-border)', borderRadius: 4, padding: 'var(--space-sm)', display: 'flex', flexWrap: 'wrap', gap: 'var(--space-xs)', alignItems: 'center' }}>
+                <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-light)' }}>
+                  {(companies ?? []).find(c => c.id === addingProjectTo)?.name}
+                </span>
+                <input autoFocus value={newPr.name} onChange={e => setNewPr(d => ({ ...d, name: e.target.value, obsidian_name: e.target.value }))} placeholder="Project name" style={{ flex: '1 1 130px', fontSize: 'var(--text-sm)' }} />
+                <input value={newPr.obsidian_name} onChange={e => setNewPr(d => ({ ...d, obsidian_name: e.target.value }))} placeholder="Obsidian name" style={{ flex: '1 1 130px', fontSize: 'var(--text-sm)' }} />
+                <select value={newPr.billing_type} onChange={e => setNewPr(d => ({ ...d, billing_type: e.target.value }))} style={{ fontSize: 'var(--text-sm)' }}>
+                  <option value="hourly">hourly</option>
+                  <option value="fixed">fixed</option>
+                </select>
+                {newPr.billing_type === 'fixed' && (
+                  <input type="number" value={newPr.fixed_amount} onChange={e => setNewPr(d => ({ ...d, fixed_amount: e.target.value }))} placeholder="Fixed amount" style={{ width: 90, fontSize: 'var(--text-sm)' }} />
+                )}
+                {newPr.billing_type === 'hourly' && (
+                  <input type="number" value={newPr.rate_override} onChange={e => setNewPr(d => ({ ...d, rate_override: e.target.value }))} placeholder="Rate override" style={{ width: 90, fontSize: 'var(--text-sm)' }} />
+                )}
+                <button className="btn-primary" style={{ fontSize: 'var(--text-xs)' }} onClick={() => {
+                  if (!newPr.name.trim() || addingProjectTo === null) return;
+                  createProject.mutate({
+                    name: newPr.name.trim(),
+                    company_id: addingProjectTo,
+                    billing_type: newPr.billing_type as 'hourly' | 'fixed',
+                    fixed_amount: newPr.billing_type === 'fixed' ? (parseFloat(newPr.fixed_amount) || null) : null,
+                    rate_override: newPr.billing_type === 'hourly' ? (parseFloat(newPr.rate_override) || null) : null,
+                    obsidian_name: newPr.obsidian_name.trim() || newPr.name.trim(),
+                  });
+                  setNewPr({ name: '', obsidian_name: '', billing_type: 'hourly', fixed_amount: '', rate_override: '' });
+                  setAddingProjectTo(null);
+                }}>Add</button>
+                <button className="btn-link" style={{ fontSize: 'var(--text-xs)' }} onClick={() => setAddingProjectTo(null)}>Cancel</button>
+              </div>
+            ) : (
+              <details style={{ fontSize: 'var(--text-sm)' }}>
+                <summary style={{ cursor: 'pointer', color: 'var(--color-text-light)' }}>+ add project to another company</summary>
+                <div style={{ marginTop: 'var(--space-xs)', display: 'flex', flexWrap: 'wrap', gap: 'var(--space-xs)' }}>
+                  {(companies ?? []).filter(co => !(projects ?? []).some(p => p.company_id === co.id)).map(co => (
+                    <button key={co.id} className="btn-link" style={{ fontSize: 'var(--text-xs)' }} onClick={() => setAddingProjectTo(co.id)}>
+                      {co.name}
+                    </button>
+                  ))}
+                </div>
+              </details>
+            )}
+          </div>
         )}
       </section>
     </div>
