@@ -770,29 +770,54 @@ function VinnyPage() {
 // OperationsPage
 // ---------------------------------------------------------------------------
 
+interface GranolaLogEntry {
+  status: 'synced' | 'skipped' | 'unmatched' | 'error' | 'dry_run';
+  title: string;
+  filename: string | null;
+  error?: string;
+  // dry run fields
+  has_existing_granola_content?: boolean;
+  has_duplicate_granola_section?: boolean;
+  would_action?: 'write' | 'skip' | 'append';
+}
+
+interface GranolaSyncResult {
+  fetched: number;
+  matched: number;
+  written: number;
+  skipped_existing: number;
+  unmatched: string[];
+  errors: string[];
+  log?: GranolaLogEntry[];
+  dry_run?: boolean;
+}
+
 interface GranolaStatus {
   running: boolean;
   last_run: string | null;
-  last_result: {
-    fetched: number;
-    matched: number;
-    written: number;
-    skipped_existing: number;
-    unmatched: string[];
-    errors: string[];
-  } | null;
+  last_result: GranolaSyncResult | null;
   last_error: string | null;
+}
+
+interface NoteLogEntry {
+  status: 'created' | 'updated' | 'skipped';
+  type: 'daily' | 'meeting';
+  filename: string;
+}
+
+interface NotesSyncResult {
+  daily_created: number;
+  meeting_created: number;
+  meeting_updated: number;
+  skipped: number;
+  log?: NoteLogEntry[];
+  dry_run?: boolean;
 }
 
 interface NotesStatus {
   running: boolean;
   last_run: string | null;
-  last_result: {
-    daily_created: number;
-    meeting_created: number;
-    meeting_updated: number;
-    skipped: number;
-  } | null;
+  last_result: NotesSyncResult | null;
   last_error: string | null;
   config: { days_ahead: number };
 }
@@ -811,17 +836,25 @@ function formatRunTime(iso: string | null): string {
 }
 
 function OperationsPage() {
-  const [granolaDaysBack, setGranolaDaysBack] = useState(30);
+  const [granolaDaysBack, setGranolaDaysBack] = useState(7);
   const [granolaForce, setGranolaForce] = useState(false);
   const [granolaRunning, setGranolaRunning] = useState(false);
   const [granolaStatus, setGranolaStatus] = useState<GranolaStatus | null>(null);
   const [granolaError, setGranolaError] = useState<string | null>(null);
+  const [granolaLogOpen, setGranolaLogOpen] = useState(false);
+  const [granolaDryRunning, setGranolaDryRunning] = useState(false);
+  const [granolaDryResult, setGranolaDryResult] = useState<GranolaSyncResult | null>(null);
+  const [granolaDryError, setGranolaDryError] = useState<string | null>(null);
 
   const [notesRunning, setNotesRunning] = useState(false);
   const [notesStatus, setNotesStatus] = useState<NotesStatus | null>(null);
   const [notesError, setNotesError] = useState<string | null>(null);
   const [daysAhead, setDaysAhead] = useState<number | null>(null);
   const [savingDays, setSavingDays] = useState(false);
+  const [notesLogOpen, setNotesLogOpen] = useState(false);
+  const [notesDryRunning, setNotesDryRunning] = useState(false);
+  const [notesDryResult, setNotesDryResult] = useState<NotesSyncResult | null>(null);
+  const [notesDryError, setNotesDryError] = useState<string | null>(null);
 
   // Load initial status
   useEffect(() => {
@@ -836,15 +869,38 @@ function OperationsPage() {
     setGranolaRunning(true);
     setGranolaError(null);
     try {
-      const result = await api.post<{ status: string; result: GranolaStatus['last_result'] }>(
+      const resp = await api.post<{ status: string; error?: string; result: GranolaSyncResult | null }>(
         `/coaching/granola/sync?days_back=${granolaDaysBack}&force=${granolaForce}`
       );
+      if (resp.status === 'error' && resp.error) {
+        setGranolaError(resp.error);
+      }
       const updated = await api.get<GranolaStatus>('/coaching/granola/status');
       setGranolaStatus(updated);
     } catch (e: unknown) {
       setGranolaError(e instanceof Error ? e.message : String(e));
     } finally {
       setGranolaRunning(false);
+    }
+  };
+
+  const handleGranolaDryRun = async () => {
+    setGranolaDryRunning(true);
+    setGranolaDryError(null);
+    setGranolaDryResult(null);
+    try {
+      const resp = await api.post<{ status: string; error?: string; result: GranolaSyncResult | null }>(
+        `/coaching/granola/sync?days_back=${granolaDaysBack}&force=${granolaForce}&dry_run=true`
+      );
+      if (resp.status === 'error' && resp.error) {
+        setGranolaDryError(resp.error);
+      } else {
+        setGranolaDryResult(resp.result);
+      }
+    } catch (e: unknown) {
+      setGranolaDryError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setGranolaDryRunning(false);
     }
   };
 
@@ -859,6 +915,26 @@ function OperationsPage() {
       setNotesError(e instanceof Error ? e.message : String(e));
     } finally {
       setNotesRunning(false);
+    }
+  };
+
+  const handleNotesDryRun = async () => {
+    setNotesDryRunning(true);
+    setNotesDryError(null);
+    setNotesDryResult(null);
+    try {
+      const resp = await api.post<{ status: string; error?: string; result: NotesSyncResult | null }>(
+        '/coaching/notes/create?dry_run=true'
+      );
+      if (resp.status === 'error' && resp.error) {
+        setNotesDryError(resp.error);
+      } else {
+        setNotesDryResult(resp.result);
+      }
+    } catch (e: unknown) {
+      setNotesDryError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setNotesDryRunning(false);
     }
   };
 
@@ -922,13 +998,38 @@ function OperationsPage() {
           <div className="ops-card-error">{granolaError}</div>
         )}
 
-        {gr?.last_result?.unmatched && gr.last_result.unmatched.length > 0 && (
-          <details className="ops-card-unmatched">
-            <summary>{gr.last_result.unmatched.length} unmatched notes</summary>
-            <ul>
-              {gr.last_result.unmatched.map((t, i) => <li key={i}>{t}</li>)}
-            </ul>
-          </details>
+        {gr?.last_result?.log && gr.last_result.log.length > 0 && (
+          <div className="ops-card-log-wrap">
+            <button className="ops-log-toggle" onClick={() => setGranolaLogOpen(o => !o)}>
+              {granolaLogOpen ? 'Hide log' : 'Show log'} ({gr.last_result.log.length})
+            </button>
+            {granolaLogOpen && (
+              <ul className="ops-log-list">
+                {gr.last_result.log.map((entry, i) => {
+                  const icon = entry.status === 'synced' ? '✓'
+                    : entry.status === 'skipped' ? '—'
+                    : entry.status === 'error' ? '✕'
+                    : '?';
+                  const statusCls = entry.status === 'synced' ? 'ops-log-created'
+                    : entry.status === 'skipped' ? 'ops-log-skipped'
+                    : 'ops-log-error';
+                  const obsidianHref = entry.filename
+                    ? `obsidian://open?vault=MyNotes&file=8%20Meetings%2F${encodeURIComponent(entry.filename)}`
+                    : null;
+                  return (
+                    <li key={i} className={`ops-log-item ${statusCls}`}>
+                      <span className="ops-log-icon">{icon}</span>
+                      {obsidianHref
+                        ? <a href={obsidianHref} className="ops-log-link">{entry.filename!.replace(/\.md$/, '')}</a>
+                        : <span className="ops-log-link">{entry.title}</span>
+                      }
+                      {entry.error && <span className="ops-log-error-msg"> — {entry.error}</span>}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
         )}
 
         <div className="ops-card-controls">
@@ -959,11 +1060,65 @@ function OperationsPage() {
           <button
             className="ops-run-btn"
             onClick={handleGranolaSync}
-            disabled={granolaRunning}
+            disabled={granolaRunning || granolaDryRunning}
           >
             {granolaRunning ? 'Syncing…' : 'Sync Now'}
           </button>
+          <button
+            className="ops-run-btn"
+            style={{ background: 'transparent', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+            onClick={handleGranolaDryRun}
+            disabled={granolaRunning || granolaDryRunning}
+          >
+            {granolaDryRunning ? 'Running…' : 'Dry Run'}
+          </button>
         </div>
+
+        {granolaDryError && (
+          <div className="ops-card-error">{granolaDryError}</div>
+        )}
+
+        {granolaDryResult && (
+          <div className="ops-dry-run-wrap">
+            <div className="ops-dry-run-header">
+              <span className="ops-dry-run-badge">Dry Run</span>
+              <span>{granolaDryResult.fetched} fetched · {granolaDryResult.matched} matched · {(granolaDryResult.log ?? []).filter(e => e.would_action === 'write').length} would write · {(granolaDryResult.log ?? []).filter(e => e.would_action === 'skip').length} would skip</span>
+            </div>
+            {(granolaDryResult.log ?? []).length > 0 && (
+              <table className="ops-dry-run-table">
+                <thead>
+                  <tr>
+                    <th>File</th>
+                    <th>Has content</th>
+                    <th>Duplicate heading</th>
+                    <th>Would action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(granolaDryResult.log ?? []).map((entry, i) => (
+                    <tr key={i}>
+                      <td>
+                        {entry.filename
+                          ? <a href={`obsidian://open?vault=MyNotes&file=8%20Meetings%2F${encodeURIComponent(entry.filename)}`} className="ops-log-link">{entry.filename.replace(/\.md$/, '')}</a>
+                          : <span style={{ color: 'var(--color-text-light)' }}>{entry.title}</span>
+                        }
+                      </td>
+                      <td className={entry.has_existing_granola_content ? 'ops-dry-run-bool--yes' : 'ops-dry-run-bool--no'}>
+                        {entry.has_existing_granola_content ? 'yes' : 'no'}
+                      </td>
+                      <td className={entry.has_duplicate_granola_section ? 'ops-dry-run-bool--yes' : 'ops-dry-run-bool--no'}>
+                        {entry.has_duplicate_granola_section ? 'yes' : 'no'}
+                      </td>
+                      <td className={`ops-dry-run-action--${entry.would_action ?? 'skip'}`}>
+                        {entry.would_action ?? '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Note Creation Card */}
@@ -1002,6 +1157,31 @@ function OperationsPage() {
           <div className="ops-card-error">{notesError}</div>
         )}
 
+        {ns?.last_result?.log && ns.last_result.log.length > 0 && (
+          <div className="ops-card-log-wrap">
+            <button className="ops-log-toggle" onClick={() => setNotesLogOpen(o => !o)}>
+              {notesLogOpen ? 'Hide log' : 'Show log'} ({ns.last_result.log.length})
+            </button>
+            {notesLogOpen && (
+              <ul className="ops-log-list">
+                {ns.last_result.log.map((entry, i) => {
+                  const icon = entry.status === 'created' ? '✓' : entry.status === 'updated' ? '↻' : '—';
+                  const obsidianPath = entry.type === 'daily'
+                    ? `9%20Daily%2F${encodeURIComponent(entry.filename)}`
+                    : `8%20Meetings%2F${encodeURIComponent(entry.filename)}`;
+                  const href = `obsidian://open?vault=MyNotes&file=${obsidianPath}`;
+                  return (
+                    <li key={i} className={`ops-log-item ops-log-${entry.status}`}>
+                      <span className="ops-log-icon">{icon}</span>
+                      <a href={href} className="ops-log-link">{entry.filename.replace(/\.md$/, '')}</a>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        )}
+
         <div className="ops-card-controls">
           <label className="ops-label">
             Days ahead:
@@ -1023,11 +1203,66 @@ function OperationsPage() {
           <button
             className="ops-run-btn"
             onClick={handleNotesCreate}
-            disabled={notesRunning}
+            disabled={notesRunning || notesDryRunning}
           >
             {notesRunning ? 'Running…' : 'Run Now'}
           </button>
+          <button
+            className="ops-run-btn"
+            style={{ background: 'transparent', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+            onClick={handleNotesDryRun}
+            disabled={notesRunning || notesDryRunning}
+          >
+            {notesDryRunning ? 'Running…' : 'Dry Run'}
+          </button>
         </div>
+
+        {notesDryError && (
+          <div className="ops-card-error">{notesDryError}</div>
+        )}
+
+        {notesDryResult && (
+          <div className="ops-dry-run-wrap">
+            <div className="ops-dry-run-header">
+              <span className="ops-dry-run-badge">Dry Run</span>
+              <span>
+                {notesDryResult.daily_created > 0 && `${notesDryResult.daily_created} daily to create · `}
+                {notesDryResult.meeting_created > 0 && `${notesDryResult.meeting_created} meeting to create · `}
+                {notesDryResult.meeting_updated > 0 && `${notesDryResult.meeting_updated} to update · `}
+                {(notesDryResult.daily_created === 0 && notesDryResult.meeting_created === 0 && notesDryResult.meeting_updated === 0) && 'all up to date'}
+              </span>
+            </div>
+            {(notesDryResult.log ?? []).length > 0 && (
+              <table className="ops-dry-run-table">
+                <thead>
+                  <tr>
+                    <th>File</th>
+                    <th>Type</th>
+                    <th>Would action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(notesDryResult.log ?? []).map((entry, i) => {
+                    const obsidianPath = entry.type === 'daily'
+                      ? `9%20Daily%2F${encodeURIComponent(entry.filename)}`
+                      : `8%20Meetings%2F${encodeURIComponent(entry.filename)}`;
+                    return (
+                      <tr key={i}>
+                        <td>
+                          <a href={`obsidian://open?vault=MyNotes&file=${obsidianPath}`} className="ops-log-link">
+                            {entry.filename.replace(/\.md$/, '')}
+                          </a>
+                        </td>
+                        <td style={{ color: 'var(--color-text-light)' }}>{entry.type}</td>
+                        <td className={`ops-dry-run-action--${entry.status}`}>{entry.status}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

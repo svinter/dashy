@@ -2,6 +2,7 @@
 
 import json
 import logging
+import math
 import re
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -162,15 +163,6 @@ def _reassemble(fm_lines: list[str], body_lines: list[str]) -> str:
 # Daily note template
 # ---------------------------------------------------------------------------
 
-_DATAVIEW_MEETINGS = """\
-```dataview
-TABLE client, topic, duration
-FROM "8 Meetings"
-WHERE date = this.date
-SORT file.name ASC
-```"""
-
-
 def _daily_note_content(note_date: date) -> str:
     prev_date = note_date - timedelta(days=1)
     next_date = note_date + timedelta(days=1)
@@ -187,9 +179,19 @@ def _daily_note_content(note_date: date) -> str:
         ("tomorrow", f'"[[{next_str}]]"'),
         ("date", date_str),
     ])
+    dataview_meetings = f"""\
+```dataview
+TABLE WITHOUT ID
+    file.link as "Meeting",
+    client as "Client",
+    topic as "Topic"
+FROM "8 Meetings"
+WHERE date = date({date_str})
+SORT meeting ASC
+```"""
     body = f"""\
 ## Today's Meetings
-{_DATAVIEW_MEETINGS}
+{dataview_meetings}
 ---
 ## Notes
 -
@@ -201,12 +203,13 @@ def _daily_note_content(note_date: date) -> str:
 # Meeting note template
 # ---------------------------------------------------------------------------
 
-_DATAVIEW_HISTORY = """\
+_DATAVIEW_HISTORY_TMPL = """\
 ```dataview
-TABLE meeting, topic, transcript
+TABLE date AS "Date", topic AS "Topic", meeting AS "Meeting"
 FROM "8 Meetings"
-WHERE client = this.client
-SORT meeting ASC
+WHERE client = [[{client_obsidian_name}]] AND file.name != this.file.name
+SORT date DESC
+LIMIT 10
 ```"""
 
 
@@ -248,9 +251,10 @@ def _meeting_note_content(
         f"folder: \"{folder_val}\"\n"
         f"---\n"
     )
+    dataview_history = _DATAVIEW_HISTORY_TMPL.format(client_obsidian_name=client_obsidian_name)
     body = f"""\
 ## History
-{_DATAVIEW_HISTORY}
+{dataview_history}
 ---
 
 ## Granola Notes
@@ -273,11 +277,13 @@ def _meeting_note_content(
 # ---------------------------------------------------------------------------
 
 
-def create_upcoming_notes(days_ahead: int = 5) -> dict:
+def create_upcoming_notes(days_ahead: int = 5, dry_run: bool = False) -> dict:
     """Create or update daily and meeting notes for upcoming coaching sessions.
 
+    Set dry_run=True to compute what would happen without writing any files.
+
     Returns:
-        dict with keys: daily_created, meeting_created, meeting_updated, skipped
+        dict with keys: daily_created, meeting_created, meeting_updated, skipped, log, dry_run
     """
     from connectors.obsidian import get_vault_path
     from database import get_db_connection
@@ -299,15 +305,19 @@ def create_upcoming_notes(days_ahead: int = 5) -> dict:
     meeting_created = 0
     meeting_updated = 0
     skipped = 0
+    log: list[dict] = []
 
     # --- Create daily notes ---
     current = today
     while current <= end_date:
-        path = daily_dir / f"{current.isoformat()}.md"
+        fname = f"{current.isoformat()}.md"
+        path = daily_dir / fname
         if not path.exists():
-            path.write_text(_daily_note_content(current), encoding="utf-8")
+            if not dry_run:
+                path.write_text(_daily_note_content(current), encoding="utf-8")
             daily_created += 1
-            logger.info("Created daily note: %s", path.name)
+            log.append({"status": "created", "type": "daily", "filename": fname})
+            logger.info("%s daily note: %s", "Would create" if dry_run else "Created", path.name)
         current += timedelta(days=1)
 
     # --- Fetch upcoming grape/banana coaching sessions ---
@@ -385,11 +395,12 @@ def create_upcoming_notes(days_ahead: int = 5) -> dict:
             end_raw = row["end_time"]
             note_date = start_dt.date()
 
-            # Compute duration
+            # Compute duration, rounded up to nearest 30 min (e.g. 25→30, 55→60, 61→90)
             if end_raw:
                 try:
                     end_dt = datetime.fromisoformat(end_raw)
-                    duration_minutes = int((end_dt - start_dt).total_seconds() / 60)
+                    raw_minutes = int((end_dt - start_dt).total_seconds() / 60)
+                    duration_minutes = math.ceil(raw_minutes / 30) * 30
                 except (ValueError, TypeError):
                     duration_minutes = 60
             else:
@@ -442,12 +453,14 @@ def create_upcoming_notes(days_ahead: int = 5) -> dict:
 
             if not note_path.exists():
                 # Create new note
-                content = _meeting_note_content(
-                    note_date, obs_name, duration_minutes, next_meeting_number, gdrive_url
-                )
-                note_path.write_text(content, encoding="utf-8")
+                if not dry_run:
+                    content = _meeting_note_content(
+                        note_date, obs_name, duration_minutes, next_meeting_number, gdrive_url
+                    )
+                    note_path.write_text(content, encoding="utf-8")
                 meeting_created += 1
-                logger.info("Created meeting note: %s", fname)
+                log.append({"status": "created", "type": "meeting", "filename": fname})
+                logger.info("%s meeting note: %s", "Would create" if dry_run else "Created", fname)
             else:
                 # Update frontmatter if changed (never touch topic/transcript if filled)
                 content = note_path.read_text(encoding="utf-8")
@@ -470,11 +483,14 @@ def create_upcoming_notes(days_ahead: int = 5) -> dict:
                     changed = changed or c
 
                 if changed:
-                    note_path.write_text(_reassemble(fm_lines, body_lines), encoding="utf-8")
+                    if not dry_run:
+                        note_path.write_text(_reassemble(fm_lines, body_lines), encoding="utf-8")
                     meeting_updated += 1
-                    logger.info("Updated meeting note frontmatter: %s", fname)
+                    log.append({"status": "updated", "type": "meeting", "filename": fname})
+                    logger.info("%s meeting note frontmatter: %s", "Would update" if dry_run else "Updated", fname)
                 else:
                     skipped += 1
+                    log.append({"status": "skipped", "type": "meeting", "filename": fname})
 
         except Exception as e:
             logger.warning("Error processing session row: %s", e)
@@ -485,4 +501,6 @@ def create_upcoming_notes(days_ahead: int = 5) -> dict:
         "meeting_created": meeting_created,
         "meeting_updated": meeting_updated,
         "skipped": skipped,
+        "log": log,
+        "dry_run": dry_run,
     }

@@ -349,6 +349,29 @@ def _check_lunchmoney() -> dict:
     return result
 
 
+def _check_granola_notes() -> dict:
+    result = {"configured": False, "connected": False, "error": None, "detail": None}
+    token = get_secret("GRANOLA_API_KEY") or ""
+    if not token:
+        result["detail"] = "GRANOLA_API_KEY not configured"
+        return result
+    result["configured"] = True
+    try:
+        import urllib.request
+        req = urllib.request.Request(
+            "https://public-api.granola.ai/v1/notes?limit=1",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            if resp.status == 200:
+                result["connected"] = True
+            else:
+                result["error"] = f"API returned HTTP {resp.status}"
+    except Exception as e:
+        result["error"] = str(e)
+    return result
+
+
 def _get_sync_states() -> dict:
     """Fetch last sync state per source from the database."""
     from database import get_db_connection
@@ -440,6 +463,7 @@ def auth_status():
         "claude_code": _check_claude_code(),
         "obsidian": _check_obsidian(),
         "lunchmoney": _check_lunchmoney(),
+        "granola_notes": _check_granola_notes(),
     }
 
     # Attach sync state to each service
@@ -568,6 +592,7 @@ def test_connection(service: str):
         "anthropic": _check_anthropic,
         "openai": _check_openai,
         "lunchmoney": _check_lunchmoney,
+        "granola_notes": _check_granola_notes,
     }
     # Lazy import to avoid circular deps
     from routers.whatsapp import _check_whatsapp

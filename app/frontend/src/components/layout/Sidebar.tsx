@@ -145,12 +145,6 @@ export function Sidebar() {
           <NavLink to="/docs">Docs</NavLink>
           {(active.has('google') || active.has('granola')) && <NavLink to="/meetings">Meetings</NavLink>}
           <NavLink to="/coaching">Coaching</NavLink>
-          {onCoachingPage && <>
-            <NavLink to="/coaching/clients" className="sidebar-sub-link">Clients</NavLink>
-            <NavLink to="/coaching/wordcloud" className="sidebar-sub-link">Cloud</NavLink>
-            <NavLink to="/coaching/setup" className="sidebar-sub-link">Setup</NavLink>
-            <NavLink to="/coaching/vinny" className="sidebar-sub-link">Vinny</NavLink>
-          </>}
           <NavLink to="/billing">
             Billing
             {!onBillingPage && (queueCount > 0 || unmatchedCount > 0) && (

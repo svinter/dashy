@@ -1024,7 +1024,7 @@ const CONNECTOR_GROUPS: { label: string; description: string; ids: string[] }[] 
   { label: 'Email & Calendar', description: 'Choose Google or Microsoft 365 for email and calendar.', ids: ['google', 'microsoft'] },
   { label: 'Documents', description: 'Files, docs, and spreadsheets from Google Drive, OneDrive, or local vaults.', ids: ['google_drive', 'microsoft_drive', 'notion', 'obsidian'] },
   { label: 'Communication', description: 'Search and sync messages from your team tools.', ids: ['slack'] },
-  { label: 'Meeting Transcripts', description: 'Import meeting notes and transcripts.', ids: ['granola'] },
+  { label: 'Meeting Transcripts', description: 'Import meeting notes and transcripts.', ids: ['granola', 'granola_notes'] },
   { label: 'Development', description: 'Pull requests, issues, and AI-assisted coding.', ids: ['github', 'claude_code'] },
   { label: 'Finance', description: 'Transactions, bills, and vendor data from Ramp and LunchMoney.', ids: ['ramp', 'lunchmoney'] },
   { label: 'Experimental', description: 'Features still in development.', ids: ['whatsapp', 'news'] },

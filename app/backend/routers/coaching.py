@@ -1,6 +1,8 @@
 import json
+import logging
 import re
 import threading
+import traceback
 from datetime import date, datetime
 from pathlib import Path
 
@@ -8,7 +10,9 @@ import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from database import get_db
+from database import get_db, get_write_db
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/coaching", tags=["coaching"])
 
@@ -567,14 +571,46 @@ _granola_last_run: str | None = None
 _granola_last_error: str | None = None
 
 
+def _persist_sync_state(source: str, status: str, error: str | None, items: int):
+    """Write a sync_state row so results survive server restarts."""
+    try:
+        with get_write_db() as db:
+            db.execute(
+                """INSERT INTO sync_state (source, last_sync_at, last_sync_status, last_error, items_synced)
+                   VALUES (?, datetime('now'), ?, ?, ?)
+                   ON CONFLICT(source) DO UPDATE SET
+                     last_sync_at=excluded.last_sync_at,
+                     last_sync_status=excluded.last_sync_status,
+                     last_error=excluded.last_error,
+                     items_synced=excluded.items_synced""",
+                (source, status, error, items),
+            )
+            db.commit()
+    except Exception as exc:
+        logger.warning("Could not persist sync_state for %s: %s", source, exc)
+
+
 @router.post("/granola/sync")
-def trigger_granola_sync(days_back: int = 30, force: bool = False):
+def trigger_granola_sync(days_back: int = 7, force: bool = False, dry_run: bool = False):
     """Trigger a Granola notes sync. Runs synchronously (blocking).
 
     force=True appends to notes that already have Granola content (with a datestamp header).
-    Default (force=False) skips those notes.
+    dry_run=True fetches and matches but writes nothing; returns a per-note report.
+    Always returns JSON (never raises 500) so the UI can display errors.
     """
     global _granola_sync_running, _granola_last_result, _granola_last_run, _granola_last_error
+
+    # Dry runs skip the mutex and state updates — they're read-only
+    if dry_run:
+        try:
+            from connectors.granola_notes import sync_granola_notes
+            logger.info("Starting Granola dry run: days_back=%d force=%s", days_back, force)
+            result = sync_granola_notes(days_back=days_back, force=force, dry_run=True)
+            return {"status": "ok", "result": result}
+        except Exception as e:
+            err = str(e)
+            logger.error("Granola dry run failed: %s", err)
+            return {"status": "error", "error": err, "result": None}
 
     with _granola_sync_lock:
         if _granola_sync_running:
@@ -584,17 +620,27 @@ def trigger_granola_sync(days_back: int = 30, force: bool = False):
     try:
         from connectors.granola_notes import sync_granola_notes
 
+        logger.info("Starting Granola sync: days_back=%d force=%s", days_back, force)
         result = sync_granola_notes(days_back=days_back, force=force)
+        logger.info("Granola sync finished: %s", result)
+        now = datetime.now().isoformat()
         with _granola_sync_lock:
             _granola_last_result = result
-            _granola_last_run = datetime.now().isoformat()
+            _granola_last_run = now
             _granola_last_error = None
+        _persist_sync_state("granola_notes", "success", None, result.get("written", 0))
         return {"status": "ok", "result": result}
     except Exception as e:
+        err = str(e)
+        tb = traceback.format_exc()
+        logger.error("Granola sync failed: %s\n%s", err, tb)
+        now = datetime.now().isoformat()
         with _granola_sync_lock:
-            _granola_last_error = str(e)
-            _granola_last_run = datetime.now().isoformat()
-        raise HTTPException(status_code=500, detail=str(e))
+            _granola_last_error = err
+            _granola_last_run = now
+        _persist_sync_state("granola_notes", "error", err, 0)
+        # Return error as JSON body (not HTTPException) so the UI can display it
+        return {"status": "error", "error": err, "result": None}
     finally:
         with _granola_sync_lock:
             _granola_sync_running = False
@@ -624,9 +670,25 @@ _notes_last_error: str | None = None
 
 
 @router.post("/notes/create")
-def trigger_note_creation():
-    """Trigger daily & meeting note creation for the configured days_ahead window."""
+def trigger_note_creation(dry_run: bool = False):
+    """Trigger daily & meeting note creation for the configured days_ahead window.
+
+    dry_run=True computes what would be created/updated without writing any files.
+    """
     global _notes_running, _notes_last_result, _notes_last_run, _notes_last_error
+
+    # Dry runs skip the mutex and state updates
+    if dry_run:
+        try:
+            from app_config import get_note_creation_config
+            from connectors.note_creator import create_upcoming_notes
+
+            cfg = get_note_creation_config()
+            days_ahead = int(cfg.get("days_ahead", 5))
+            result = create_upcoming_notes(days_ahead=days_ahead, dry_run=True)
+            return {"status": "ok", "result": result}
+        except Exception as e:
+            return {"status": "error", "error": str(e), "result": None}
 
     with _notes_lock:
         if _notes_running:

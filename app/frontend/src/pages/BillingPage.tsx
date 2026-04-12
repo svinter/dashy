@@ -91,11 +91,9 @@ interface BillingScopeCtx {
 
 function defaultScope(): Pick<BillingScopeCtx, 'year' | 'month'> {
   const d = new Date();
-  // d.getMonth() is 0-based; its value equals the previous month in 1-based numbering
-  const prevMonth = d.getMonth();
   return {
-    year: prevMonth === 0 ? d.getFullYear() - 1 : d.getFullYear(),
-    month: prevMonth === 0 ? 12 : prevMonth,
+    year: d.getFullYear(),
+    month: d.getMonth() + 1,
   };
 }
 
@@ -277,6 +275,7 @@ function BillingClientFilter({ companies, projects = [], selection, allChip, onS
       placeholder="filter… (⌘F · .p prepaid · .j projects · ⌘?)"
       helpTitle="Billing filter shortcuts"
       shortcuts={BILLING_SHORTCUTS}
+      className="coaching-filter--inline"
       style={{ marginLeft: 4 }}
     />
   );
@@ -4463,7 +4462,7 @@ function BillingScopeBar() {
   const { data: projects = [] } = useBillingProjects();
 
   return (
-    <div style={{ display: 'flex', gap: 5, alignItems: 'center', marginBottom: 'var(--space-lg)', flexWrap: 'wrap', padding: '6px 0', borderBottom: '1px solid var(--color-border)' }}>
+    <div style={{ display: 'flex', gap: 5, alignItems: 'center', marginBottom: 'var(--space-lg)', flexWrap: 'wrap', padding: '28px 0 6px', borderBottom: '1px solid var(--color-border)' }}>
       <select value={year} onChange={e => setYear(Number(e.target.value))} style={{ fontSize: 'var(--text-sm)' }}>
         {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
       </select>
