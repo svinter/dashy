@@ -29,6 +29,8 @@ ALLOWED_SECRET_KEYS = frozenset(
         "MICROSOFT_TENANT_ID",
         "LUNCHMONEY_API_KEY",
         "GRANOLA_API_KEY",
+        "LIBBY_GITHUB_REPO_PATH",
+        "LIBBY_BASE_URL",
     }
 )
 

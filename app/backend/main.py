@@ -50,6 +50,7 @@ from routers import (
     gmail,
     issue_discovery,
     issues,
+    libby,
     meetings,
     memory,
     news,
@@ -155,6 +156,7 @@ if is_demo_mode():
 app.include_router(billing.router)
 app.include_router(billing_pdf.router)
 app.include_router(coaching.router)
+app.include_router(libby.router)
 app.include_router(dashboard.router)
 app.include_router(people.router)
 app.include_router(notes.router)

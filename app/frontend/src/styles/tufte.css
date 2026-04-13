@@ -8887,3 +8887,330 @@ span.news-item-title {
   vertical-align: top;
 }
 
+/* ---------------------------------------------------------------------------
+   Libby module
+   --------------------------------------------------------------------------- */
+
+.libby-module {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: var(--space-md);
+  max-width: 720px;
+}
+
+.libby-find-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.libby-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: var(--space-xs);
+}
+
+.libby-header-title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-light);
+}
+
+/* Search box */
+
+.libby-search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.libby-search-input {
+  width: 100%;
+  font-size: var(--text-lg, 1.1rem);
+  font-family: var(--font-mono, monospace);
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  outline: none;
+}
+
+.libby-search-wrap--select .libby-search-input {
+  border-color: var(--color-highlight, #4a90d9);
+  color: var(--color-text-light);
+}
+
+.libby-search-action-label {
+  font-size: var(--text-lg, 1.1rem);
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  width: 100%;
+  color: var(--color-text-light);
+  font-style: italic;
+}
+
+.libby-search-action-name {
+  color: var(--color-text);
+  font-style: normal;
+}
+
+.libby-search-spinner {
+  position: absolute;
+  right: 10px;
+  color: var(--color-text-light);
+  font-size: var(--text-sm);
+}
+
+/* State hint */
+
+.libby-state-hint {
+  font-size: var(--text-xs);
+  color: var(--color-text-light);
+  min-height: 1.2em;
+}
+
+/* Results list */
+
+.libby-results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.libby-result-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 6px;
+  border-radius: 3px;
+  cursor: default;
+  font-size: var(--text-sm);
+}
+
+.libby-result-row--select {
+  cursor: pointer;
+}
+
+.libby-result-row--select:hover {
+  background: var(--color-bg-hover, rgba(0,0,0,0.04));
+}
+
+.libby-result-label {
+  width: 14px;
+  font-family: var(--font-mono, monospace);
+  font-size: var(--text-xs);
+  color: var(--color-text-light);
+  flex-shrink: 0;
+}
+
+.libby-result-label--active {
+  color: var(--color-highlight, #4a90d9);
+  font-weight: 700;
+}
+
+.libby-result-name {
+  flex: 1;
+  font-weight: 500;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.libby-result-author {
+  font-size: var(--text-xs);
+  color: var(--color-text-light);
+  white-space: nowrap;
+}
+
+.libby-result-type {
+  font-size: var(--text-xs);
+  color: var(--color-text-light);
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  padding: 0 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.libby-result-topics {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.libby-topic-pill {
+  font-size: 0.65rem;
+  background: var(--color-border);
+  border-radius: 3px;
+  padding: 1px 4px;
+  color: var(--color-text-light);
+}
+
+.libby-result-freq {
+  font-size: var(--text-xs);
+  color: var(--color-text-light);
+  flex-shrink: 0;
+  min-width: 16px;
+  text-align: right;
+}
+
+/* Priority dots */
+
+.libby-priority-dots {
+  display: flex;
+  gap: 1px;
+  flex-shrink: 0;
+}
+
+.libby-dot {
+  font-size: 0.55rem;
+  line-height: 1;
+}
+
+.libby-dot--on  { color: var(--color-text); }
+.libby-dot--off { color: var(--color-border); }
+
+/* Action section */
+
+.libby-action-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-sm);
+  margin-top: var(--space-xs);
+}
+
+.libby-selected-detail {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--text-sm);
+}
+
+.libby-selected-type {
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  padding: 0 5px;
+  font-size: var(--text-xs);
+  color: var(--color-text-light);
+}
+
+.libby-selected-author {
+  color: var(--color-text-light);
+}
+
+.libby-selected-topics {
+  display: flex;
+  gap: 4px;
+}
+
+.libby-action-bar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.libby-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.libby-action-btn:hover {
+  border-color: var(--color-highlight, #4a90d9);
+  color: var(--color-highlight, #4a90d9);
+}
+
+.libby-action-btn--unimplemented {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.libby-action-btn--unimplemented:hover {
+  border-color: var(--color-border);
+  color: var(--color-text-light);
+}
+
+.libby-action-btn--has-page {
+  color: var(--color-success, #27ae60);
+  border-color: var(--color-success, #27ae60);
+}
+
+/* Client selector in action bar header */
+.libby-client-selector {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.libby-client-label {
+  font-size: var(--text-xs);
+  color: var(--color-text-light);
+}
+
+.libby-client-select {
+  font-size: var(--text-xs);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  color: var(--color-text);
+  padding: 1px 4px;
+  cursor: pointer;
+}
+
+/* Toast notification */
+.libby-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--color-bg-2, #2a2a2a);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  padding: 7px 16px;
+  border-radius: 4px;
+  border: 1px solid var(--color-border);
+  z-index: 9999;
+  pointer-events: none;
+}
+
+.libby-action-key {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.7rem;
+  background: var(--color-border);
+  border-radius: 2px;
+  padding: 0 3px;
+  color: var(--color-text);
+}
+
+.libby-status-msg {
+  font-size: var(--text-sm);
+  color: var(--color-success, #27ae60);
+  font-weight: 500;
+}
+
+.libby-empty {
+  font-size: var(--text-sm);
+  color: var(--color-text-light);
+  padding: var(--space-sm) 0;
+}
+
