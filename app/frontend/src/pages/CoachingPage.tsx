@@ -728,13 +728,419 @@ function WordCloudPage() {
 }
 
 // ---------------------------------------------------------------------------
-// Setup Page (placeholder)
+// ---------------------------------------------------------------------------
+// Setup Page
 // ---------------------------------------------------------------------------
 
-function SetupPage() {
+interface SetupCompany {
+  id: number;
+  name: string;
+  abbrev: string | null;
+  default_rate: number | null;
+  gdrive_folder_url: string | null;
+}
+
+function useSetupCompanies() {
+  return useQuery({
+    queryKey: ['setup-companies'],
+    queryFn: () => api.get<{ companies: SetupCompany[] }>('/coaching/setup/companies'),
+    staleTime: 30_000,
+  });
+}
+
+type SetupType = 'company' | 'client' | 'project';
+
+interface SetupConfirmation {
+  type: SetupType;
+  name: string;
+  details: Record<string, string>;
+}
+
+// Shared field row
+function FieldRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="coaching-placeholder">
-      <p>Setup — coming soon. Will support adding new clients, creating Obsidian client pages, and provisioning Google Drive coaching document folders.</p>
+    <div className="setup-field-row">
+      <label className="setup-field-label">{label}</label>
+      <div className="setup-field-input">{children}</div>
+    </div>
+  );
+}
+
+function CompanyForm({ onSuccess }: { onSuccess: (c: SetupConfirmation) => void }) {
+  const [name, setName] = useState('');
+  const [abbrev, setAbbrev] = useState('');
+  const [defaultRate, setDefaultRate] = useState('');
+  const [billingMethod, setBillingMethod] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState('');
+  const [apEmail, setApEmail] = useState('');
+  const [ccEmail, setCcEmail] = useState('');
+  const [notes, setNotes] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) { setError('Name is required'); return; }
+    setSubmitting(true);
+    setError(null);
+    try {
+      const result = await api.post<{ status: string; company_id: number; name: string; gdrive_folder_url: string; obsidian: { action: string } }>(
+        '/coaching/setup/company',
+        {
+          name: name.trim(),
+          abbrev: abbrev.trim() || null,
+          default_rate: defaultRate ? parseFloat(defaultRate) : null,
+          billing_method: billingMethod || null,
+          payment_method: paymentMethod || null,
+          ap_email: apEmail.trim() || null,
+          cc_email: ccEmail.trim() || null,
+          notes: notes.trim() || null,
+        },
+      );
+      onSuccess({
+        type: 'company',
+        name: result.name,
+        details: {
+          'Drive folder': result.gdrive_folder_url,
+          'Obsidian': result.obsidian.action,
+        },
+      });
+      setName(''); setAbbrev(''); setDefaultRate(''); setBillingMethod('');
+      setPaymentMethod(''); setApEmail(''); setCcEmail(''); setNotes('');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Creation failed';
+      setError(msg);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <form className="setup-form" onSubmit={handleSubmit}>
+      <FieldRow label="Name *">
+        <input className="setup-input" value={name} onChange={e => setName(e.target.value)} placeholder="Full company name" autoFocus />
+      </FieldRow>
+      <FieldRow label="Abbreviation">
+        <input className="setup-input setup-input--short" value={abbrev} onChange={e => setAbbrev(e.target.value)} placeholder="e.g. ARB" />
+      </FieldRow>
+      <FieldRow label="Default rate">
+        <input className="setup-input setup-input--short" type="number" value={defaultRate} onChange={e => setDefaultRate(e.target.value)} placeholder="USD/hr" min="0" />
+      </FieldRow>
+      <FieldRow label="Billing method">
+        <select className="setup-select" value={billingMethod} onChange={e => setBillingMethod(e.target.value)}>
+          <option value="">— none / pro bono —</option>
+          <option value="invoice">Invoice</option>
+          <option value="bill.com">Bill.com</option>
+          <option value="payasgo">Pay as you go</option>
+        </select>
+      </FieldRow>
+      <FieldRow label="Payment method">
+        <select className="setup-select" value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)}>
+          <option value="">— select —</option>
+          <option value="etrade">eTrade</option>
+          <option value="venmo">Venmo</option>
+          <option value="paypal">PayPal</option>
+          <option value="check">Check</option>
+          <option value="tipalti">Tipalti</option>
+        </select>
+      </FieldRow>
+      <FieldRow label="AP email">
+        <input className="setup-input" type="email" value={apEmail} onChange={e => setApEmail(e.target.value)} placeholder="ap@company.com" />
+      </FieldRow>
+      <FieldRow label="CC email">
+        <input className="setup-input" type="email" value={ccEmail} onChange={e => setCcEmail(e.target.value)} placeholder="optional" />
+      </FieldRow>
+      <FieldRow label="Notes">
+        <textarea className="setup-textarea" value={notes} onChange={e => setNotes(e.target.value)} rows={3} />
+      </FieldRow>
+      {error && <div className="setup-error">{error}</div>}
+      <div className="setup-actions">
+        <button className="setup-submit-btn" type="submit" disabled={submitting}>
+          {submitting ? 'Creating…' : 'Create Company'}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function ClientForm({ companies, onSuccess }: { companies: SetupCompany[]; onSuccess: (c: SetupConfirmation) => void }) {
+  const readyCompanies = companies.filter(c => c.gdrive_folder_url);
+  const [companyId, setCompanyId] = useState<string>(readyCompanies[0]?.id.toString() ?? '');
+  const [name, setName] = useState('');
+  const [obsidianName, setObsidianName] = useState('');
+  const [email, setEmail] = useState('');
+  const [rateOverride, setRateOverride] = useState('');
+  const [prepaid, setPrepaid] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleNameChange = (val: string) => {
+    setName(val);
+    if (!obsidianName || obsidianName === name) setObsidianName(val);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!companyId) { setError('Select a company'); return; }
+    if (!name.trim()) { setError('Name is required'); return; }
+    setSubmitting(true);
+    setError(null);
+    try {
+      const result = await api.post<{ status: string; client_id: number; name: string; company_name: string; client_type: string; gdrive_coaching_docs_url: string; copied_files: string[]; manifest_gdoc_url: string | null; obsidian: { action: string } }>(
+        '/coaching/setup/client',
+        {
+          company_id: parseInt(companyId, 10),
+          name: name.trim(),
+          obsidian_name: obsidianName.trim() || name.trim(),
+          email: email.trim() || null,
+          rate_override: rateOverride ? parseFloat(rateOverride) : null,
+          prepaid,
+        },
+      );
+      const details: Record<string, string> = {
+        'Company': result.company_name,
+        'Client type': result.client_type,
+        'Coaching docs': result.gdrive_coaching_docs_url,
+        'Files copied': result.copied_files.length.toString(),
+        'Obsidian': result.obsidian.action,
+      };
+      if (result.manifest_gdoc_url) {
+        details['Manifest'] = result.manifest_gdoc_url;
+      }
+      onSuccess({
+        type: 'client',
+        name: result.name,
+        details,
+      });
+      setName(''); setObsidianName(''); setEmail(''); setRateOverride(''); setPrepaid(false);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Creation failed';
+      setError(msg);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (readyCompanies.length === 0) {
+    return (
+      <div className="setup-empty-notice">
+        No companies with Drive folders yet. Create a company first.
+      </div>
+    );
+  }
+
+  return (
+    <form className="setup-form" onSubmit={handleSubmit}>
+      <FieldRow label="Company *">
+        <select className="setup-select" value={companyId} onChange={e => setCompanyId(e.target.value)}>
+          <option value="">— select —</option>
+          {readyCompanies.map(c => (
+            <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
+        </select>
+      </FieldRow>
+      <FieldRow label="Name *">
+        <input className="setup-input" value={name} onChange={e => handleNameChange(e.target.value)} placeholder="Full client name" autoFocus />
+      </FieldRow>
+      <FieldRow label="Obsidian name">
+        <input className="setup-input" value={obsidianName} onChange={e => setObsidianName(e.target.value)} placeholder="Auto-filled from name" />
+      </FieldRow>
+      <FieldRow label="Email">
+        <input className="setup-input" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="client@company.com" />
+      </FieldRow>
+      <FieldRow label="Rate override">
+        <input className="setup-input setup-input--short" type="number" value={rateOverride} onChange={e => setRateOverride(e.target.value)} placeholder="blank = company rate" min="0" />
+      </FieldRow>
+      <FieldRow label="Prepaid">
+        <label className="setup-toggle-label">
+          <input type="checkbox" className="setup-toggle" checked={prepaid} onChange={e => setPrepaid(e.target.checked)} />
+          <span>{prepaid ? 'Yes' : 'No'}</span>
+        </label>
+      </FieldRow>
+      {error && <div className="setup-error">{error}</div>}
+      <div className="setup-actions">
+        <button className="setup-submit-btn" type="submit" disabled={submitting}>
+          {submitting ? 'Creating…' : 'Create Client'}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function ProjectForm({ companies, onSuccess }: { companies: SetupCompany[]; onSuccess: (c: SetupConfirmation) => void }) {
+  const readyCompanies = companies.filter(c => c.gdrive_folder_url);
+  const [companyId, setCompanyId] = useState<string>(readyCompanies[0]?.id.toString() ?? '');
+  const [name, setName] = useState('');
+  const [obsidianName, setObsidianName] = useState('');
+  const [billingType, setBillingType] = useState<'hourly' | 'fixed'>('hourly');
+  const [fixedAmount, setFixedAmount] = useState('');
+  const [rateOverride, setRateOverride] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleNameChange = (val: string) => {
+    setName(val);
+    if (!obsidianName || obsidianName === name) setObsidianName(val);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!companyId) { setError('Select a company'); return; }
+    if (!name.trim()) { setError('Name is required'); return; }
+    setSubmitting(true);
+    setError(null);
+    try {
+      const result = await api.post<{ status: string; project_id: number; name: string; company_name: string; billing_type: string; gdrive_folder_url: string; obsidian: { action: string } }>(
+        '/coaching/setup/project',
+        {
+          company_id: parseInt(companyId, 10),
+          name: name.trim(),
+          obsidian_name: obsidianName.trim() || name.trim(),
+          billing_type: billingType,
+          fixed_amount: billingType === 'fixed' && fixedAmount ? parseFloat(fixedAmount) : null,
+          rate_override: billingType === 'hourly' && rateOverride ? parseFloat(rateOverride) : null,
+        },
+      );
+      onSuccess({
+        type: 'project',
+        name: result.name,
+        details: {
+          'Company': result.company_name,
+          'Billing': result.billing_type,
+          'Drive folder': result.gdrive_folder_url,
+          'Obsidian': result.obsidian.action,
+        },
+      });
+      setName(''); setObsidianName(''); setBillingType('hourly'); setFixedAmount(''); setRateOverride('');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Creation failed';
+      setError(msg);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (readyCompanies.length === 0) {
+    return (
+      <div className="setup-empty-notice">
+        No companies with Drive folders yet. Create a company first.
+      </div>
+    );
+  }
+
+  return (
+    <form className="setup-form" onSubmit={handleSubmit}>
+      <FieldRow label="Company *">
+        <select className="setup-select" value={companyId} onChange={e => setCompanyId(e.target.value)}>
+          <option value="">— select —</option>
+          {readyCompanies.map(c => (
+            <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
+        </select>
+      </FieldRow>
+      <FieldRow label="Name *">
+        <input className="setup-input" value={name} onChange={e => handleNameChange(e.target.value)} placeholder="Project name" autoFocus />
+      </FieldRow>
+      <FieldRow label="Obsidian name">
+        <input className="setup-input" value={obsidianName} onChange={e => setObsidianName(e.target.value)} placeholder="Auto-filled from name" />
+      </FieldRow>
+      <FieldRow label="Billing type">
+        <div className="setup-toggle-group">
+          <button
+            type="button"
+            className={`setup-toggle-btn${billingType === 'hourly' ? ' setup-toggle-btn--active' : ''}`}
+            onClick={() => setBillingType('hourly')}
+          >Hourly</button>
+          <button
+            type="button"
+            className={`setup-toggle-btn${billingType === 'fixed' ? ' setup-toggle-btn--active' : ''}`}
+            onClick={() => setBillingType('fixed')}
+          >Fixed</button>
+        </div>
+      </FieldRow>
+      {billingType === 'fixed' && (
+        <FieldRow label="Fixed amount">
+          <input className="setup-input setup-input--short" type="number" value={fixedAmount} onChange={e => setFixedAmount(e.target.value)} placeholder="USD total" min="0" />
+        </FieldRow>
+      )}
+      {billingType === 'hourly' && (
+        <FieldRow label="Rate override">
+          <input className="setup-input setup-input--short" type="number" value={rateOverride} onChange={e => setRateOverride(e.target.value)} placeholder="blank = company rate" min="0" />
+        </FieldRow>
+      )}
+      {error && <div className="setup-error">{error}</div>}
+      <div className="setup-actions">
+        <button className="setup-submit-btn" type="submit" disabled={submitting}>
+          {submitting ? 'Creating…' : 'Create Project'}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function SetupPage() {
+  const [activeType, setActiveType] = useState<SetupType | null>(null);
+  const [confirmation, setConfirmation] = useState<SetupConfirmation | null>(null);
+  const { data: companiesData } = useSetupCompanies();
+  const companies = companiesData?.companies ?? [];
+
+  const handleSuccess = (c: SetupConfirmation) => {
+    setConfirmation(c);
+  };
+
+  const handleTypeSelect = (t: SetupType) => {
+    setActiveType(t);
+    setConfirmation(null);
+  };
+
+  const TYPE_LABELS: Record<SetupType, string> = {
+    company: 'Company',
+    client: 'Client',
+    project: 'Project',
+  };
+
+  return (
+    <div className="setup-page">
+      {/* Type selector */}
+      <div className="setup-type-selector">
+        {(['company', 'client', 'project'] as SetupType[]).map(t => (
+          <button
+            key={t}
+            className={`setup-type-btn${activeType === t ? ' setup-type-btn--active' : ''}`}
+            onClick={() => handleTypeSelect(t)}
+          >
+            {TYPE_LABELS[t]}
+          </button>
+        ))}
+      </div>
+
+      {/* Empty state */}
+      {!activeType && (
+        <p className="setup-prompt">Select what you'd like to create.</p>
+      )}
+
+      {/* Confirmation banner */}
+      {confirmation && (
+        <div className="setup-confirmation">
+          <div className="setup-confirmation-title">
+            {TYPE_LABELS[confirmation.type]} created: <strong>{confirmation.name}</strong>
+          </div>
+          <dl className="setup-confirmation-details">
+            {Object.entries(confirmation.details).map(([k, v]) => (
+              <div key={k} className="setup-confirmation-row">
+                <dt>{k}</dt>
+                <dd>{v}</dd>
+              </div>
+            ))}
+          </dl>
+          <p className="setup-confirmation-hint">Form reset — create another {TYPE_LABELS[confirmation.type].toLowerCase()}.</p>
+        </div>
+      )}
+
+      {/* Forms */}
+      {activeType === 'company' && <CompanyForm onSuccess={handleSuccess} />}
+      {activeType === 'client' && <ClientForm companies={companies} onSuccess={handleSuccess} />}
+      {activeType === 'project' && <ProjectForm companies={companies} onSuccess={handleSuccess} />}
     </div>
   );
 }
@@ -835,6 +1241,23 @@ function formatRunTime(iso: string | null): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
+interface ManifestClientResult {
+  client_id: number;
+  name: string;
+  status: 'created' | 'skipped' | 'error';
+  manifest_url?: string | null;
+  reason?: string;
+  error?: string;
+}
+
+interface CreateManifsetsResult {
+  total: number;
+  created: number;
+  skipped: number;
+  errors: number;
+  results: ManifestClientResult[];
+}
+
 function OperationsPage() {
   const [granolaDaysBack, setGranolaDaysBack] = useState(7);
   const [granolaForce, setGranolaForce] = useState(false);
@@ -855,6 +1278,10 @@ function OperationsPage() {
   const [notesDryRunning, setNotesDryRunning] = useState(false);
   const [notesDryResult, setNotesDryResult] = useState<NotesSyncResult | null>(null);
   const [notesDryError, setNotesDryError] = useState<string | null>(null);
+
+  const [manifestsRunning, setManifestsRunning] = useState(false);
+  const [manifestsResult, setManifestsResult] = useState<CreateManifsetsResult | null>(null);
+  const [manifestsError, setManifestsError] = useState<string | null>(null);
 
   // Load initial status
   useEffect(() => {
@@ -947,6 +1374,20 @@ function OperationsPage() {
       // ignore
     } finally {
       setSavingDays(false);
+    }
+  };
+
+  const handleCreateManifests = async () => {
+    setManifestsRunning(true);
+    setManifestsError(null);
+    setManifestsResult(null);
+    try {
+      const result = await api.post<CreateManifsetsResult>('/coaching/setup/create-manifests');
+      setManifestsResult(result);
+    } catch (e: unknown) {
+      setManifestsError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setManifestsRunning(false);
     }
   };
 
@@ -1258,6 +1699,74 @@ function OperationsPage() {
                       </tr>
                     );
                   })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Manifest Creation Card */}
+      <div className="ops-card">
+        <div className="ops-card-header">
+          <div>
+            <div className="ops-card-title">Create Missing Manifests</div>
+            <div className="ops-card-desc">
+              Creates a "Manifest" Google Doc for every active client that doesn't have one yet.
+              Each doc is placed in the client's Coaching Docs folder and pre-populated with a
+              Documents section (linking the template files) and an empty Others section.
+            </div>
+          </div>
+        </div>
+
+        <div className="ops-card-controls">
+          <button
+            className="ops-run-btn"
+            onClick={handleCreateManifests}
+            disabled={manifestsRunning}
+          >
+            {manifestsRunning ? 'Creating…' : 'Create Missing Manifests'}
+          </button>
+        </div>
+
+        {manifestsError && (
+          <div className="ops-card-error">{manifestsError}</div>
+        )}
+
+        {manifestsResult && (
+          <div className="ops-dry-run-wrap">
+            <div className="ops-dry-run-header">
+              <span>
+                {manifestsResult.created} created
+                {manifestsResult.skipped > 0 && ` · ${manifestsResult.skipped} skipped`}
+                {manifestsResult.errors > 0 && ` · ${manifestsResult.errors} errors`}
+                {manifestsResult.total === 0 && ' — all clients already have a Manifest'}
+              </span>
+            </div>
+            {manifestsResult.results.length > 0 && (
+              <table className="ops-dry-run-table">
+                <thead>
+                  <tr>
+                    <th>Client</th>
+                    <th>Status</th>
+                    <th>Manifest</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {manifestsResult.results.map((r) => (
+                    <tr key={r.client_id}>
+                      <td>{r.name}</td>
+                      <td className={`ops-dry-run-action--${r.status === 'created' ? 'created' : r.status === 'error' ? 'error' : 'skipped'}`}>
+                        {r.status}
+                      </td>
+                      <td>
+                        {r.manifest_url
+                          ? <a href={r.manifest_url} target="_blank" rel="noreferrer" className="ops-log-link">open</a>
+                          : <span style={{ color: 'var(--color-text-light)' }}>{r.reason ?? r.error ?? '—'}</span>
+                        }
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             )}

@@ -115,6 +115,7 @@ function FindPage() {
   const [selectedWebpageUrl, setSelectedWebpageUrl] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [toastVariant, setToastVariant] = useState<'default' | 'warning'>('default');
   const [loading, setLoading] = useState(false);
 
   // Client context
@@ -153,8 +154,9 @@ function FindPage() {
   const effectiveClientId = clientId ?? activeClient?.id ?? null;
 
   // --- Dismiss toast after delay ---
-  const showToast = (msg: string) => {
+  const showToast = (msg: string, variant: 'default' | 'warning' = 'default') => {
     setToastMsg(msg);
+    setToastVariant(variant);
     setTimeout(() => setToastMsg(null), 2500);
   };
 
@@ -325,6 +327,10 @@ function FindPage() {
       if (resp.ok) {
         const data = await resp.json();
         setStatusMsg(data.message ?? 'Recorded');
+        // Manifest warning: only show if it failed (not if client had no manifest URL)
+        if (data.manifest_updated === false && data.manifest_skipped !== true) {
+          showToast('Note: Manifest not updated', 'warning');
+        }
       } else {
         const err = await resp.json().catch(() => ({}));
         setStatusMsg(err.detail ?? 'Record failed');
@@ -469,7 +475,7 @@ function FindPage() {
 
       {/* Toast */}
       {toastMsg && (
-        <div className="libby-toast">{toastMsg}</div>
+        <div className={`libby-toast${toastVariant === 'warning' ? ' libby-toast--warning' : ''}`}>{toastMsg}</div>
       )}
 
       {/* Empty state */}

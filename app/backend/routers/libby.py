@@ -6,7 +6,7 @@ Endpoints:
   GET  /api/libby/search                       — keyword + type + topic search
   GET  /api/libby/active-client                — default client for current session
   POST /api/libby/entries/{id}/action/copy     — return URL for clipboard
-  POST /api/libby/entries/{id}/action/record   — log share, write Obsidian notes
+  POST /api/libby/entries/{id}/action/record   — log share, write Obsidian notes, append to Manifest
   POST /api/libby/entries/{id}/action/make     — generate GitHub Pages HTML, git push, set webpage_url
 """
 
@@ -354,6 +354,96 @@ def action_copy(entry_id: int):
 
 
 # ---------------------------------------------------------------------------
+# Manifest Google Doc helpers (used by record action)
+# ---------------------------------------------------------------------------
+
+def _doc_id_from_url(url: str) -> str | None:
+    """Extract Google Doc ID from a docs.google.com/document/d/{id}/... URL."""
+    if not url:
+        return None
+    try:
+        return url.split("/d/")[-1].split("/")[0].split("?")[0].strip() or None
+    except Exception:
+        return None
+
+
+def _para_text(elem: dict) -> str:
+    """Concatenate all textRun content strings from a paragraph structural element."""
+    parts = []
+    for pe in elem.get("paragraph", {}).get("elements", []):
+        parts.append(pe.get("textRun", {}).get("content", ""))
+    return "".join(parts)
+
+
+def _para_named_style(elem: dict) -> str:
+    """Return namedStyleType for a paragraph element, or empty string."""
+    return (
+        elem.get("paragraph", {})
+        .get("paragraphStyle", {})
+        .get("namedStyleType", "")
+    )
+
+
+def _append_to_manifest_others(doc_id: str, bullet_text: str) -> None:
+    """Append a bullet line under the 'Others' heading in a Manifest Google Doc.
+
+    Strategy:
+      1. Fetch doc structure via documents().get()
+      2. Scan body.content for a paragraph whose text starts with 'Others'
+         (case-insensitive, stripped)
+      3. Walk forward collecting non-heading paragraphs; track last non-empty one
+      4. Insert "• {bullet_text}\\n" at endIndex of that last paragraph
+         (or at endIndex of the heading itself if no body paragraphs exist yet)
+      5. If Others heading not found, fall back to end-of-document
+
+    Uses batchUpdate / insertText — same pattern as drive_api.py.
+    Raises on any API error; caller is responsible for isolation.
+    """
+    from connectors.google_auth import get_google_credentials
+    from googleapiclient.discovery import build
+
+    creds = get_google_credentials()
+    docs_svc = build("docs", "v1", credentials=creds)
+
+    doc = docs_svc.documents().get(documentId=doc_id).execute()
+    content = doc["body"]["content"]
+
+    insert_index: int | None = None
+    in_others = False
+
+    for elem in content:
+        if "paragraph" not in elem:
+            continue
+
+        text = _para_text(elem).strip()
+        style = _para_named_style(elem)
+
+        if not in_others:
+            if text.lower().startswith("others"):
+                in_others = True
+                insert_index = elem["endIndex"]  # fallback: right after heading
+        else:
+            # Stop at any subsequent heading
+            if style.startswith("HEADING_"):
+                break
+            # Track insert position at each non-empty paragraph
+            if text:
+                insert_index = elem["endIndex"]
+
+    if insert_index is None:
+        # Others heading not found — fall back to end of document
+        logger.warning("Manifest doc %s: 'Others' heading not found, appending at end", doc_id)
+        insert_index = content[-1]["endIndex"] - 1
+
+    line = f"\u2022 {bullet_text}\n"  # • bullet + text + newline
+
+    docs_svc.documents().batchUpdate(
+        documentId=doc_id,
+        body={"requests": [{"insertText": {"location": {"index": insert_index}, "text": line}}]},
+    ).execute()
+
+
+# ---------------------------------------------------------------------------
 # POST /api/libby/entries/{id}/action/record
 # ---------------------------------------------------------------------------
 
@@ -367,26 +457,28 @@ def action_record(entry_id: int, body: RecordRequest):
     """Record that a resource was shared with a client.
 
     Writes:
-    - library_entries.frequency += 1
-    - **Resources Shared** bullet in today's Obsidian meeting note
-    - ## Resources bullet on the client's Obsidian page
-    - library_share_log row
+    1. library_entries.frequency += 1
+    2. **Resources Shared** bullet in today's Obsidian meeting note
+    3. ## Resources bullet on the client's Obsidian page
+    4. library_share_log row
+    5. Append bullet to Others section of client's Manifest Google Doc
+       (skipped silently if manifest_gdoc_url is null; failure is non-fatal)
     """
     from connectors.obsidian import get_vault_path
 
     db_r = get_db()
 
-    # --- Validate entry ---
+    # --- Validate entry (include amazon_url for Manifest link fallback) ---
     entry_row = db_r.execute(
-        "SELECT id, name, type_code, url, webpage_url FROM library_entries WHERE id = ?",
+        "SELECT id, name, type_code, url, webpage_url, amazon_url FROM library_entries WHERE id = ?",
         (entry_id,),
     ).fetchone()
     if not entry_row:
         raise HTTPException(status_code=404, detail="Entry not found")
 
-    # --- Validate client ---
+    # --- Validate client (include manifest_gdoc_url) ---
     client_row = db_r.execute(
-        "SELECT id, name, obsidian_name FROM billing_clients WHERE id = ?",
+        "SELECT id, name, obsidian_name, manifest_gdoc_url FROM billing_clients WHERE id = ?",
         (body.client_id,),
     ).fetchone()
     if not client_row:
@@ -438,6 +530,48 @@ def action_record(entry_id: int, body: RecordRequest):
         )
         db_w.commit()
 
+    # 4 — Manifest Google Doc append (non-fatal; skipped silently if no URL)
+    manifest_updated: bool = False
+    manifest_skipped: bool = False  # True when URL is absent (no toast needed)
+    manifest_url = client_row["manifest_gdoc_url"]
+
+    if not manifest_url:
+        manifest_skipped = True
+        logger.debug(
+            "Manifest append skipped for client %d (%s): manifest_gdoc_url not set",
+            body.client_id, client_row["name"],
+        )
+    else:
+        doc_id = _doc_id_from_url(manifest_url)
+        if not doc_id:
+            logger.warning(
+                "Manifest append skipped for client %d: could not extract doc ID from %r",
+                body.client_id, manifest_url,
+            )
+        else:
+            # url_or_doc_link: webpage_url > amazon_url (books) > url
+            url_or_doc_link = (
+                entry_row["webpage_url"]
+                or (entry_row["amazon_url"] if entry_row["type_code"] == "b" else None)
+                or entry_row["url"]
+                or ""
+            )
+            bullet = (
+                f"{entry_row['name']} ({type_label})"
+                + (f" — {url_or_doc_link}" if url_or_doc_link else "")
+                + f" — {meeting_date}"
+            )
+            try:
+                _append_to_manifest_others(doc_id, bullet)
+                manifest_updated = True
+                messages.append("appended to Manifest")
+            except Exception as exc:
+                logger.error(
+                    "Manifest append failed for client %d entry %d: %s",
+                    body.client_id, entry_id, exc,
+                )
+                messages.append(f"Manifest write failed: {exc}")
+
     logger.info(
         "Recorded entry %d (%s) for client %d (%s): %s",
         entry_id, entry_row["name"], body.client_id, client_row["name"], messages,
@@ -446,6 +580,8 @@ def action_record(entry_id: int, body: RecordRequest):
         "status": "ok",
         "message": f"Recorded for {client_row['name']}",
         "details": messages,
+        "manifest_updated": manifest_updated,
+        "manifest_skipped": manifest_skipped,
     }
 
 

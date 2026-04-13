@@ -745,3 +745,730 @@ def update_note_creation_config_endpoint(body: NoteCreationConfigUpdate):
         raise HTTPException(status_code=400, detail="days_ahead must be between 1 and 30")
     cfg = update_note_creation_config({"days_ahead": body.days_ahead})
     return {"status": "ok", "config": cfg}
+
+
+# ---------------------------------------------------------------------------
+# GET /api/coaching/setup/companies
+# ---------------------------------------------------------------------------
+
+@router.get("/setup/companies")
+def setup_list_companies():
+    """Return all active companies for the Setup page dropdowns.
+
+    Each entry includes gdrive_folder_url so the frontend can filter
+    to only those ready for client/project creation.
+    """
+    db = get_db()
+    rows = db.execute(
+        """SELECT id, name, abbrev, default_rate, gdrive_folder_url
+           FROM billing_companies
+           WHERE active = 1
+           ORDER BY name""",
+    ).fetchall()
+    return {"companies": [dict(r) for r in rows]}
+
+
+# ---------------------------------------------------------------------------
+# Setup — shared constants and helpers
+# ---------------------------------------------------------------------------
+
+_DRIVE_ROOT_FOLDER_ID = "1Y6zVoKjaCOSs2PJTPSwAELUUBOv7PBy3"
+_DRIVE_TEMPLATE_FOLDER_ID = "1ejHI_5Y6lghWVL22ztV1O3YMRxxQeiHo"
+
+
+def _folder_id_from_url(url: str) -> str | None:
+    """Extract Google Drive folder ID from a folders URL.
+
+    Handles: https://drive.google.com/drive/folders/{id}
+             https://drive.google.com/drive/folders/{id}?usp=sharing
+    """
+    if not url:
+        return None
+    try:
+        part = url.split("/folders/")[-1]
+        return part.split("?")[0].strip()
+    except Exception:
+        return None
+
+
+def _obsidian_company_page(vault: Path, company_name: str) -> dict:
+    """Ensure 1 Company/{company_name}/{company_name}.md exists.
+
+    - Creates the folder if absent.
+    - Moves a flat 1 Company/{company_name}.md into the folder if present.
+    - Creates a minimal frontmatter page if neither exists.
+
+    Returns {"action": "moved"|"created"|"exists", "path": str}.
+    """
+    folder = vault / "1 Company" / company_name
+    page = folder / f"{company_name}.md"
+    flat = vault / "1 Company" / f"{company_name}.md"
+
+    folder.mkdir(parents=True, exist_ok=True)
+
+    if page.exists():
+        return {"action": "exists", "path": str(page)}
+
+    if flat.exists():
+        flat.rename(page)
+        return {"action": "moved", "path": str(page)}
+
+    page.write_text(
+        f"---\ntype: company\nstatus: active\ntags:\n  - company\n---\n\n# {company_name}\n",
+        encoding="utf-8",
+    )
+    return {"action": "created", "path": str(page)}
+
+
+def _obsidian_client_page(
+    vault: Path,
+    client_name: str,
+    company_name: str,
+    coaching_agreement_url: str,
+    wheel_of_life_url: str,
+) -> Path:
+    """Write 1 People/{client_name}.md from the client page template (spec §6.1)."""
+    page = vault / "1 People" / f"{client_name}.md"
+    if page.exists():
+        return page
+
+    agreement_line = (
+        f"    - [Coaching agreement]({coaching_agreement_url})"
+        if coaching_agreement_url
+        else "    - Coaching agreement: "
+    )
+    wol_line = (
+        f"    - [Wheel of Life]({wheel_of_life_url})"
+        if wheel_of_life_url
+        else "    - Wheel of Life: "
+    )
+    content = (
+        f"---\n"
+        f"type:\n"
+        f"  - client\n"
+        f"status: active\n"
+        f'company: "[[{company_name}]]"\n'
+        f"tags:\n"
+        f"  - client\n"
+        f"---\n"
+        f"#### History\n"
+        f"[dataview: meetings for this client, sorted by date desc]\n"
+        f"\n"
+        f"#### {client_name} Reference\n"
+        f"\n"
+        f"- Personal\n"
+        f"- Administrative\n"
+        f"    - Billing: \n"
+        f"{agreement_line}\n"
+        f"{wol_line}\n"
+        f"- Goals\n"
+        f"    - Development areas: \n"
+        f"    - Long-term Vision: \n"
+        f"- Insights\n"
+        f"- Management & Team\n"
+        f"    - Direct Reports\n"
+        f"- Decisions on the horizon\n"
+    )
+    page.write_text(content, encoding="utf-8")
+    return page
+
+
+def _obsidian_project_page(
+    vault: Path,
+    company_name: str,
+    project_name: str,
+    billing_type: str,
+) -> Path:
+    """Write 1 Company/{company_name}/{project_name}.md from the project page template (spec §6.2)."""
+    page = vault / "1 Company" / company_name / f"{project_name}.md"
+    if page.exists():
+        return page
+
+    content = (
+        f"---\n"
+        f"type: project\n"
+        f"status: active\n"
+        f'company: "[[{company_name}]]"\n'
+        f"billing_type: {billing_type}\n"
+        f"tags:\n"
+        f"  - project\n"
+        f"---\n"
+        f"#### History\n"
+        f"[dataview: meetings for this project, sorted by date desc]\n"
+        f"\n"
+        f"#### {project_name} Reference\n"
+        f"\n"
+        f"- Context\n"
+        f"- Goals\n"
+        f"- Decisions on the horizon\n"
+    )
+    page.write_text(content, encoding="utf-8")
+    return page
+
+
+# ---------------------------------------------------------------------------
+# POST /api/coaching/setup/company
+# ---------------------------------------------------------------------------
+
+class CompanyCreateRequest(BaseModel):
+    name: str
+    abbrev: str | None = None
+    default_rate: float | None = None
+    billing_method: str | None = None
+    payment_method: str | None = None
+    ap_email: str | None = None
+    cc_email: str | None = None
+    notes: str | None = None
+
+
+@router.post("/setup/company")
+def setup_create_company(body: CompanyCreateRequest):
+    """Create a new billing company.
+
+    Actions (in order):
+    1. Create Google Drive folder under coaching root; on failure → 400 (no DB write)
+    2. Insert into billing_companies with gdrive_folder_url
+    3. Create Obsidian vault folder + page (failure is a warning, not an error)
+    """
+    from connectors.drive import create_drive_folder
+    from connectors.obsidian import get_vault_path
+
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Company name is required")
+
+    # 1 — Google Drive folder (must succeed before DB write)
+    try:
+        folder_id, folder_url = create_drive_folder(name, _DRIVE_ROOT_FOLDER_ID)
+    except Exception as exc:
+        logger.error("Drive folder creation failed for company %r: %s", name, exc)
+        raise HTTPException(status_code=400, detail=f"Google Drive error: {exc}")
+
+    # 2 — DB insert
+    with get_write_db() as db:
+        db.execute(
+            """INSERT INTO billing_companies
+               (name, abbrev, default_rate, billing_method, payment_method,
+                ap_email, cc_email, notes, active, gdrive_folder_url)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)""",
+            (
+                name,
+                body.abbrev,
+                body.default_rate,
+                body.billing_method,
+                body.payment_method,
+                body.ap_email,
+                body.cc_email,
+                body.notes,
+                folder_url,
+            ),
+        )
+        company_id = db.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
+        db.commit()
+
+    # 3 — Obsidian page (non-fatal)
+    obsidian_result = {"action": "skipped", "reason": "vault not configured"}
+    try:
+        vault = get_vault_path()
+        if vault:
+            obsidian_result = _obsidian_company_page(vault, name)
+    except Exception as exc:
+        logger.warning("Obsidian page creation failed for company %r: %s", name, exc)
+        obsidian_result = {"action": "error", "reason": str(exc)}
+
+    logger.info("Created company %r (id=%d) gdrive=%s", name, company_id, folder_url)
+    return {
+        "status": "ok",
+        "company_id": company_id,
+        "name": name,
+        "gdrive_folder_url": folder_url,
+        "obsidian": obsidian_result,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Manifest doc helper
+# ---------------------------------------------------------------------------
+
+_FOLDER_MIME = "application/vnd.google-apps.folder"
+
+
+def _create_manifest_doc(doc_title: str, coaching_docs_folder_id: str, files: list[dict]) -> tuple[str, str]:
+    """Create a Manifest Google Doc inside coaching_docs_folder_id.
+
+    Structure:
+        ## Documents
+        • {label} (hyperlinked)
+        ...
+
+        ## Others
+
+    ``files`` entries must have ``name`` and either ``web_url`` or ``webViewLink``.
+    Returns (doc_id, web_view_link).
+
+    Index arithmetic uses UTF-16 code unit offsets (same as the Docs API).
+    All characters here are in the Basic Multilingual Plane so len() == code units.
+    """
+    from connectors.google_auth import get_google_credentials
+    from googleapiclient.discovery import build
+
+    creds = get_google_credentials()
+    docs_svc = build("docs", "v1", credentials=creds)
+    drive_svc = build("drive", "v3", credentials=creds)
+
+    # Create doc (lands in My Drive root by default)
+    doc = docs_svc.documents().create(body={"title": doc_title}).execute()
+    doc_id = doc["documentId"]
+
+    # Move into the coaching docs folder
+    file_meta = drive_svc.files().update(
+        fileId=doc_id,
+        addParents=coaching_docs_folder_id,
+        removeParents="root",
+        fields="id, webViewLink",
+    ).execute()
+    web_view_link = file_meta.get(
+        "webViewLink",
+        f"https://docs.google.com/document/d/{doc_id}/edit",
+    )
+
+    def _label(name: str) -> str:
+        return name.rsplit(".", 1)[0] if "." in name else name
+
+    def _url(f: dict) -> str:
+        return f.get("web_url") or f.get("webViewLink") or ""
+
+    # Build the full text to insert at index 1 (start of empty doc body)
+    parts = ["Documents\n"]
+    for f in files:
+        parts.append(f"\u2022 {_label(f['name'])}\n")
+    parts.append("\n")
+    parts.append("Others\n")
+    full_text = "".join(parts)
+
+    # Pre-compute index ranges for styling (indices relative to index 1)
+    # New doc after creation has one empty paragraph at index 1 ('\n' at 1, endIndex=2).
+    # After insertText at index 1 the inserted text sits at 1..1+len(full_text).
+
+    idx = 1
+
+    # "Documents\n"
+    docs_h_start = idx
+    docs_h_end = idx + len("Documents\n")
+    idx = docs_h_end
+
+    # Per-file bullets
+    link_ranges: list[tuple[int, int, str]] = []
+    for f in files:
+        label = _label(f["name"])
+        # "• label\n" — bullet (1) + space (1) + label + newline (1)
+        label_start = idx + 2          # skip "• "
+        label_end = label_start + len(label)
+        link_ranges.append((label_start, label_end, _url(f)))
+        idx += 2 + len(label) + 1      # "• " + label + "\n"
+
+    idx += 1  # blank line "\n"
+
+    # "Others\n"
+    others_h_start = idx
+    others_h_end = idx + len("Others\n")
+
+    # Build batchUpdate requests (applied in order after insertText)
+    requests: list[dict] = [
+        {"insertText": {"location": {"index": 1}, "text": full_text}},
+        {
+            "updateParagraphStyle": {
+                "range": {"startIndex": docs_h_start, "endIndex": docs_h_end},
+                "paragraphStyle": {"namedStyleType": "HEADING_2"},
+                "fields": "namedStyleType",
+            }
+        },
+        {
+            "updateParagraphStyle": {
+                "range": {"startIndex": others_h_start, "endIndex": others_h_end},
+                "paragraphStyle": {"namedStyleType": "HEADING_2"},
+                "fields": "namedStyleType",
+            }
+        },
+    ]
+    for start, end, url in link_ranges:
+        if url:
+            requests.append({
+                "updateTextStyle": {
+                    "range": {"startIndex": start, "endIndex": end},
+                    "textStyle": {"link": {"url": url}},
+                    "fields": "link",
+                }
+            })
+
+    docs_svc.documents().batchUpdate(
+        documentId=doc_id,
+        body={"requests": requests},
+    ).execute()
+
+    return doc_id, web_view_link
+
+
+# ---------------------------------------------------------------------------
+# POST /api/coaching/setup/client
+# ---------------------------------------------------------------------------
+
+class ClientCreateRequest(BaseModel):
+    company_id: int
+    name: str
+    obsidian_name: str | None = None
+    email: str | None = None
+    rate_override: float | None = None
+    prepaid: bool = False
+
+
+@router.post("/setup/client")
+def setup_create_client(body: ClientCreateRequest):
+    """Create a new billing client.
+
+    Actions (in order):
+    1. Validate company exists and has gdrive_folder_url
+    2. Create Drive folder structure + copy template files; on failure → 400 (no DB write)
+    3. Insert into billing_clients with gdrive_coaching_docs_url
+    4. Update client_type for all clients at this company (auto-detection)
+    5. Create Obsidian client page (failure is a warning)
+    """
+    from connectors.drive import copy_drive_file, create_drive_folder, list_drive_files
+    from connectors.obsidian import get_vault_path
+
+    name = body.name.strip()
+    obsidian_name = (body.obsidian_name or name).strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Client name is required")
+
+    db_r = get_db()
+    company = db_r.execute(
+        "SELECT id, name, gdrive_folder_url FROM billing_companies WHERE id = ? AND active = 1",
+        (body.company_id,),
+    ).fetchone()
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
+
+    company_name = company["name"]
+    company_folder_url = company["gdrive_folder_url"]
+    company_folder_id = _folder_id_from_url(company_folder_url) if company_folder_url else None
+
+    if not company_folder_id:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Company '{company_name}' has no Google Drive folder configured. "
+                   "Create the company via Setup first.",
+        )
+
+    # 1 — Drive folder structure (must succeed before DB write)
+    try:
+        # {company}/Clients/{client_name}/
+        clients_folder_id, _ = create_drive_folder("Clients", company_folder_id)
+        client_folder_id, _ = create_drive_folder(name, clients_folder_id)
+        # {company}/Clients/{client_name}/Coaching docs/
+        coaching_docs_id, coaching_docs_url = create_drive_folder("Coaching docs", client_folder_id)
+    except Exception as exc:
+        logger.error("Drive folder creation failed for client %r: %s", name, exc)
+        raise HTTPException(status_code=400, detail=f"Google Drive error: {exc}")
+
+    # 2 — Copy template files into Coaching docs
+    coaching_agreement_url = ""
+    wheel_of_life_url = ""
+    copied_files: list[dict] = []
+    try:
+        template_files = list_drive_files(_DRIVE_TEMPLATE_FOLDER_ID)
+        for tf in template_files:
+            copied = copy_drive_file(tf["id"], coaching_docs_id)
+            copied_files.append(copied)
+            lower = copied["name"].lower()
+            if "coaching agreement" in lower or "agreement" in lower:
+                coaching_agreement_url = copied["web_url"]
+            elif "wheel of life" in lower or "wheel" in lower:
+                wheel_of_life_url = copied["web_url"]
+    except Exception as exc:
+        logger.warning("Template file copy incomplete for client %r: %s", name, exc)
+
+    # 3 — DB insert
+    with get_write_db() as db:
+        db.execute(
+            """INSERT INTO billing_clients
+               (name, company_id, rate_override, prepaid, obsidian_name,
+                email, active, client_type, gdrive_coaching_docs_url)
+               VALUES (?, ?, ?, ?, ?, ?, 1, 'company', ?)""",
+            (
+                name,
+                body.company_id,
+                body.rate_override,
+                int(body.prepaid),
+                obsidian_name,
+                body.email,
+                coaching_docs_url,
+            ),
+        )
+        client_id = db.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
+        db.commit()
+
+    # 4 — client_type auto-detection
+    with get_write_db() as db:
+        count_row = db.execute(
+            "SELECT COUNT(*) AS cnt FROM billing_clients WHERE company_id = ? AND active = 1",
+            (body.company_id,),
+        ).fetchone()
+        active_count = count_row["cnt"] if count_row else 1
+
+        new_type = "individual" if active_count == 1 else "company"
+        db.execute(
+            "UPDATE billing_clients SET client_type = ? WHERE company_id = ? AND active = 1",
+            (new_type, body.company_id),
+        )
+        db.commit()
+
+    # 5 — Obsidian page (non-fatal)
+    obsidian_result: dict = {"action": "skipped", "reason": "vault not configured"}
+    try:
+        vault = get_vault_path()
+        if vault:
+            page = _obsidian_client_page(
+                vault, obsidian_name, company_name,
+                coaching_agreement_url, wheel_of_life_url,
+            )
+            obsidian_result = {"action": "created", "path": str(page)}
+    except Exception as exc:
+        logger.warning("Obsidian client page failed for %r: %s", name, exc)
+        obsidian_result = {"action": "error", "reason": str(exc)}
+
+    # 6 — Manifest Google Doc (non-fatal)
+    manifest_gdoc_url: str | None = None
+    try:
+        doc_title = f"Manifest - {name}"
+        _, manifest_gdoc_url = _create_manifest_doc(doc_title, coaching_docs_id, copied_files)
+        with get_write_db() as db:
+            db.execute(
+                "UPDATE billing_clients SET manifest_gdoc_url = ? WHERE id = ?",
+                (manifest_gdoc_url, client_id),
+            )
+            db.commit()
+        logger.info("Created Manifest doc for client %r: %s", name, manifest_gdoc_url)
+    except Exception as exc:
+        logger.warning("Manifest doc creation failed for client %r: %s", name, exc)
+
+    logger.info(
+        "Created client %r (id=%d) company=%r coaching_docs=%s client_type=%s",
+        name, client_id, company_name, coaching_docs_url, new_type,
+    )
+    return {
+        "status": "ok",
+        "client_id": client_id,
+        "name": name,
+        "company_name": company_name,
+        "client_type": new_type,
+        "gdrive_coaching_docs_url": coaching_docs_url,
+        "copied_files": [f["name"] for f in copied_files],
+        "manifest_gdoc_url": manifest_gdoc_url,
+        "obsidian": obsidian_result,
+    }
+
+
+# ---------------------------------------------------------------------------
+# POST /api/coaching/setup/project
+# ---------------------------------------------------------------------------
+
+class ProjectCreateRequest(BaseModel):
+    company_id: int
+    name: str
+    obsidian_name: str | None = None
+    billing_type: str = "hourly"   # "hourly" | "fixed"
+    fixed_amount: float | None = None
+    rate_override: float | None = None
+
+
+@router.post("/setup/project")
+def setup_create_project(body: ProjectCreateRequest):
+    """Create a new billing project.
+
+    Actions (in order):
+    1. Validate company exists and has gdrive_folder_url
+    2. Create Drive {company}/Projects/{project_name}/ folder; on failure → 400 (no DB write)
+    3. Insert into billing_projects with gdrive_folder_url
+    4. Create Obsidian project page in 1 Company/{company_name}/ (failure is a warning)
+    """
+    from connectors.drive import create_drive_folder
+    from connectors.obsidian import get_vault_path
+
+    name = body.name.strip()
+    obsidian_name = (body.obsidian_name or name).strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Project name is required")
+
+    billing_type = body.billing_type if body.billing_type in ("hourly", "fixed") else "hourly"
+
+    db_r = get_db()
+    company = db_r.execute(
+        "SELECT id, name, gdrive_folder_url FROM billing_companies WHERE id = ? AND active = 1",
+        (body.company_id,),
+    ).fetchone()
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
+
+    company_name = company["name"]
+    company_folder_url = company["gdrive_folder_url"]
+    company_folder_id = _folder_id_from_url(company_folder_url) if company_folder_url else None
+
+    if not company_folder_id:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Company '{company_name}' has no Google Drive folder configured. "
+                   "Create the company via Setup first.",
+        )
+
+    # 1 — Drive folder (must succeed before DB write)
+    try:
+        projects_folder_id, _ = create_drive_folder("Projects", company_folder_id)
+        project_folder_id, project_folder_url = create_drive_folder(name, projects_folder_id)
+    except Exception as exc:
+        logger.error("Drive folder creation failed for project %r: %s", name, exc)
+        raise HTTPException(status_code=400, detail=f"Google Drive error: {exc}")
+
+    # 2 — DB insert
+    with get_write_db() as db:
+        db.execute(
+            """INSERT INTO billing_projects
+               (name, company_id, billing_type, fixed_amount, rate_override,
+                obsidian_name, gdrive_folder_url, active)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 1)""",
+            (
+                name,
+                body.company_id,
+                billing_type,
+                body.fixed_amount,
+                body.rate_override,
+                obsidian_name,
+                project_folder_url,
+            ),
+        )
+        project_id = db.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
+        db.commit()
+
+    # 3 — Obsidian page (non-fatal)
+    obsidian_result: dict = {"action": "skipped", "reason": "vault not configured"}
+    try:
+        vault = get_vault_path()
+        if vault:
+            page = _obsidian_project_page(vault, company_name, obsidian_name, billing_type)
+            obsidian_result = {"action": "created", "path": str(page)}
+    except Exception as exc:
+        logger.warning("Obsidian project page failed for %r: %s", name, exc)
+        obsidian_result = {"action": "error", "reason": str(exc)}
+
+    logger.info(
+        "Created project %r (id=%d) company=%r drive=%s",
+        name, project_id, company_name, project_folder_url,
+    )
+    return {
+        "status": "ok",
+        "project_id": project_id,
+        "name": name,
+        "company_name": company_name,
+        "billing_type": billing_type,
+        "gdrive_folder_url": project_folder_url,
+        "obsidian": obsidian_result,
+    }
+
+
+# ---------------------------------------------------------------------------
+# POST /api/coaching/setup/create-manifests
+# ---------------------------------------------------------------------------
+
+@router.post("/setup/create-manifests")
+def create_missing_manifests():
+    """Create Manifest Google Docs for all active clients that lack one.
+
+    For each active client where manifest_gdoc_url IS NULL:
+      1. Skip if no gdrive_coaching_docs_url
+      2. List files in the Coaching Docs folder (excluding sub-folders and
+         any existing Manifest docs)
+      3. Create "Manifest - {name}" doc with Documents + Others sections
+      4. Update billing_clients.manifest_gdoc_url
+
+    Returns a per-client result list with status, name, and manifest_url/error.
+    """
+    from connectors.drive import list_drive_files
+
+    db = get_db()
+    clients = db.execute(
+        """SELECT id, name, gdrive_coaching_docs_url
+           FROM billing_clients
+           WHERE active = 1 AND (manifest_gdoc_url IS NULL OR manifest_gdoc_url = '')
+           ORDER BY name""",
+    ).fetchall()
+
+    results: list[dict] = []
+    for client in clients:
+        client_id = client["id"]
+        client_name = client["name"]
+        coaching_docs_url = client["gdrive_coaching_docs_url"]
+
+        if not coaching_docs_url:
+            results.append({
+                "client_id": client_id,
+                "name": client_name,
+                "status": "skipped",
+                "reason": "no coaching_docs folder",
+                "manifest_url": None,
+            })
+            continue
+
+        coaching_docs_id = _folder_id_from_url(coaching_docs_url)
+        if not coaching_docs_id:
+            results.append({
+                "client_id": client_id,
+                "name": client_name,
+                "status": "skipped",
+                "reason": "invalid coaching_docs URL",
+                "manifest_url": None,
+            })
+            continue
+
+        try:
+            all_files = list_drive_files(coaching_docs_id)
+            # Exclude sub-folders and any existing Manifest docs
+            doc_files = [
+                f for f in all_files
+                if f.get("mimeType") != _FOLDER_MIME
+                and "manifest" not in f.get("name", "").lower()
+            ]
+
+            doc_title = f"Manifest - {client_name}"
+            _, manifest_url = _create_manifest_doc(doc_title, coaching_docs_id, doc_files)
+
+            with get_write_db() as wdb:
+                wdb.execute(
+                    "UPDATE billing_clients SET manifest_gdoc_url = ? WHERE id = ?",
+                    (manifest_url, client_id),
+                )
+                wdb.commit()
+
+            logger.info("Retroactive manifest created for client %r: %s", client_name, manifest_url)
+            results.append({
+                "client_id": client_id,
+                "name": client_name,
+                "status": "created",
+                "manifest_url": manifest_url,
+            })
+        except Exception as exc:
+            logger.error("Manifest creation failed for client %r: %s", client_name, exc)
+            results.append({
+                "client_id": client_id,
+                "name": client_name,
+                "status": "error",
+                "error": str(exc),
+                "manifest_url": None,
+            })
+
+    return {
+        "total": len(results),
+        "created": sum(1 for r in results if r["status"] == "created"),
+        "skipped": sum(1 for r in results if r["status"] == "skipped"),
+        "errors": sum(1 for r in results if r["status"] == "error"),
+        "results": results,
+    }

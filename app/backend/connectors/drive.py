@@ -1,4 +1,10 @@
-"""Google Drive API connector — syncs recent files to drive_files table."""
+"""Google Drive API connector — syncs recent files to drive_files table.
+
+Also exposes low-level Drive operation helpers used by the Setup page:
+  create_drive_folder(name, parent_id)  → (folder_id, web_url)
+  list_drive_files(folder_id)           → [{id, name, mimeType, webViewLink}, ...]
+  copy_drive_file(file_id, dest_id)     → {id, name, web_url}
+"""
 
 from datetime import datetime, timedelta, timezone
 
@@ -11,6 +17,66 @@ from connectors.google_auth import get_google_credentials
 from database import batch_upsert, get_write_db
 
 API_TIMEOUT = 30  # seconds per HTTP request
+
+_FOLDER_MIME = "application/vnd.google-apps.folder"
+
+
+def _drive_service():
+    """Return an authenticated Drive v3 service."""
+    creds = get_google_credentials()
+    return build("drive", "v3", credentials=creds)
+
+
+def create_drive_folder(name: str, parent_id: str) -> tuple[str, str]:
+    """Create a Drive folder under parent_id.
+
+    Returns (folder_id, web_url).
+    Raises RuntimeError on API failure.
+    """
+    service = _drive_service()
+    result = service.files().create(
+        body={
+            "name": name,
+            "mimeType": _FOLDER_MIME,
+            "parents": [parent_id],
+        },
+        fields="id, webViewLink",
+    ).execute()
+    folder_id = result["id"]
+    web_url = result.get("webViewLink") or f"https://drive.google.com/drive/folders/{folder_id}"
+    return folder_id, web_url
+
+
+def list_drive_files(folder_id: str) -> list[dict]:
+    """List non-trashed files directly inside folder_id.
+
+    Returns list of {id, name, mimeType, webViewLink}.
+    """
+    service = _drive_service()
+    results = service.files().list(
+        q=f"'{folder_id}' in parents and trashed = false",
+        fields="files(id, name, mimeType, webViewLink)",
+        pageSize=100,
+    ).execute()
+    return results.get("files", [])
+
+
+def copy_drive_file(file_id: str, dest_folder_id: str) -> dict:
+    """Copy file_id into dest_folder_id, preserving its original name.
+
+    Returns {id, name, web_url}.
+    """
+    service = _drive_service()
+    result = service.files().copy(
+        fileId=file_id,
+        body={"parents": [dest_folder_id]},
+        fields="id, name, webViewLink",
+    ).execute()
+    return {
+        "id": result["id"],
+        "name": result.get("name", ""),
+        "web_url": result.get("webViewLink", ""),
+    }
 
 
 def sync_drive_files() -> int:
