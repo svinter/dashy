@@ -1,6 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Routes, Route, Navigate, NavLink } from 'react-router-dom';
 import { useLibbyContext } from '../contexts/LibbyContext';
+import type { LibbyFilterSelection, LibbyGroup } from '../contexts/LibbyContext';
+import { ClientFilterBar } from '../components/shared/ClientFilterBar';
+import type { HelpShortcut } from '../components/shared/ClientFilterBar';
 import { LibbyTagsPage } from './LibbyTagsPage';
 import { LibbyTypesPage } from './LibbyTypesPage';
 
@@ -136,35 +139,104 @@ function PriorityDots({ priority }: { priority: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// Client selector (reads from LibbyContext)
+// Libby client filter — keyboard shortcuts
 // ---------------------------------------------------------------------------
 
-function ClientSelector() {
-  const { activeClientId, activeClientName, allClients, setActiveClient } = useLibbyContext();
-  const displayName = activeClientName || (activeClientId ? `Client ${activeClientId}` : null);
+const LIBBY_CLIENT_SHORTCUTS: HelpShortcut[] = [
+  { keys: '⌘F',       description: 'Focus client search' },
+  { keys: '⌘A',       description: 'Clear selection' },
+  { keys: '⌘.',       description: 'Collapse autocomplete' },
+  { keys: 'Escape',   description: 'Clear search text' },
+  { keys: '← →',      description: 'Cycle multiple matches' },
+  { keys: 'Return',   description: 'Select current match' },
+  { keys: '. prefix', description: 'Match company name (e.g. .cfs)' },
+  { keys: ', prefix', description: 'Match person first/last name (e.g. ,berg)' },
+  { keys: '- prefix', description: 'Deselect (e.g. -berg)' },
+  { keys: '⌘/ or ⌘?', description: 'Show this help' },
+];
+
+// ---------------------------------------------------------------------------
+// Search index helpers
+// ---------------------------------------------------------------------------
+
+function buildLibbySearchIndex(groups: LibbyGroup[]) {
+  const companies: { label: string; id: number | null }[] = [];
+  const clients: { label: string; id: number; company_name: string }[] = [];
+
+  for (const g of groups) {
+    companies.push({ label: g.company_name, id: g.company_id });
+    for (const c of g.clients) {
+      clients.push({ label: c.name, id: c.id, company_name: g.company_name });
+    }
+  }
+  companies.sort((a, b) => a.label.localeCompare(b.label));
+  clients.sort((a, b) => a.label.localeCompare(b.label));
+  return { companies, clients };
+}
+
+function matchLibbyItems(
+  text: string,
+  companies: { label: string; id: number | null }[],
+  clients: { label: string; id: number; company_name: string }[],
+): LibbyFilterSelection[] {
+  if (!text) return [];
+
+  if (text.startsWith('.')) {
+    const q = text.slice(1).toLowerCase();
+    return companies
+      .filter(c => c.label.toLowerCase().startsWith(q))
+      .map(c => ({ type: 'company' as const, id: c.id, label: c.label }));
+  }
+
+  if (text.startsWith(',')) {
+    const q = text.slice(1).toLowerCase();
+    return clients
+      .filter(c => c.label.toLowerCase().split(' ').some(p => p.startsWith(q)))
+      .map(c => ({ type: 'client' as const, id: c.id, label: c.label, company_name: c.company_name }));
+  }
+
+  // Default: company prefix OR any word in person name
+  const q = text.toLowerCase();
+  const matchedCompanies: LibbyFilterSelection[] = companies
+    .filter(c => c.label.toLowerCase().startsWith(q))
+    .map(c => ({ type: 'company' as const, id: c.id, label: c.label }));
+  const matchedClients: LibbyFilterSelection[] = clients
+    .filter(c => c.label.toLowerCase().split(' ').some(p => p.startsWith(q)))
+    .map(c => ({ type: 'client' as const, id: c.id, label: c.label, company_name: c.company_name }));
+  return [...matchedCompanies, ...matchedClients];
+}
+
+// ---------------------------------------------------------------------------
+// LibbyClientFilter — thin wrapper around shared ClientFilterBar
+// ---------------------------------------------------------------------------
+
+function LibbyClientFilter() {
+  const { groups, selection, allChip, onSelectionChange } = useLibbyContext();
+  const { companies, clients } = useMemo(() => buildLibbySearchIndex(groups), [groups]);
+  const matchFn = useCallback(
+    (text: string) => matchLibbyItems(text, companies, clients),
+    [companies, clients],
+  );
 
   return (
-    <div className="libby-client-selector">
-      <span className="libby-client-label">client:</span>
-      <select
-        className="libby-client-select"
-        value={activeClientId ?? ''}
-        onChange={e => {
-          const id = parseInt(e.target.value, 10);
-          if (!isNaN(id)) {
-            const client = allClients.find(c => c.id === id);
-            setActiveClient(id, client?.name ?? null);
-          } else {
-            setActiveClient(null, null);
-          }
-        }}
-      >
-        {!displayName && <option value="">— no client —</option>}
-        {allClients.map(c => (
-          <option key={c.id} value={c.id}>{c.name}</option>
-        ))}
-      </select>
-    </div>
+    <ClientFilterBar<LibbyFilterSelection>
+      selection={selection}
+      allChip={allChip}
+      onSelectionChange={onSelectionChange}
+      matchFn={matchFn}
+      placeholder="client… (⌘F · ⌘? help)"
+      helpTitle="Libby client shortcuts"
+      shortcuts={LIBBY_CLIENT_SHORTCUTS}
+      chipClassName={item =>
+        `coaching-filter-chip${item.type === 'company' ? ' coaching-filter-chip--company' : ''}`
+      }
+      autocompleteLabel={item =>
+        item.type === 'company'
+          ? <span className="coaching-filter-ac-company">{item.label}</span>
+          : <span>{item.label}</span>
+      }
+      style={{ marginBottom: '10px', maxWidth: '420px' }}
+    />
   );
 }
 
@@ -230,7 +302,7 @@ function parseTopicPrefix(query: string): string | null {
 // ---------------------------------------------------------------------------
 
 function CatalogPage() {
-  const { activeClientId, activeClientName, isHelpOpen } = useLibbyContext();
+  const { activeClientId, activeClientName, activeCompanyId, isHelpOpen } = useLibbyContext();
 
   const [query, setQuery] = useState('');
   const [uiState, setUiState] = useState<UiState>('SEARCH');
@@ -323,7 +395,14 @@ function CatalogPage() {
   // --- Record action ---
   const handleRecord = async () => {
     if (!selected) return;
-    if (!activeClientId) { setStatusMsg('No client selected'); setTimeout(() => setStatusMsg(null), 2500); return; }
+    if (!activeClientId) {
+      const msg = activeCompanyId
+        ? 'Company selected — pick an individual client to record'
+        : 'No client selected';
+      setStatusMsg(msg);
+      setTimeout(() => setStatusMsg(null), 2500);
+      return;
+    }
     try {
       const resp = await fetch(`/api/libby/entries/${selected.id}/action/record`, {
         method: 'POST',
@@ -423,12 +502,15 @@ function CatalogPage() {
     : [];
   const topicPrefixColor = matchingTopics.length === 1 ? 'var(--color-text)' : 'var(--color-text-light)';
 
+  // Show shared-indicator column when a specific client (not just company) is selected
+  const showSharedColumn = activeClientId !== null;
+
   return (
     <div className="libby-find-page">
       <div className="libby-header">
         <span className="libby-header-title">Catalog</span>
-        <ClientSelector />
       </div>
+      <LibbyClientFilter />
 
       {/* Search box */}
       <div className={`libby-search-wrap libby-search-wrap--${uiState.toLowerCase()}`}>
@@ -482,7 +564,7 @@ function CatalogPage() {
           <span className="libby-result-type">type</span>
           <span className="libby-priority-dots">pri</span>
           <span className="libby-result-freq">freq</span>
-          {activeClientId && <span className="libby-result-shared">shared</span>}
+          {showSharedColumn && <span className="libby-result-shared">shared</span>}
         </div>
       )}
 
@@ -521,7 +603,7 @@ function CatalogPage() {
                 {entry.frequency > 0 && (
                   <span className="libby-result-freq">{entry.frequency}</span>
                 )}
-                {activeClientId && entry.last_shared_at && (
+                {showSharedColumn && entry.last_shared_at && (
                   <span
                     className="libby-result-shared-icon"
                     title={`Shared with ${activeClientName ?? 'client'} on ${formatSharedDate(entry.last_shared_at)}`}

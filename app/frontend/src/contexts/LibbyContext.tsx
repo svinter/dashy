@@ -1,19 +1,38 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import type { FilterItem } from '../components/shared/ClientFilterBar';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export interface LibbyClient {
-  id: number;
-  name: string;
+export interface LibbyGroup {
+  company_id: number | null;
+  company_name: string;
+  clients: { id: number; name: string }[];
+}
+
+// FilterItem-compatible selection model (company or individual client)
+export interface LibbyFilterSelection extends FilterItem {
+  type: 'company' | 'client';
+  company_name?: string;
 }
 
 interface LibbyContextValue {
-  activeClientId: number | null;
-  activeClientName: string | null;
-  allClients: LibbyClient[];
-  setActiveClient: (id: number | null, name: string | null) => void;
+  // Raw groups data — used by LibbyClientFilter to build search index
+  groups: LibbyGroup[];
+
+  // Filter bar state (single-select enforced in onSelectionChange)
+  selection: LibbyFilterSelection[];
+  allChip: boolean;
+  onSelectionChange: (sel: LibbyFilterSelection[], allChip: boolean) => void;
+
+  // Derived active state — used by CatalogPage for search + record action
+  activeClientId: number | null;      // non-null only when individual client selected
+  activeClientName: string | null;    // person name when client selected
+  activeCompanyId: number | null;     // non-null when company chip selected
+  activeCompanyName: string | null;   // company name when company chip selected
+
+  // Help popup
   isHelpOpen: boolean;
   setHelpOpen: (open: boolean) => void;
 }
@@ -23,10 +42,14 @@ interface LibbyContextValue {
 // ---------------------------------------------------------------------------
 
 const LibbyContext = createContext<LibbyContextValue>({
+  groups: [],
+  selection: [],
+  allChip: false,
+  onSelectionChange: () => {},
   activeClientId: null,
   activeClientName: null,
-  allClients: [],
-  setActiveClient: () => {},
+  activeCompanyId: null,
+  activeCompanyName: null,
   isHelpOpen: false,
   setHelpOpen: () => {},
 });
@@ -36,46 +59,75 @@ const LibbyContext = createContext<LibbyContextValue>({
 // ---------------------------------------------------------------------------
 
 export function LibbyProvider({ children }: { children: ReactNode }) {
-  const [activeClientId, setActiveClientId] = useState<number | null>(null);
-  const [activeClientName, setActiveClientName] = useState<string | null>(null);
-  const [allClients, setAllClients] = useState<LibbyClient[]>([]);
+  const [groups, setGroups] = useState<LibbyGroup[]>([]);
+  const [selection, setSelection] = useState<LibbyFilterSelection[]>([]);
+  const [allChip, setAllChip] = useState(false);
   const [isHelpOpen, setHelpOpen] = useState(false);
 
-  // Load active client + full client list once on mount
+  // Fetch groups + active-client in parallel on mount
   useEffect(() => {
-    fetch('/api/libby/active-client')
-      .then(r => (r.ok ? r.json() : null))
-      .then((data: { id: number; name: string } | null) => {
-        if (data) {
-          setActiveClientId(data.id);
-          setActiveClientName(data.name);
-        }
-      })
-      .catch(() => {});
+    Promise.all([
+      fetch('/api/coaching/clients').then(r => r.ok ? r.json() : { groups: [] }),
+      fetch('/api/libby/active-client').then(r => r.ok ? r.json() : null),
+    ])
+      .then(([groupsData, activeData]) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const rawGroups: LibbyGroup[] = (groupsData.groups ?? []).map((g: any) => ({
+          company_id: g.company_id,
+          company_name: g.company_name,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          clients: (g.clients ?? []).map((c: any) => ({ id: c.id, name: c.name })),
+        }));
+        setGroups(rawGroups);
 
-    fetch('/api/coaching/clients')
-      .then(r => (r.ok ? r.json() : { groups: [] }))
-      .then((data: { groups: { clients: LibbyClient[] }[] }) => {
-        const flat: LibbyClient[] = [];
-        for (const group of data.groups ?? []) {
-          for (const c of group.clients ?? []) {
-            flat.push({ id: c.id, name: c.name });
+        if (activeData?.id) {
+          // Find which company this client belongs to
+          let companyName: string | undefined;
+          for (const g of rawGroups) {
+            if (g.clients.some(c => c.id === activeData.id)) {
+              companyName = g.company_name;
+              break;
+            }
           }
+          setSelection([{
+            type: 'client',
+            id: activeData.id,
+            label: activeData.name,
+            company_name: companyName,
+          }]);
         }
-        flat.sort((a, b) => a.name.localeCompare(b.name));
-        setAllClients(flat);
       })
       .catch(() => {});
   }, []);
 
-  const setActiveClient = (id: number | null, name: string | null) => {
-    setActiveClientId(id);
-    setActiveClientName(name);
+  // Single-select enforcement: keep only the last item when adding
+  const onSelectionChange = (newSel: LibbyFilterSelection[], newAllChip: boolean) => {
+    const enforced = newSel.length > 1 ? [newSel[newSel.length - 1]] : newSel;
+    setSelection(enforced);
+    setAllChip(newAllChip);
   };
+
+  // Derive active client / company from selection
+  const sel = selection[0] ?? null;
+  const activeClientId = sel?.type === 'client' ? sel.id : null;
+  const activeClientName = sel?.type === 'client' ? sel.label : null;
+  const activeCompanyId = sel?.type === 'company' ? sel.id : null;
+  const activeCompanyName = sel?.type === 'company' ? sel.label : null;
 
   return (
     <LibbyContext.Provider
-      value={{ activeClientId, activeClientName, allClients, setActiveClient, isHelpOpen, setHelpOpen }}
+      value={{
+        groups,
+        selection,
+        allChip,
+        onSelectionChange,
+        activeClientId,
+        activeClientName,
+        activeCompanyId,
+        activeCompanyName,
+        isHelpOpen,
+        setHelpOpen,
+      }}
     >
       {children}
     </LibbyContext.Provider>
