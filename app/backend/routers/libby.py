@@ -1106,6 +1106,14 @@ def create_entry(body: EntryCreateRequest, background_tasks: BackgroundTasks):
         entry_id = entry_cursor.lastrowid
         dbw.commit()
 
+    _create_vault_home_page(
+        entry_id=entry_id,
+        type_code=type_code,
+        name=name,
+        url=body.url,
+        comments=body.comments,
+        priority=body.priority,
+    )
     background_tasks.add_task(_run_tagging_task, entry_id)
     logger.info("Created library entry %d: %r (%s)", entry_id, name, type_code)
     return {"id": entry_id, "status": "created", "name": name, "type_code": type_code}
@@ -1281,6 +1289,16 @@ def create_book(body: BookCreateRequest, background_tasks: BackgroundTasks):
 
         dbw.commit()
 
+    _create_vault_home_page(
+        entry_id=entry_id,
+        type_code="b",
+        name=name,
+        author=body.author,
+        url=body.url,
+        amazon_url=body.amazon_url,
+        comments=body.comments,
+        priority=body.priority,
+    )
     background_tasks.add_task(_run_tagging_task, entry_id)
     logger.info("Created book entry %d: %r", entry_id, name)
     return {"id": entry_id, "status": "created", "name": name, "type_code": "b"}
@@ -1590,3 +1608,107 @@ def _run_synopsis_task(entry_id: int) -> None:
                 (str(exc)[:500], entry_id),
             )
             dbw.commit()
+
+
+# ---------------------------------------------------------------------------
+# Vault home page creation  (Item 5)
+# ---------------------------------------------------------------------------
+
+def _create_vault_home_page(
+    entry_id: int,
+    type_code: str,
+    name: str,
+    author: str | None = None,
+    url: str | None = None,
+    amazon_url: str | None = None,
+    comments: str | None = None,
+    priority: str = "medium",
+    topic_codes: list[str] | None = None,
+) -> str | None:
+    """Create an Obsidian vault note for a new library entry (synchronous).
+
+    Writes a markdown file with YAML frontmatter under:
+        <vault>/Libby/<Folder>/<slug>.md
+
+    Folder mapping:
+        b → Books/
+        a, e, r → Articles/
+        p, v, m → Media/
+        t, w, d, f, c, s, z → Tools/
+        n, q → (no page created)
+
+    Returns the obsidian:// URI for the note, or None if no page is created.
+    Sets library_entries.obsidian_link in the database.
+    """
+    from connectors.obsidian import get_vault_path, get_vault_name
+    from urllib.parse import quote
+
+    folder = _VAULT_FOLDER_BY_TYPE.get(type_code)
+    if folder is None:
+        return None  # n and q types get no vault page
+
+    vault = get_vault_path()
+    if not vault:
+        logger.warning("Vault home page skipped for entry %d: vault not configured", entry_id)
+        return None
+
+    vault_name = get_vault_name()
+    page_path = _vault_entry_path(vault, type_code, name)
+    if page_path is None:
+        return None
+
+    # Don't overwrite if already exists
+    if page_path.exists():
+        logger.debug("Vault page already exists: %s", page_path)
+        rel = page_path.relative_to(vault)
+        link = f"obsidian://open?vault={quote(vault_name or '')}&file={quote(str(rel))}"
+        return link
+
+    # Build frontmatter
+    type_name = _TYPE_NAMES.get(type_code, type_code)
+    fm_lines = ["---"]
+    fm_lines.append(f"type: {type_name.lower()}")
+    fm_lines.append(f"priority: {priority}")
+    if author:
+        fm_lines.append(f"author: \"{author}\"")
+    if url:
+        fm_lines.append(f"url: {url}")
+    if amazon_url:
+        fm_lines.append(f"amazon_url: {amazon_url}")
+    if topic_codes:
+        fm_lines.append(f"topics: [{', '.join(topic_codes)}]")
+    fm_lines.append(f"created: {_date.today().isoformat()}")
+    fm_lines.append("---")
+    fm_lines.append("")
+    fm_lines.append(f"# {name}")
+    fm_lines.append("")
+    if comments:
+        fm_lines.append(f"> {comments}")
+        fm_lines.append("")
+
+    content = "\n".join(fm_lines)
+
+    try:
+        page_path.parent.mkdir(parents=True, exist_ok=True)
+        page_path.write_text(content, encoding="utf-8")
+        logger.info("Created vault home page: %s", page_path)
+    except Exception as exc:
+        logger.error("Failed to create vault page for entry %d: %s", entry_id, exc)
+        return None
+
+    # Build obsidian:// URI
+    rel = page_path.relative_to(vault)
+    link = f"obsidian://open?vault={quote(vault_name or '')}&file={quote(str(rel))}"
+
+    # Persist obsidian_link
+    try:
+        with get_write_db() as dbw:
+            dbw.execute(
+                "UPDATE library_entries SET obsidian_link = ? WHERE id = ?",
+                (link, entry_id),
+            )
+            dbw.commit()
+    except Exception as exc:
+        logger.error("Failed to persist obsidian_link for entry %d: %s", entry_id, exc)
+
+    return link
