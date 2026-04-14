@@ -4447,11 +4447,6 @@ function prepLink() {
   return `/billing/prepare/${now.getFullYear()}/${m}`;
 }
 
-const navStyle = ({ isActive }: { isActive: boolean }) => ({
-  color: isActive ? 'var(--color-fg)' : 'var(--color-text-light)',
-  textDecoration: 'none',
-  fontWeight: isActive ? 600 : undefined,
-} as React.CSSProperties);
 
 function BillingScopeBar() {
   const { year, month, billingFilterSel, billingAllChip, setYear, setMonth, setBillingFilter } = useBillingScope();
@@ -4506,14 +4501,14 @@ function BillingNav() {
   // Prepare link: use scope year/month; if month is null (all), fall back to prepLink()
   const prepTo = month !== null ? `/billing/prepare/${year}/${month}` : prepLink();
   return (
-    <nav style={{ display: 'flex', gap: 'var(--space-lg)', marginBottom: 'var(--space-md)', fontSize: 'var(--text-sm)', borderBottom: '1px solid var(--color-border)', paddingBottom: 'var(--space-sm)' }}>
-      <NavLink to="/billing" end style={navStyle}>Queue</NavLink>
-      <NavLink to="/billing/sessions" style={navStyle}>Sessions</NavLink>
-      <NavLink to="/billing/invoices" style={() => navStyle({ isActive: !!onInvoices })}>Invoices</NavLink>
-      <NavLink to="/billing/payments" style={() => navStyle({ isActive: !!onPayments })}>Payments</NavLink>
-      <NavLink to="/billing/summary" style={() => navStyle({ isActive: !!onSummary })}>Summary</NavLink>
-      <NavLink to={prepTo} style={() => navStyle({ isActive: !!onPrepare })}>Prepare</NavLink>
-    </nav>
+    <div className="tab-bar">
+      <NavLink to="/billing" end className={({ isActive }) => `tab${isActive ? ' active' : ''}`}>Queue</NavLink>
+      <NavLink to="/billing/sessions" className={({ isActive }) => `tab${isActive ? ' active' : ''}`}>Sessions</NavLink>
+      <NavLink to="/billing/invoices" className={() => `tab${onInvoices ? ' active' : ''}`}>Invoices</NavLink>
+      <NavLink to="/billing/payments" className={() => `tab${onPayments ? ' active' : ''}`}>Payments</NavLink>
+      <NavLink to="/billing/summary" className={() => `tab${onSummary ? ' active' : ''}`}>Summary</NavLink>
+      <NavLink to={prepTo} className={() => `tab${onPrepare ? ' active' : ''}`}>Prepare</NavLink>
+    </div>
   );
 }
 

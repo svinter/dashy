@@ -2773,6 +2773,7 @@ a.dashboard-item-link:hover .dashboard-item-title {
   letter-spacing: 0.05em;
   color: var(--color-text-muted);
   cursor: pointer;
+  text-decoration: none;
   transition: color 0.15s, border-color 0.15s;
 }
 

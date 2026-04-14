@@ -41,7 +41,11 @@
       "Bash(/Users/stevevinter/dashy/.venv/bin/python3 -c \"import anthropic; print\\('anthropic', anthropic.__version__\\)\")",
       "Bash(/Users/stevevinter/dashy/.venv/bin/python3 -c \"import httpx; print\\('httpx ok'\\)\")",
       "Bash(python -c \"import ast; ast.parse\\(open\\('routers/libby.py'\\).read\\(\\)\\); print\\('syntax ok'\\)\")",
-      "Bash(venv/bin/python -c \"import ast; ast.parse\\(open\\('routers/libby.py'\\).read\\(\\)\\); print\\('syntax ok'\\)\")"
+      "Bash(venv/bin/python -c \"import ast; ast.parse\\(open\\('routers/libby.py'\\).read\\(\\)\\); print\\('syntax ok'\\)\")",
+      "Bash(venv/bin/python scripts/seed_libby_tools.py)",
+      "Bash(venv/bin/python -)",
+      "Bash(2>&1)",
+      "Bash(venv/bin/python:*)"
     ]
   }
 }

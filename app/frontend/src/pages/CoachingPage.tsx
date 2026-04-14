@@ -1831,20 +1831,21 @@ export function CoachingPage() {
   return (
     <CoachingFilterContext.Provider value={ctx}>
       <div className="coaching-module">
-        <nav className="coaching-sub-nav">
-          <NavLink to="/coaching/clients" className={({ isActive }) => isActive ? 'coaching-sub-nav-link active' : 'coaching-sub-nav-link'}>
+        <h1>Coaching</h1>
+        <div className="tab-bar">
+          <NavLink to="/coaching/clients" className={({ isActive }) => `tab${isActive ? ' active' : ''}`}>
             Clients
           </NavLink>
-          <NavLink to="/coaching/wordcloud" className={({ isActive }) => isActive ? 'coaching-sub-nav-link active' : 'coaching-sub-nav-link'}>
+          <NavLink to="/coaching/wordcloud" className={({ isActive }) => `tab${isActive ? ' active' : ''}`}>
             Cloud
           </NavLink>
-          <NavLink to="/coaching/setup" className={({ isActive }) => isActive ? 'coaching-sub-nav-link active' : 'coaching-sub-nav-link'}>
+          <NavLink to="/coaching/setup" className={({ isActive }) => `tab${isActive ? ' active' : ''}`}>
             Setup
           </NavLink>
-          <NavLink to="/coaching/vinny" className={({ isActive }) => isActive ? 'coaching-sub-nav-link active' : 'coaching-sub-nav-link'}>
+          <NavLink to="/coaching/vinny" className={({ isActive }) => `tab${isActive ? ' active' : ''}`}>
             Vinny
           </NavLink>
-          <NavLink to="/coaching/operations" className={({ isActive }) => isActive ? 'coaching-sub-nav-link active' : 'coaching-sub-nav-link'}>
+          <NavLink to="/coaching/operations" className={({ isActive }) => `tab${isActive ? ' active' : ''}`}>
             Operations
           </NavLink>
           <button
@@ -1854,7 +1855,7 @@ export function CoachingPage() {
           >
             {demo ? 'Demo On' : 'Demo'}
           </button>
-        </nav>
+        </div>
 
         {/* Shared client filter — visible on all Coaching pages */}
         {!isLoading && groups.length > 0 && (

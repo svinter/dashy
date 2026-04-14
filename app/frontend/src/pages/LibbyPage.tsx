@@ -269,20 +269,20 @@ function LibbyLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="libby-layout">
       <h1>Library</h1>
-      <nav className="libby-sub-nav">
-        <NavLink to="/libby/catalog" className={({ isActive }) => `libby-sub-nav-link${isActive ? ' active' : ''}`}>
+      <div className="tab-bar">
+        <NavLink to="/libby/catalog" className={({ isActive }) => `tab${isActive ? ' active' : ''}`}>
           Catalog
         </NavLink>
-        <NavLink to="/libby/tags" className={({ isActive }) => `libby-sub-nav-link${isActive ? ' active' : ''}`}>
+        <NavLink to="/libby/tags" className={({ isActive }) => `tab${isActive ? ' active' : ''}`}>
           Tags
         </NavLink>
-        <NavLink to="/libby/types" className={({ isActive }) => `libby-sub-nav-link${isActive ? ' active' : ''}`}>
+        <NavLink to="/libby/types" className={({ isActive }) => `tab${isActive ? ' active' : ''}`}>
           Types
         </NavLink>
-        <NavLink to="/libby/new" className={({ isActive }) => `libby-sub-nav-link${isActive ? ' active' : ''}${queueCount > 0 ? ' libby-sub-nav-link--badge' : ''}`}>
+        <NavLink to="/libby/new" className={({ isActive }) => `tab${isActive ? ' active' : ''}${queueCount > 0 ? ' libby-sub-nav-link--badge' : ''}`}>
           {queueCount > 0 ? `New (${queueCount})` : 'New'}
         </NavLink>
-      </nav>
+      </div>
       {children}
       {isHelpOpen && <LibbyHelpPopup onClose={() => setHelpOpen(false)} />}
     </div>
