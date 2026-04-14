@@ -1424,3 +1424,169 @@ def _run_tagging_task(entry_id: int) -> None:
                 (str(exc)[:500], entry_id),
             )
             dbw.commit()
+
+    # Always chain synopsis task (runs regardless of tagging outcome)
+    _run_synopsis_task(entry_id)
+
+
+# ---------------------------------------------------------------------------
+# Vault home page helpers  (Items 4 & 5)
+# ---------------------------------------------------------------------------
+
+_VAULT_FOLDER_BY_TYPE: dict[str, str | None] = {
+    "b": "Books",
+    "a": "Articles", "e": "Articles", "r": "Articles",
+    "p": "Media",    "v": "Media",    "m": "Media",
+    "t": "Tools",    "w": "Tools",    "d": "Tools",
+    "f": "Tools",    "c": "Tools",    "s": "Tools",  "z": "Tools",
+    "n": None,       "q": None,
+}
+
+
+def _vault_entry_path(vault: Path, type_code: str, name: str) -> Path | None:
+    """Return the expected Obsidian vault path for an entry, or None if no page."""
+    folder = _VAULT_FOLDER_BY_TYPE.get(type_code)
+    if folder is None:
+        return None
+    slug = _slugify(name)
+    return vault / "Libby" / folder / f"{slug}.md"
+
+
+# ---------------------------------------------------------------------------
+# Background task: auto-synopsis via Claude API  (Item 4)
+# ---------------------------------------------------------------------------
+
+def _run_synopsis_task(entry_id: int) -> None:
+    """Auto-generate a synopsis for a library entry using Claude.
+
+    Chained after _run_tagging_task (called from the end of that function).
+    Generates a 2–3 sentence synopsis, appends it to the entry's Obsidian
+    vault home page (under a ## Synopsis heading), updates enrichment log,
+    and sets needs_enrichment = 0 when done.
+    """
+    import json
+    import anthropic
+    from connectors.obsidian import get_vault_path
+
+    db = get_db()
+
+    # Load entry with author + assigned topics
+    entry_row = db.execute(
+        """
+        SELECT e.id, e.name, e.type_code, e.url, e.comments,
+               CASE e.type_code
+                   WHEN 'b' THEN lb.author
+                   WHEN 'a' THEN la.author
+                   ELSE NULL
+               END AS author
+        FROM library_entries e
+        LEFT JOIN library_books    lb ON e.type_code = 'b' AND e.entity_id = lb.id
+        LEFT JOIN library_articles la ON e.type_code = 'a' AND e.entity_id = la.id
+        WHERE e.id = ?
+        """,
+        (entry_id,),
+    ).fetchone()
+
+    if not entry_row:
+        logger.error("Synopsis task: entry %d not found", entry_id)
+        return
+
+    topic_rows = db.execute(
+        """SELECT lt.code, lt.name
+           FROM library_entry_topics jet
+           JOIN library_topics lt ON jet.topic_id = lt.id
+           WHERE jet.entry_id = ?""",
+        (entry_id,),
+    ).fetchall()
+
+    type_name = _TYPE_NAMES.get(entry_row["type_code"], entry_row["type_code"])
+    desc_lines = [
+        f"Name: {entry_row['name']}",
+        f"Type: {type_name}",
+    ]
+    if entry_row["author"]:
+        desc_lines.append(f"Author: {entry_row['author']}")
+    if entry_row["url"]:
+        desc_lines.append(f"URL: {entry_row['url']}")
+    if entry_row["comments"]:
+        desc_lines.append(f"Notes: {entry_row['comments']}")
+    if topic_rows:
+        topic_str = ", ".join(f"{r['code']} ({r['name']})" for r in topic_rows)
+        desc_lines.append(f"Topics: {topic_str}")
+    resource_text = "\n".join(desc_lines)
+
+    prompt = (
+        "You are a personal librarian assistant. Write a concise 2–3 sentence synopsis "
+        "for this resource that I can use as a quick reference.\n\n"
+        f"{resource_text}\n\n"
+        "Return ONLY the synopsis text. No heading, no markdown, no preamble."
+    )
+
+    # Mark as processing
+    with get_write_db() as dbw:
+        dbw.execute(
+            """INSERT INTO libby_enrichment_log
+               (entry_id, task, status, created_at, updated_at)
+               VALUES (?, 'synopsis', 'processing', datetime('now'), datetime('now'))""",
+            (entry_id,),
+        )
+        dbw.commit()
+
+    try:
+        client = anthropic.Anthropic()
+        msg = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=256,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        synopsis = msg.content[0].text.strip()
+
+        # Write synopsis to vault home page if it exists
+        vault = get_vault_path()
+        if vault:
+            page_path = _vault_entry_path(vault, entry_row["type_code"], entry_row["name"])
+            if page_path and page_path.exists():
+                content = page_path.read_text(encoding="utf-8")
+                if "## Synopsis" not in content:
+                    content = content.rstrip() + f"\n\n## Synopsis\n\n{synopsis}\n"
+                else:
+                    # Replace existing synopsis section
+                    content = re.sub(
+                        r"(## Synopsis\s*\n)(.*?)(\n## |\Z)",
+                        lambda m: m.group(1) + "\n" + synopsis + "\n" + m.group(3),
+                        content,
+                        flags=re.DOTALL,
+                    )
+                page_path.write_text(content, encoding="utf-8")
+                logger.info("Synopsis written to %s", page_path)
+
+        # Update log + clear needs_enrichment when both tasks complete
+        with get_write_db() as dbw:
+            dbw.execute(
+                """UPDATE libby_enrichment_log
+                   SET status = 'complete', updated_at = datetime('now')
+                   WHERE entry_id = ? AND task = 'synopsis'""",
+                (entry_id,),
+            )
+            # needs_enrichment → 0 when both tagging + synopsis are complete
+            dbw.execute(
+                """UPDATE library_entries SET needs_enrichment = 0, updated_at = datetime('now')
+                   WHERE id = ?
+                   AND (SELECT COUNT(*) FROM libby_enrichment_log
+                        WHERE entry_id = ? AND status != 'complete') = 0""",
+                (entry_id, entry_id),
+            )
+            dbw.commit()
+
+        logger.info("Synopsis complete for entry %d", entry_id)
+
+    except Exception as exc:
+        logger.error("Synopsis task failed for entry %d: %s", entry_id, exc)
+        with get_write_db() as dbw:
+            dbw.execute(
+                """UPDATE libby_enrichment_log
+                   SET status = 'failed', error = ?, updated_at = datetime('now')
+                   WHERE entry_id = ? AND task = 'synopsis'""",
+                (str(exc)[:500], entry_id),
+            )
+            dbw.commit()
