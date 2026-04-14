@@ -143,7 +143,7 @@ def search_library(q: str = "", client_id: int | None = None):
                 SELECT jet.entry_id
                 FROM library_entry_topics jet
                 JOIN library_topics jt ON jet.topic_id = jt.id
-                WHERE lower(jt.code) LIKE ?
+                WHERE lower(jt.name) LIKE ?
             )
         """
         params.append(f"{pfx}%")

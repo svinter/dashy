@@ -213,6 +213,19 @@ function LibbyLayout({ children }: { children: React.ReactNode }) {
 }
 
 // ---------------------------------------------------------------------------
+// Topic prefix helpers
+// ---------------------------------------------------------------------------
+
+function parseTopicPrefix(query: string): string | null {
+  for (const token of query.trim().split(/\s+/)) {
+    if (token.startsWith('.') && token.length > 1) {
+      return token.slice(1).toLowerCase();
+    }
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Catalog Page (was FindPage)
 // ---------------------------------------------------------------------------
 
@@ -229,6 +242,15 @@ function CatalogPage() {
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [toastVariant, setToastVariant] = useState<'default' | 'warning'>('default');
   const [loading, setLoading] = useState(false);
+  const [allTopics, setAllTopics] = useState<LibraryTopic[]>([]);
+
+  // Load all topics once on mount for client-side filtering feedback
+  useEffect(() => {
+    fetch('/api/libby/topics')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.topics) setAllTopics(d.topics); })
+      .catch(() => {});
+  }, []);
 
   // --- Toast ---
   const showToast = (msg: string, variant: 'default' | 'warning' = 'default') => {
@@ -394,6 +416,13 @@ function CatalogPage() {
     try { return iso.slice(0, 10); } catch { return iso; }
   };
 
+  // Topic filter feedback
+  const activeTopicPrefix = parseTopicPrefix(uiState === 'SEARCH' ? query : '');
+  const matchingTopics = activeTopicPrefix
+    ? allTopics.filter(t => t.name.toLowerCase().startsWith(activeTopicPrefix))
+    : [];
+  const topicPrefixColor = matchingTopics.length === 1 ? 'var(--color-text)' : 'var(--color-text-light)';
+
   return (
     <div className="libby-find-page">
       <div className="libby-header">
@@ -429,14 +458,28 @@ function CatalogPage() {
         {uiState === 'ACTION' && '⌥c copy · ⌥r record · ⌥m make · ⌥d doc · ⌥f full · Escape to reset'}
       </div>
 
+      {/* Topic filter feedback bar */}
+      {uiState === 'SEARCH' && activeTopicPrefix && (
+        <div className="libby-topic-feedback">
+          <span className="libby-topic-feedback-prefix" style={{ color: topicPrefixColor }}>.{activeTopicPrefix}</span>
+          {matchingTopics.length > 0 && (
+            <span className="libby-topic-feedback-names">
+              {matchingTopics.map(t => t.name).join(', ')}
+            </span>
+          )}
+          {matchingTopics.length === 0 && (
+            <span className="libby-topic-feedback-names libby-topic-feedback-names--none">no matching topics</span>
+          )}
+        </div>
+      )}
+
       {/* Column headers */}
       {uiState !== 'ACTION' && displayResults.length > 0 && (
         <div className="libby-results-header">
           <span className="libby-result-label">key</span>
-          <span className="libby-result-name">title</span>
+          <span className="libby-result-name-cell">title</span>
           <span className="libby-result-author">author</span>
           <span className="libby-result-type">type</span>
-          <span className="libby-result-topics">topics</span>
           <span className="libby-priority-dots">pri</span>
           <span className="libby-result-freq">freq</span>
           {activeClientId && <span className="libby-result-shared">shared</span>}
@@ -449,6 +492,10 @@ function CatalogPage() {
           {displayResults.map((entry, i) => {
             const label = RESULT_LABELS[i];
             const isHighlit = uiState === 'SELECT';
+            // Topics that match the active prefix (for second-line display)
+            const rowTopics = activeTopicPrefix
+              ? entry.topics.filter(t => t.name.toLowerCase().startsWith(activeTopicPrefix))
+              : [];
             return (
               <li
                 key={entry.id}
@@ -462,14 +509,14 @@ function CatalogPage() {
                 }}
               >
                 <span className={`libby-result-label ${isHighlit ? 'libby-result-label--active' : ''}`}>{label}</span>
-                <span className="libby-result-name">{entry.name}</span>
+                <span className="libby-result-name-cell">
+                  <span className="libby-result-name">{entry.name}</span>
+                  {rowTopics.length > 0 && (
+                    <span className="libby-result-name-topics">{rowTopics.map(t => t.name).join(', ')}</span>
+                  )}
+                </span>
                 {entry.author && <span className="libby-result-author">{entry.author}</span>}
                 <span className="libby-result-type">{TYPE_LABELS[entry.type_code] ?? entry.type_code}</span>
-                <span className="libby-result-topics">
-                  {entry.topics.map(t => (
-                    <span key={t.code} className="libby-topic-pill">{t.code}</span>
-                  ))}
-                </span>
                 <PriorityDots priority={entry.priority} />
                 {entry.frequency > 0 && (
                   <span className="libby-result-freq">{entry.frequency}</span>
