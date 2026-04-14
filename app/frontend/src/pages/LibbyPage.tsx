@@ -181,78 +181,6 @@ function FindPage() {
     }
   };
 
-  // --- Keyboard handler ---
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (uiState === 'SEARCH') {
-      if (e.key === ',') {
-        e.preventDefault();
-        if (results.length === 0) return;
-        setFrozenResults(results);
-        setUiState('SELECT');
-        return;
-      }
-      if (e.key === 'Enter') {
-        if (results.length === 1) {
-          setSelected(results[0]);
-          setSelectedWebpageUrl(results[0].webpage_url ?? null);
-          setFrozenResults(results);
-          setUiState('ACTION');
-        }
-        e.preventDefault();
-        return;
-      }
-      if (e.key === 'Escape') {
-        setQuery('');
-        setResults([]);
-        return;
-      }
-    }
-
-    if (uiState === 'SELECT') {
-      if (e.key === 'Backspace') {
-        e.preventDefault();
-        setUiState('SEARCH');
-        return;
-      }
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        setQuery('');
-        setResults([]);
-        setFrozenResults([]);
-        setUiState('SEARCH');
-        return;
-      }
-      const idx = RESULT_LABELS.indexOf(e.key.toLowerCase());
-      if (idx >= 0 && idx < frozenResults.length) {
-        e.preventDefault();
-        const entry = frozenResults[idx];
-        setSelected(entry);
-        setSelectedWebpageUrl(entry.webpage_url ?? null);
-        setUiState('ACTION');
-        return;
-      }
-    }
-
-    if (uiState === 'ACTION') {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        setQuery('');
-        setResults([]);
-        setFrozenResults([]);
-        setSelected(null);
-        setSelectedWebpageUrl(null);
-        setStatusMsg(null);
-        setUiState('SEARCH');
-        return;
-      }
-      if (e.key === 'c') { e.preventDefault(); handleCopy(); return; }
-      if (e.key === 'r') { e.preventDefault(); handleRecord(); return; }
-      if (e.key === 'm') { e.preventDefault(); handleMake(); return; }
-      if (e.key === 'd') { e.preventDefault(); showToast('copy doc: not yet implemented'); return; }
-      if (e.key === 'f') { e.preventDefault(); showToast('full: not yet implemented'); return; }
-    }
-  };
-
   // --- Input change (only in SEARCH state) ---
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (uiState !== 'SEARCH') return;
@@ -341,6 +269,83 @@ function FindPage() {
     setTimeout(() => setStatusMsg(null), 3000);
   };
 
+  // --- Window keyboard listener (handles all states, including ACTION where input is absent) ---
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (uiState === 'SEARCH') {
+        if (e.key === ',') {
+          e.preventDefault();
+          if (results.length === 0) return;
+          setFrozenResults(results);
+          setUiState('SELECT');
+          return;
+        }
+        if (e.key === 'Enter') {
+          if (results.length === 1) {
+            setSelected(results[0]);
+            setSelectedWebpageUrl(results[0].webpage_url ?? null);
+            setFrozenResults(results);
+            setUiState('ACTION');
+          }
+          e.preventDefault();
+          return;
+        }
+        if (e.key === 'Escape') {
+          setQuery('');
+          setResults([]);
+          return;
+        }
+      }
+
+      if (uiState === 'SELECT') {
+        if (e.key === 'Backspace') {
+          e.preventDefault();
+          setUiState('SEARCH');
+          return;
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          setQuery('');
+          setResults([]);
+          setFrozenResults([]);
+          setUiState('SEARCH');
+          return;
+        }
+        const idx = RESULT_LABELS.indexOf(e.key.toLowerCase());
+        if (idx >= 0 && idx < frozenResults.length) {
+          e.preventDefault();
+          const entry = frozenResults[idx];
+          setSelected(entry);
+          setSelectedWebpageUrl(entry.webpage_url ?? null);
+          setUiState('ACTION');
+          return;
+        }
+      }
+
+      if (uiState === 'ACTION') {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          setQuery('');
+          setResults([]);
+          setFrozenResults([]);
+          setSelected(null);
+          setSelectedWebpageUrl(null);
+          setStatusMsg(null);
+          setUiState('SEARCH');
+          return;
+        }
+        if (e.altKey && e.key === 'c') { e.preventDefault(); handleCopy(); return; }
+        if (e.altKey && e.key === 'r') { e.preventDefault(); handleRecord(); return; }
+        if (e.altKey && e.key === 'm') { e.preventDefault(); handleMake(); return; }
+        if (e.altKey && e.key === 'd') { e.preventDefault(); showToast('copy doc: not yet implemented'); return; }
+        if (e.altKey && e.key === 'f') { e.preventDefault(); showToast('full: not yet implemented'); return; }
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [uiState, results, frozenResults, selected, effectiveClientId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // --- Compute display query string ---
   const displayQuery = uiState === 'SELECT' ? query + ',' : uiState === 'ACTION' ? '' : query;
 
@@ -371,7 +376,6 @@ function FindPage() {
             placeholder={uiState === 'SEARCH' ? 'b .le atomic…' : ''}
             value={displayQuery}
             onChange={handleInputChange}
-            onKeyDown={handleKeyDown}
             autoFocus
             readOnly={uiState === 'SELECT'}
             spellCheck={false}
@@ -384,10 +388,21 @@ function FindPage() {
       <div className="libby-state-hint">
         {uiState === 'SEARCH' && (query ? `${results.length} result${results.length !== 1 ? 's' : ''} · , to select` : 'type to search')}
         {uiState === 'SELECT' && 'press a–t to select · Backspace to search'}
-        {uiState === 'ACTION' && 'c copy · r record · m make · d doc · f full · Escape to reset'}
+        {uiState === 'ACTION' && '⌥c copy · ⌥r record · ⌥m make · ⌥d doc · ⌥f full · Escape to reset'}
       </div>
 
       {/* Results list */}
+      {uiState !== 'ACTION' && displayResults.length > 0 && (
+        <div className="libby-results-header">
+          <span className="libby-result-label">key</span>
+          <span className="libby-result-name">title</span>
+          <span className="libby-result-author">author</span>
+          <span className="libby-result-type">type</span>
+          <span className="libby-result-topics">topics</span>
+          <span className="libby-priority-dots">pri</span>
+          <span className="libby-result-freq">freq</span>
+        </div>
+      )}
       {uiState !== 'ACTION' && displayResults.length > 0 && (
         <ul className="libby-results">
           {displayResults.map((entry, i) => {
@@ -438,32 +453,32 @@ function FindPage() {
           </div>
 
           <div className="libby-action-bar">
-            <button className="libby-action-btn" onClick={handleCopy} title="c">
-              <span className="libby-action-key">c</span> copy url
+            <button className="libby-action-btn" onClick={handleCopy} title="⌥c">
+              <span className="libby-action-key">⌥c</span> copy url
             </button>
-            <button className="libby-action-btn" onClick={handleRecord} title="r">
-              <span className="libby-action-key">r</span> record
+            <button className="libby-action-btn" onClick={handleRecord} title="⌥r">
+              <span className="libby-action-key">⌥r</span> record
             </button>
             <button
               className={`libby-action-btn${selectedWebpageUrl ? ' libby-action-btn--has-page' : ''}`}
               onClick={handleMake}
-              title={selectedWebpageUrl ? `m — page exists: ${selectedWebpageUrl}` : 'm — generate page'}
+              title={selectedWebpageUrl ? `⌥m — page exists: ${selectedWebpageUrl}` : '⌥m — generate page'}
             >
-              <span className="libby-action-key">m</span> make{selectedWebpageUrl ? ' ✓' : ''}
+              <span className="libby-action-key">⌥m</span> make{selectedWebpageUrl ? ' ✓' : ''}
             </button>
             <button
               className="libby-action-btn libby-action-btn--unimplemented"
               onClick={() => showToast('copy doc: not yet implemented')}
-              title="d"
+              title="⌥d"
             >
-              <span className="libby-action-key">d</span> doc
+              <span className="libby-action-key">⌥d</span> doc
             </button>
             <button
               className="libby-action-btn libby-action-btn--unimplemented"
               onClick={() => showToast('full: not yet implemented')}
-              title="f"
+              title="⌥f"
             >
-              <span className="libby-action-key">f</span> full
+              <span className="libby-action-key">⌥f</span> full
             </button>
           </div>
 
