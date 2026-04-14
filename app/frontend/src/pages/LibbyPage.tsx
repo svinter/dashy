@@ -1,5 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, NavLink } from 'react-router-dom';
+import { useLibbyContext } from '../contexts/LibbyContext';
+import { LibbyTagsPage } from './LibbyTagsPage';
+import { LibbyTypesPage } from './LibbyTypesPage';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -22,17 +25,7 @@ interface LibraryEntry {
   gdoc_id: string | null;
   author?: string | null;
   topics: LibraryTopic[];
-}
-
-interface ActiveClient {
-  id: number;
-  name: string;
-  obsidian_name: string | null;
-}
-
-interface CoachingClient {
-  id: number;
-  name: string;
+  last_shared_at: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -52,6 +45,83 @@ const RESULT_LABELS = 'abcdefghijklmnopqrst';
 type UiState = 'SEARCH' | 'SELECT' | 'ACTION';
 
 // ---------------------------------------------------------------------------
+// Help popup content
+// ---------------------------------------------------------------------------
+
+const HELP_TYPES = [
+  ['b', 'Book'],       ['a', 'Article'],   ['e', 'Essay'],
+  ['p', 'Podcast'],    ['v', 'Video'],      ['m', 'Movie'],
+  ['t', 'Tool'],       ['w', 'Webpage'],    ['s', 'Worksheet'],
+  ['z', 'Assessment'], ['n', 'Note'],       ['d', 'Document'],
+  ['f', 'Framework'],  ['c', 'Course'],     ['r', 'Research'],
+  ['q', 'Quote'],
+];
+
+function LibbyHelpPopup({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="libby-help-backdrop" onClick={onClose}>
+      <div className="libby-help-popup" onClick={e => e.stopPropagation()}>
+        <div className="libby-help-header">
+          <span className="libby-help-title">Libby Help</span>
+          <span className="libby-help-shortcut">⌘?</span>
+        </div>
+        <div className="libby-help-body">
+          {/* Left: Types */}
+          <div className="libby-help-col">
+            <div className="libby-help-col-title">Types</div>
+            <table className="libby-help-type-table">
+              <tbody>
+                {HELP_TYPES.map(([code, name]) => (
+                  <tr key={code}>
+                    <td className="libby-help-type-code">{code}</td>
+                    <td className="libby-help-type-name">{name}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Right: Syntax + Actions */}
+          <div className="libby-help-col">
+            <div className="libby-help-col-title">Search Syntax</div>
+            <div className="libby-help-syntax">[type] [.topic] [name]</div>
+            <div className="libby-help-examples">
+              <div className="libby-help-ex-label">Examples:</div>
+              <code>b .le atomic</code>
+              <code>.co habits</code>
+              <code>b clear</code>
+            </div>
+
+            <div className="libby-help-col-title" style={{ marginTop: '16px' }}>Selection</div>
+            <table className="libby-help-keys">
+              <tbody>
+                <tr><td className="libby-help-key">,</td><td>enter select mode</td></tr>
+                <tr><td className="libby-help-key">a–t</td><td>select entry</td></tr>
+                <tr><td className="libby-help-key">Esc</td><td>reset</td></tr>
+              </tbody>
+            </table>
+
+            <div className="libby-help-col-title" style={{ marginTop: '16px' }}>Actions</div>
+            <table className="libby-help-keys">
+              <tbody>
+                <tr><td className="libby-help-key">⌥c</td><td>copy URL</td></tr>
+                <tr><td className="libby-help-key">⌥r</td><td>record share</td></tr>
+                <tr><td className="libby-help-key">⌥m</td><td>make webpage</td></tr>
+                <tr><td className="libby-help-key libby-help-key--soon">⌥s</td><td className="libby-help-soon">synopsis <span>(coming soon)</span></td></tr>
+                <tr><td className="libby-help-key libby-help-key--soon">⌥t</td><td className="libby-help-soon">edit tags <span>(coming soon)</span></td></tr>
+                <tr><td className="libby-help-key libby-help-key--soon">⌥d</td><td className="libby-help-soon">copy doc <span>(coming soon)</span></td></tr>
+                <tr><td className="libby-help-key libby-help-key--soon">⌥f</td><td className="libby-help-soon">full copy <span>(coming soon)</span></td></tr>
+                <tr><td className="libby-help-key libby-help-key--soon">⌥x</td><td className="libby-help-soon">find related <span>(future)</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Priority dots
 // ---------------------------------------------------------------------------
 
@@ -66,35 +136,31 @@ function PriorityDots({ priority }: { priority: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// Client selector
+// Client selector (reads from LibbyContext)
 // ---------------------------------------------------------------------------
 
-function ClientSelector({
-  activeClient,
-  clients,
-  selectedId,
-  onSelect,
-}: {
-  activeClient: ActiveClient | null;
-  clients: CoachingClient[];
-  selectedId: number | null;
-  onSelect: (id: number) => void;
-}) {
-  const selectedClient = clients.find(c => c.id === selectedId) ?? activeClient;
+function ClientSelector() {
+  const { activeClientId, activeClientName, allClients, setActiveClient } = useLibbyContext();
+  const displayName = activeClientName || (activeClientId ? `Client ${activeClientId}` : null);
 
   return (
     <div className="libby-client-selector">
       <span className="libby-client-label">client:</span>
       <select
         className="libby-client-select"
-        value={selectedId ?? activeClient?.id ?? ''}
+        value={activeClientId ?? ''}
         onChange={e => {
           const id = parseInt(e.target.value, 10);
-          if (!isNaN(id)) onSelect(id);
+          if (!isNaN(id)) {
+            const client = allClients.find(c => c.id === id);
+            setActiveClient(id, client?.name ?? null);
+          } else {
+            setActiveClient(null, null);
+          }
         }}
       >
-        {!selectedClient && <option value="">— select —</option>}
-        {clients.map(c => (
+        {!displayName && <option value="">— no client —</option>}
+        {allClients.map(c => (
           <option key={c.id} value={c.id}>{c.name}</option>
         ))}
       </select>
@@ -103,10 +169,56 @@ function ClientSelector({
 }
 
 // ---------------------------------------------------------------------------
-// Find Page
+// Libby Layout — sub-nav + help popup (shared across all Libby pages)
 // ---------------------------------------------------------------------------
 
-function FindPage() {
+function LibbyLayout({ children }: { children: React.ReactNode }) {
+  const { isHelpOpen, setHelpOpen } = useLibbyContext();
+
+  // ⌘? opens help; Escape closes it (without interfering with Catalog machine)
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.metaKey && e.shiftKey && e.key === '/') {
+        e.preventDefault();
+        setHelpOpen(true);
+        return;
+      }
+      if (isHelpOpen && e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        setHelpOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handler, true); // capture phase so it runs before Catalog
+    return () => window.removeEventListener('keydown', handler, true);
+  }, [isHelpOpen, setHelpOpen]);
+
+  return (
+    <div className="libby-layout">
+      <nav className="libby-sub-nav">
+        <NavLink to="/libby/catalog" className={({ isActive }) => `libby-sub-nav-link${isActive ? ' active' : ''}`}>
+          Catalog
+        </NavLink>
+        <NavLink to="/libby/tags" className={({ isActive }) => `libby-sub-nav-link${isActive ? ' active' : ''}`}>
+          Tags
+        </NavLink>
+        <NavLink to="/libby/types" className={({ isActive }) => `libby-sub-nav-link${isActive ? ' active' : ''}`}>
+          Types
+        </NavLink>
+      </nav>
+      {children}
+      {isHelpOpen && <LibbyHelpPopup onClose={() => setHelpOpen(false)} />}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Catalog Page (was FindPage)
+// ---------------------------------------------------------------------------
+
+function CatalogPage() {
+  const { activeClientId, activeClientName, isHelpOpen } = useLibbyContext();
+
   const [query, setQuery] = useState('');
   const [uiState, setUiState] = useState<UiState>('SEARCH');
   const [results, setResults] = useState<LibraryEntry[]>([]);
@@ -118,98 +230,52 @@ function FindPage() {
   const [toastVariant, setToastVariant] = useState<'default' | 'warning'>('default');
   const [loading, setLoading] = useState(false);
 
-  // Client context
-  const [activeClient, setActiveClient] = useState<ActiveClient | null>(null);
-  const [allClients, setAllClients] = useState<CoachingClient[]>([]);
-  const [clientId, setClientId] = useState<number | null>(null);
-
-  // Load active client + client list on mount
-  useEffect(() => {
-    fetch('/api/libby/active-client')
-      .then(r => r.ok ? r.json() : null)
-      .then((data: ActiveClient | null) => {
-        if (data) {
-          setActiveClient(data);
-          setClientId(data.id);
-        }
-      })
-      .catch(() => {});
-
-    fetch('/api/coaching/clients')
-      .then(r => r.ok ? r.json() : { groups: [] })
-      .then((data: { groups: { clients: CoachingClient[] }[] }) => {
-        const flat: CoachingClient[] = [];
-        for (const group of data.groups ?? []) {
-          for (const c of group.clients ?? []) {
-            flat.push({ id: c.id, name: c.name });
-          }
-        }
-        flat.sort((a, b) => a.name.localeCompare(b.name));
-        setAllClients(flat);
-      })
-      .catch(() => {});
-  }, []);
-
-  const displayResults = uiState === 'SEARCH' ? results : frozenResults;
-  const effectiveClientId = clientId ?? activeClient?.id ?? null;
-
-  // --- Dismiss toast after delay ---
+  // --- Toast ---
   const showToast = (msg: string, variant: 'default' | 'warning' = 'default') => {
     setToastMsg(msg);
     setToastVariant(variant);
     setTimeout(() => setToastMsg(null), 2500);
   };
 
-  // --- Search ---
-  const runSearch = async (q: string) => {
-    if (!q.trim()) {
-      setResults([]);
-      return;
-    }
+  // --- Search (re-runs when active client changes to refresh shared indicators) ---
+  const runSearch = async (q: string, clientId: number | null) => {
+    if (!q.trim()) { setResults([]); return; }
     setLoading(true);
     try {
       const params = new URLSearchParams({ q });
+      if (clientId != null) params.set('client_id', String(clientId));
       const resp = await fetch(`/api/libby/search?${params}`);
-      if (resp.ok) {
-        const data: LibraryEntry[] = await resp.json();
-        setResults(data);
-      }
-    } catch {
-      // silently ignore
-    } finally {
-      setLoading(false);
-    }
+      if (resp.ok) setResults(await resp.json());
+    } catch { /* ignore */ }
+    finally { setLoading(false); }
   };
 
-  // --- Input change (only in SEARCH state) ---
+  // Re-run search when active client changes (updates shared indicators)
+  useEffect(() => {
+    if (query.trim() && uiState === 'SEARCH') {
+      runSearch(query, activeClientId);
+    }
+  }, [activeClientId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // --- Input change ---
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (uiState !== 'SEARCH') return;
     const val = e.target.value;
     setQuery(val);
-    runSearch(val);
+    runSearch(val, activeClientId);
   };
 
   // --- Copy action ---
   const handleCopy = async () => {
     if (!selected) return;
     try {
-      const resp = await fetch(`/api/libby/entries/${selected.id}/action/copy`, {
-        method: 'POST',
-      });
+      const resp = await fetch(`/api/libby/entries/${selected.id}/action/copy`, { method: 'POST' });
       if (resp.ok) {
         const data = await resp.json();
-        if (data.url) {
-          await navigator.clipboard.writeText(data.url);
-          setStatusMsg('URL copied');
-        } else {
-          setStatusMsg('No URL available');
-        }
-      } else {
-        setStatusMsg('Copy failed');
-      }
-    } catch {
-      setStatusMsg('Copy failed');
-    }
+        if (data.url) { await navigator.clipboard.writeText(data.url); setStatusMsg('URL copied'); }
+        else setStatusMsg('No URL available');
+      } else setStatusMsg('Copy failed');
+    } catch { setStatusMsg('Copy failed'); }
     setTimeout(() => setStatusMsg(null), 2500);
   };
 
@@ -217,9 +283,7 @@ function FindPage() {
   const handleMake = async () => {
     if (!selected) return;
     try {
-      const resp = await fetch(`/api/libby/entries/${selected.id}/action/make`, {
-        method: 'POST',
-      });
+      const resp = await fetch(`/api/libby/entries/${selected.id}/action/make`, { method: 'POST' });
       const data = await resp.json();
       if (data.status === 'exists') {
         await navigator.clipboard.writeText(data.url).catch(() => {});
@@ -229,33 +293,24 @@ function FindPage() {
         await navigator.clipboard.writeText(data.url).catch(() => {});
         setStatusMsg(`Page created: ${data.url}`);
         setSelectedWebpageUrl(data.url);
-      } else {
-        setStatusMsg(data.message ?? 'Make failed');
-      }
-    } catch {
-      setStatusMsg('Make failed');
-    }
+      } else setStatusMsg(data.message ?? 'Make failed');
+    } catch { setStatusMsg('Make failed'); }
     setTimeout(() => setStatusMsg(null), 4000);
   };
 
   // --- Record action ---
   const handleRecord = async () => {
     if (!selected) return;
-    if (!effectiveClientId) {
-      setStatusMsg('No client selected');
-      setTimeout(() => setStatusMsg(null), 2500);
-      return;
-    }
+    if (!activeClientId) { setStatusMsg('No client selected'); setTimeout(() => setStatusMsg(null), 2500); return; }
     try {
       const resp = await fetch(`/api/libby/entries/${selected.id}/action/record`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ client_id: effectiveClientId }),
+        body: JSON.stringify({ client_id: activeClientId }),
       });
       if (resp.ok) {
         const data = await resp.json();
         setStatusMsg(data.message ?? 'Recorded');
-        // Manifest warning: only show if it failed (not if client had no manifest URL)
         if (data.manifest_updated === false && data.manifest_skipped !== true) {
           showToast('Note: Manifest not updated', 'warning');
         }
@@ -263,15 +318,16 @@ function FindPage() {
         const err = await resp.json().catch(() => ({}));
         setStatusMsg(err.detail ?? 'Record failed');
       }
-    } catch {
-      setStatusMsg('Record failed');
-    }
+    } catch { setStatusMsg('Record failed'); }
     setTimeout(() => setStatusMsg(null), 3000);
   };
 
-  // --- Window keyboard listener (handles all states, including ACTION where input is absent) ---
+  // --- Window keyboard listener ---
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      // If help popup is open, don't process Catalog keys (except ⌘? toggle)
+      if (isHelpOpen) return;
+
       if (uiState === 'SEARCH') {
         if (e.key === ',') {
           e.preventDefault();
@@ -290,25 +346,14 @@ function FindPage() {
           e.preventDefault();
           return;
         }
-        if (e.key === 'Escape') {
-          setQuery('');
-          setResults([]);
-          return;
-        }
+        if (e.key === 'Escape') { setQuery(''); setResults([]); return; }
       }
 
       if (uiState === 'SELECT') {
-        if (e.key === 'Backspace') {
-          e.preventDefault();
-          setUiState('SEARCH');
-          return;
-        }
+        if (e.key === 'Backspace') { e.preventDefault(); setUiState('SEARCH'); return; }
         if (e.key === 'Escape') {
           e.preventDefault();
-          setQuery('');
-          setResults([]);
-          setFrozenResults([]);
-          setUiState('SEARCH');
+          setQuery(''); setResults([]); setFrozenResults([]); setUiState('SEARCH');
           return;
         }
         const idx = RESULT_LABELS.indexOf(e.key.toLowerCase());
@@ -325,12 +370,8 @@ function FindPage() {
       if (uiState === 'ACTION') {
         if (e.key === 'Escape') {
           e.preventDefault();
-          setQuery('');
-          setResults([]);
-          setFrozenResults([]);
-          setSelected(null);
-          setSelectedWebpageUrl(null);
-          setStatusMsg(null);
+          setQuery(''); setResults([]); setFrozenResults([]);
+          setSelected(null); setSelectedWebpageUrl(null); setStatusMsg(null);
           setUiState('SEARCH');
           return;
         }
@@ -344,23 +385,20 @@ function FindPage() {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [uiState, results, frozenResults, selected, effectiveClientId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [uiState, results, frozenResults, selected, activeClientId, isHelpOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // --- Compute display query string ---
+  const displayResults = uiState === 'SEARCH' ? results : frozenResults;
   const displayQuery = uiState === 'SELECT' ? query + ',' : uiState === 'ACTION' ? '' : query;
+
+  const formatSharedDate = (iso: string) => {
+    try { return iso.slice(0, 10); } catch { return iso; }
+  };
 
   return (
     <div className="libby-find-page">
       <div className="libby-header">
-        <span className="libby-header-title">Libby Find</span>
-        {uiState === 'ACTION' && (
-          <ClientSelector
-            activeClient={activeClient}
-            clients={allClients}
-            selectedId={clientId}
-            onSelect={setClientId}
-          />
-        )}
+        <span className="libby-header-title">Catalog</span>
+        <ClientSelector />
       </div>
 
       {/* Search box */}
@@ -386,12 +424,12 @@ function FindPage() {
 
       {/* State hint */}
       <div className="libby-state-hint">
-        {uiState === 'SEARCH' && (query ? `${results.length} result${results.length !== 1 ? 's' : ''} · , to select` : 'type to search')}
+        {uiState === 'SEARCH' && (query ? `${results.length} result${results.length !== 1 ? 's' : ''} · , to select` : 'type to search · ⌘? for help')}
         {uiState === 'SELECT' && 'press a–t to select · Backspace to search'}
         {uiState === 'ACTION' && '⌥c copy · ⌥r record · ⌥m make · ⌥d doc · ⌥f full · Escape to reset'}
       </div>
 
-      {/* Results list */}
+      {/* Column headers */}
       {uiState !== 'ACTION' && displayResults.length > 0 && (
         <div className="libby-results-header">
           <span className="libby-result-label">key</span>
@@ -401,8 +439,11 @@ function FindPage() {
           <span className="libby-result-topics">topics</span>
           <span className="libby-priority-dots">pri</span>
           <span className="libby-result-freq">freq</span>
+          {activeClientId && <span className="libby-result-shared">shared</span>}
         </div>
       )}
+
+      {/* Results list */}
       {uiState !== 'ACTION' && displayResults.length > 0 && (
         <ul className="libby-results">
           {displayResults.map((entry, i) => {
@@ -415,6 +456,7 @@ function FindPage() {
                 onClick={() => {
                   if (uiState === 'SELECT') {
                     setSelected(entry);
+                    setSelectedWebpageUrl(entry.webpage_url ?? null);
                     setUiState('ACTION');
                   }
                 }}
@@ -431,6 +473,14 @@ function FindPage() {
                 <PriorityDots priority={entry.priority} />
                 {entry.frequency > 0 && (
                   <span className="libby-result-freq">{entry.frequency}</span>
+                )}
+                {activeClientId && entry.last_shared_at && (
+                  <span
+                    className="libby-result-shared-icon"
+                    title={`Shared with ${activeClientName ?? 'client'} on ${formatSharedDate(entry.last_shared_at)}`}
+                  >
+                    ✓
+                  </span>
                 )}
               </li>
             );
@@ -482,9 +532,7 @@ function FindPage() {
             </button>
           </div>
 
-          {statusMsg && (
-            <div className="libby-status-msg">{statusMsg}</div>
-          )}
+          {statusMsg && <div className="libby-status-msg">{statusMsg}</div>}
         </div>
       )}
 
@@ -508,10 +556,15 @@ function FindPage() {
 export function LibbyPage() {
   return (
     <div className="libby-module">
-      <Routes>
-        <Route index element={<Navigate to="find" replace />} />
-        <Route path="find" element={<FindPage />} />
-      </Routes>
+      <LibbyLayout>
+        <Routes>
+          <Route index element={<Navigate to="catalog" replace />} />
+          <Route path="find" element={<Navigate to="/libby/catalog" replace />} />
+          <Route path="catalog" element={<CatalogPage />} />
+          <Route path="tags" element={<LibbyTagsPage />} />
+          <Route path="types" element={<LibbyTypesPage />} />
+        </Routes>
+      </LibbyLayout>
     </div>
   );
 }

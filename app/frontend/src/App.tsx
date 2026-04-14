@@ -1,4 +1,5 @@
 import { lazy, Suspense, useState } from 'react';
+import { LibbyProvider } from './contexts/LibbyContext';
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider, useIsFetching } from '@tanstack/react-query';
 import { Sidebar } from './components/layout/Sidebar';
@@ -158,7 +159,7 @@ function AppContent() {
               <Route path="/writing" element={<Navigate to="/docs" replace />} />
               <Route path="/meetings" element={<MeetingsPage />} />
               <Route path="/coaching/*" element={<CoachingPage />} />
-              <Route path="/libby/*" element={<LibbyPage />} />
+              <Route path="/libby/*" element={<LibbyProvider><LibbyPage /></LibbyProvider>} />
               <Route path="/news" element={<NewsPage />} />
               <Route path="/team" element={<Navigate to="/people" replace />} />
               <Route path="/people" element={<PeoplePage />} />

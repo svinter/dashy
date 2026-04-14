@@ -91,10 +91,12 @@ def _name_match_score(name: str, name_tokens: list[str]) -> int:
 # ---------------------------------------------------------------------------
 
 @router.get("/search")
-def search_library(q: str = ""):
+def search_library(q: str = "", client_id: int | None = None):
     """Search library entries using Libby query syntax.
 
     Returns up to 20 results ranked by: priority → name-match quality → frequency.
+    When client_id is provided, each result includes last_shared_at (most recent
+    share date for that entry + client), or null if never shared.
     """
     type_code, topic_prefixes, name_tokens = _parse_query(q)
     db = get_db()
@@ -192,9 +194,29 @@ def search_library(q: str = ""):
         })
 
     results.sort(key=lambda r: r["_rank"], reverse=True)
+    results = results[:20]
     for r in results:
         del r["_rank"]
-    return results[:20]
+
+    # Bulk-fetch last_shared_at for active client
+    if client_id and results:
+        entry_ids = [r["id"] for r in results]
+        ph = ",".join("?" * len(entry_ids))
+        share_rows = db.execute(
+            f"""SELECT entry_id, MAX(shared_at) AS last_shared_at
+                FROM library_share_log
+                WHERE client_id = ? AND entry_id IN ({ph})
+                GROUP BY entry_id""",
+            [client_id] + entry_ids,
+        ).fetchall()
+        shared_map = {sr["entry_id"]: sr["last_shared_at"] for sr in share_rows}
+        for r in results:
+            r["last_shared_at"] = shared_map.get(r["id"])
+    else:
+        for r in results:
+            r["last_shared_at"] = None
+
+    return results
 
 
 # ---------------------------------------------------------------------------
@@ -780,3 +802,201 @@ def action_make(entry_id: int):
 
     logger.info("make: created page for entry %d at %s", entry_id, public_url)
     return {"status": "created", "url": public_url}
+
+
+# ---------------------------------------------------------------------------
+# Topics CRUD  (Items 5)
+# GET  /api/libby/topics
+# POST /api/libby/topics/merge          ← must precede /{id} to avoid int parse
+# PUT  /api/libby/topics/{id}
+# DELETE /api/libby/topics/{id}
+# ---------------------------------------------------------------------------
+
+@router.get("/topics")
+def get_topics():
+    """Return all topics with their entry counts."""
+    db = get_db()
+    rows = db.execute(
+        """SELECT t.id, t.code, t.name,
+                  COUNT(et.entry_id) AS entry_count
+           FROM library_topics t
+           LEFT JOIN library_entry_topics et ON et.topic_id = t.id
+           GROUP BY t.id
+           ORDER BY t.code""",
+    ).fetchall()
+    return {"topics": [dict(r) for r in rows]}
+
+
+class TopicUpdateRequest(BaseModel):
+    code: str | None = None
+    name: str | None = None
+
+
+@router.put("/topics/{topic_id}")
+def update_topic(topic_id: int, body: TopicUpdateRequest):
+    """Update a topic's code and/or name."""
+    db = get_db()
+    row = db.execute("SELECT id, code, name FROM library_topics WHERE id = ?", (topic_id,)).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Topic not found")
+
+    new_code = (body.code or "").strip() or row["code"]
+    new_name = (body.name or "").strip() or row["name"]
+
+    if new_code != row["code"]:
+        existing = db.execute(
+            "SELECT id FROM library_topics WHERE code = ? AND id != ?", (new_code, topic_id)
+        ).fetchone()
+        if existing:
+            raise HTTPException(status_code=409, detail=f"Topic code '{new_code}' already exists")
+
+    with get_write_db() as dbw:
+        dbw.execute(
+            "UPDATE library_topics SET code = ?, name = ? WHERE id = ?",
+            (new_code, new_name, topic_id),
+        )
+        dbw.commit()
+    return {"status": "ok", "id": topic_id, "code": new_code, "name": new_name}
+
+
+@router.delete("/topics/{topic_id}")
+def delete_topic(topic_id: int):
+    """Delete a topic — only allowed if no entries are assigned to it."""
+    db = get_db()
+    row = db.execute("SELECT id, code, name FROM library_topics WHERE id = ?", (topic_id,)).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Topic not found")
+
+    count = db.execute(
+        "SELECT COUNT(*) AS cnt FROM library_entry_topics WHERE topic_id = ?", (topic_id,)
+    ).fetchone()["cnt"]
+    if count > 0:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot delete topic '{row['code']}': {count} entr{'y' if count == 1 else 'ies'} assigned",
+        )
+
+    with get_write_db() as dbw:
+        dbw.execute("DELETE FROM library_topics WHERE id = ?", (topic_id,))
+        dbw.commit()
+    return {"status": "ok"}
+
+
+class TopicMergeRequest(BaseModel):
+    source_id: int
+    target_id: int
+
+
+@router.post("/topics/merge")
+def merge_topics(body: TopicMergeRequest):
+    """Reassign all entries from source topic to target topic, then delete source."""
+    db = get_db()
+    if body.source_id == body.target_id:
+        raise HTTPException(status_code=400, detail="Source and target must differ")
+
+    source = db.execute("SELECT id, code, name FROM library_topics WHERE id = ?", (body.source_id,)).fetchone()
+    target = db.execute("SELECT id, code, name FROM library_topics WHERE id = ?", (body.target_id,)).fetchone()
+    if not source:
+        raise HTTPException(status_code=404, detail="Source topic not found")
+    if not target:
+        raise HTTPException(status_code=404, detail="Target topic not found")
+
+    with get_write_db() as dbw:
+        # Re-point entries that don't already have the target topic
+        dbw.execute(
+            """UPDATE library_entry_topics SET topic_id = ?
+               WHERE topic_id = ?
+                 AND entry_id NOT IN (
+                     SELECT entry_id FROM library_entry_topics WHERE topic_id = ?
+                 )""",
+            (body.target_id, body.source_id, body.target_id),
+        )
+        # Delete any remaining source rows (duplicates now covered by target)
+        dbw.execute("DELETE FROM library_entry_topics WHERE topic_id = ?", (body.source_id,))
+        dbw.execute("DELETE FROM library_topics WHERE id = ?", (body.source_id,))
+        dbw.commit()
+
+    moved = db.execute(
+        "SELECT COUNT(*) AS cnt FROM library_entry_topics WHERE topic_id = ?", (body.target_id,)
+    ).fetchone()["cnt"]
+    return {"status": "ok", "source": source["code"], "target": target["code"], "entries_in_target": moved}
+
+
+# ---------------------------------------------------------------------------
+# Types CRUD  (Item 6)
+# GET  /api/libby/types
+# PUT  /api/libby/types/{code}
+# POST /api/libby/types
+# ---------------------------------------------------------------------------
+
+@router.get("/types")
+def get_types():
+    """Return all types with their entry counts."""
+    db = get_db()
+    rows = db.execute(
+        """SELECT t.code, t.name, t.description, t.table_name,
+                  COUNT(e.id) AS entry_count
+           FROM library_types t
+           LEFT JOIN library_entries e ON e.type_code = t.code
+           GROUP BY t.code
+           ORDER BY t.code""",
+    ).fetchall()
+    return {"types": [dict(r) for r in rows]}
+
+
+class TypeUpdateRequest(BaseModel):
+    name: str | None = None
+    description: str | None = None
+
+
+@router.put("/types/{code}")
+def update_type(code: str, body: TypeUpdateRequest):
+    """Update a type's name and/or description."""
+    db = get_db()
+    row = db.execute("SELECT code, name, description FROM library_types WHERE code = ?", (code,)).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Type not found")
+
+    new_name = (body.name or "").strip() or row["name"]
+    new_desc = body.description  # allow clearing to empty string
+
+    with get_write_db() as dbw:
+        dbw.execute(
+            "UPDATE library_types SET name = ?, description = ? WHERE code = ?",
+            (new_name, new_desc, code),
+        )
+        dbw.commit()
+    return {"status": "ok", "code": code, "name": new_name, "description": new_desc}
+
+
+class TypeCreateRequest(BaseModel):
+    code: str
+    name: str
+    description: str | None = None
+
+
+@router.post("/types")
+def create_type(body: TypeCreateRequest):
+    """Add a new entry type. Code must be a unique single letter not already in use."""
+    code = body.code.strip().lower()
+    name = body.name.strip()
+    if not code or len(code) != 1 or not code.isalpha():
+        raise HTTPException(status_code=400, detail="Type code must be a single letter")
+    if not name:
+        raise HTTPException(status_code=400, detail="Type name is required")
+
+    db = get_db()
+    existing = db.execute("SELECT code FROM library_types WHERE code = ?", (code,)).fetchone()
+    if existing:
+        raise HTTPException(status_code=409, detail=f"Type code '{code}' already exists")
+
+    # table_name follows the pattern library_{plural}; use a safe default
+    table_name = f"library_{code}_entries"
+
+    with get_write_db() as dbw:
+        dbw.execute(
+            "INSERT INTO library_types (code, name, description, table_name) VALUES (?, ?, ?, ?)",
+            (code, name, body.description, table_name),
+        )
+        dbw.commit()
+    return {"status": "ok", "code": code, "name": name, "description": body.description}
