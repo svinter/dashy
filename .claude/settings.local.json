@@ -36,7 +36,12 @@
       "WebFetch(domain:github.com)",
       "Bash(npm install:*)",
       "Bash(npm list:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(pip show:*)",
+      "Bash(/Users/stevevinter/dashy/.venv/bin/python3 -c \"import anthropic; print\\('anthropic', anthropic.__version__\\)\")",
+      "Bash(/Users/stevevinter/dashy/.venv/bin/python3 -c \"import httpx; print\\('httpx ok'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('routers/libby.py'\\).read\\(\\)\\); print\\('syntax ok'\\)\")",
+      "Bash(venv/bin/python -c \"import ast; ast.parse\\(open\\('routers/libby.py'\\).read\\(\\)\\); print\\('syntax ok'\\)\")"
     ]
   }
 }
