@@ -19,7 +19,7 @@ import subprocess
 from datetime import date as _date, datetime
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 
 from database import get_db, get_write_db
@@ -1065,7 +1065,7 @@ class EntryCreateRequest(BaseModel):
 
 
 @router.post("/entries")
-def create_entry(body: EntryCreateRequest):
+def create_entry(body: EntryCreateRequest, background_tasks: BackgroundTasks):
     """Create a new library entry with the generic common fields.
 
     Inserts a minimal row into the type-specific entity table, then inserts
@@ -1106,6 +1106,7 @@ def create_entry(body: EntryCreateRequest):
         entry_id = entry_cursor.lastrowid
         dbw.commit()
 
+    background_tasks.add_task(_run_tagging_task, entry_id)
     logger.info("Created library entry %d: %r (%s)", entry_id, name, type_code)
     return {"id": entry_id, "status": "created", "name": name, "type_code": type_code}
 
@@ -1223,7 +1224,7 @@ class BookCreateRequest(BaseModel):
 
 
 @router.post("/books")
-def create_book(body: BookCreateRequest):
+def create_book(body: BookCreateRequest, background_tasks: BackgroundTasks):
     """Create a fully-specified book entry (used by the book creation form).
 
     Inserts into library_books with all provided fields, creates the
@@ -1280,5 +1281,146 @@ def create_book(body: BookCreateRequest):
 
         dbw.commit()
 
+    background_tasks.add_task(_run_tagging_task, entry_id)
     logger.info("Created book entry %d: %r", entry_id, name)
     return {"id": entry_id, "status": "created", "name": name, "type_code": "b"}
+
+
+# ---------------------------------------------------------------------------
+# Background task: auto-tagging via Claude API  (Item 3)
+# ---------------------------------------------------------------------------
+
+def _run_tagging_task(entry_id: int) -> None:
+    """Auto-tag a library entry using Claude.
+
+    Loads all topics from library_topics, calls claude-sonnet-4-6 with the
+    entry metadata, parses the returned JSON array of topic IDs, inserts
+    matched rows into library_entry_topics, and records completion status
+    in libby_enrichment_log.
+
+    Runs as a FastAPI BackgroundTask after POST /api/libby/entries or
+    POST /api/libby/books.
+    """
+    import json
+    import anthropic
+
+    db = get_db()
+
+    # Load entry with author (books / articles)
+    entry_row = db.execute(
+        """
+        SELECT e.id, e.name, e.type_code, e.url, e.comments,
+               CASE e.type_code
+                   WHEN 'b' THEN lb.author
+                   WHEN 'a' THEN la.author
+                   ELSE NULL
+               END AS author
+        FROM library_entries e
+        LEFT JOIN library_books    lb ON e.type_code = 'b' AND e.entity_id = lb.id
+        LEFT JOIN library_articles la ON e.type_code = 'a' AND e.entity_id = la.id
+        WHERE e.id = ?
+        """,
+        (entry_id,),
+    ).fetchone()
+
+    if not entry_row:
+        logger.error("Tagging task: entry %d not found", entry_id)
+        return
+
+    # Load all topics
+    topic_rows = db.execute(
+        "SELECT id, code, name FROM library_topics ORDER BY code"
+    ).fetchall()
+    if not topic_rows:
+        logger.info("Tagging task: no topics defined, skipping entry %d", entry_id)
+        return
+
+    topics_list = "\n".join(
+        f"  {r['id']}: {r['code']} — {r['name']}" for r in topic_rows
+    )
+
+    type_name = _TYPE_NAMES.get(entry_row["type_code"], entry_row["type_code"])
+    desc_lines = [
+        f"Name: {entry_row['name']}",
+        f"Type: {type_name}",
+    ]
+    if entry_row["author"]:
+        desc_lines.append(f"Author: {entry_row['author']}")
+    if entry_row["url"]:
+        desc_lines.append(f"URL: {entry_row['url']}")
+    if entry_row["comments"]:
+        desc_lines.append(f"Notes: {entry_row['comments']}")
+    resource_text = "\n".join(desc_lines)
+
+    prompt = (
+        "You are a librarian assistant. Select the most relevant topic IDs for "
+        "this resource from the list below.\n\n"
+        f"Resource:\n{resource_text}\n\n"
+        f"Available topics (id: code — name):\n{topics_list}\n\n"
+        "Return ONLY a JSON array of integer topic IDs that apply, e.g. [1, 5, 12]. "
+        "Return [] if none apply. No explanation, no markdown, just the JSON array."
+    )
+
+    # Mark as processing in enrichment log
+    with get_write_db() as dbw:
+        dbw.execute(
+            """INSERT INTO libby_enrichment_log
+               (entry_id, task, status, created_at, updated_at)
+               VALUES (?, 'tagging', 'processing', datetime('now'), datetime('now'))""",
+            (entry_id,),
+        )
+        dbw.commit()
+
+    try:
+        client = anthropic.Anthropic()
+        msg = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=256,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = msg.content[0].text.strip()
+
+        # Strip markdown code fence if present
+        if raw.startswith("```"):
+            raw = re.sub(r"^```[a-z]*\n?", "", raw).rstrip("`").strip()
+
+        matched_ids: list[int] = json.loads(raw)
+        if not isinstance(matched_ids, list):
+            raise ValueError(f"Expected list, got {type(matched_ids).__name__}: {raw!r}")
+
+        valid_ids = {r["id"] for r in topic_rows}
+        matched_ids = [int(tid) for tid in matched_ids if int(tid) in valid_ids]
+
+        if matched_ids:
+            with get_write_db() as dbw:
+                for tid in matched_ids:
+                    dbw.execute(
+                        "INSERT OR IGNORE INTO library_entry_topics (entry_id, topic_id) VALUES (?, ?)",
+                        (entry_id, tid),
+                    )
+                dbw.commit()
+
+        with get_write_db() as dbw:
+            dbw.execute(
+                """UPDATE libby_enrichment_log
+                   SET status = 'complete', updated_at = datetime('now')
+                   WHERE entry_id = ? AND task = 'tagging'""",
+                (entry_id,),
+            )
+            dbw.commit()
+
+        logger.info(
+            "Tagging complete for entry %d: %d topic(s) matched %s",
+            entry_id, len(matched_ids), matched_ids,
+        )
+
+    except Exception as exc:
+        logger.error("Tagging task failed for entry %d: %s", entry_id, exc)
+        with get_write_db() as dbw:
+            dbw.execute(
+                """UPDATE libby_enrichment_log
+                   SET status = 'failed', error = ?, updated_at = datetime('now')
+                   WHERE entry_id = ? AND task = 'tagging'""",
+                (str(exc)[:500], entry_id),
+            )
+            dbw.commit()
