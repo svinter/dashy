@@ -1108,3 +1108,177 @@ def create_entry(body: EntryCreateRequest):
 
     logger.info("Created library entry %d: %r (%s)", entry_id, name, type_code)
     return {"id": entry_id, "status": "created", "name": name, "type_code": type_code}
+
+
+# ---------------------------------------------------------------------------
+# GET /api/libby/books/lookup — Google Books API metadata lookup
+# POST /api/libby/books — create a fully-specified book entry
+# ---------------------------------------------------------------------------
+
+_ASIN_RE = re.compile(r"(?:dp|gp/product)/([A-Z0-9]{10})")
+
+
+def _extract_asin(url: str) -> str | None:
+    m = _ASIN_RE.search(url)
+    return m.group(1) if m else None
+
+
+def _google_books_search(params: dict) -> list[dict]:
+    """Query Google Books API and return up to 5 structured candidates."""
+    import httpx
+    try:
+        resp = httpx.get(
+            "https://www.googleapis.com/books/v1/volumes",
+            params=params,
+            timeout=8.0,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as exc:
+        logger.warning("Google Books API error: %s", exc)
+        return []
+
+    candidates = []
+    for item in data.get("items", [])[:5]:
+        info = item.get("volumeInfo", {})
+        isbns = {id_["type"]: id_["identifier"] for id_ in info.get("industryIdentifiers", [])}
+        isbn = isbns.get("ISBN_13") or isbns.get("ISBN_10")
+        desc = info.get("description", "")
+        candidates.append({
+            "google_books_id": item.get("id"),
+            "title": info.get("title", ""),
+            "author": ", ".join(info.get("authors", [])),
+            "isbn": isbn,
+            "publisher": info.get("publisher"),
+            "year": str(info.get("publishedDate", ""))[:4] or None,
+            "description": desc[:500] if desc else None,
+            "cover_url": info.get("imageLinks", {}).get("thumbnail"),
+        })
+    return candidates
+
+
+@router.get("/books/lookup")
+def lookup_book(
+    title: str | None = None,
+    author: str | None = None,
+    asin: str | None = None,
+    url: str | None = None,
+):
+    """Look up book metadata from the Google Books API.
+
+    Accepts one of:
+      - title and/or author → full-text search
+      - asin → search by ISBN derived from ASIN (best-effort) or title fallback
+      - url → extract ASIN from Amazon URL, then look up
+
+    Returns up to 5 candidate results.
+    """
+    # Resolve ASIN from URL if provided
+    if url and not asin:
+        asin = _extract_asin(url)
+
+    if asin:
+        # ISBN-10 and ASIN share the same format; try ISBN lookup first
+        params: dict = {"q": f"isbn:{asin}", "maxResults": 5}
+        candidates = _google_books_search(params)
+        if not candidates and title:
+            # Fallback: title search
+            params = {"q": f"intitle:{title}", "maxResults": 5}
+            candidates = _google_books_search(params)
+        # Construct Amazon URL from ASIN
+        amazon_url = f"https://www.amazon.com/dp/{asin}"
+        for c in candidates:
+            c["asin"] = asin
+            c["amazon_url"] = amazon_url
+    elif title or author:
+        q_parts = []
+        if title:
+            q_parts.append(f"intitle:{title}")
+        if author:
+            q_parts.append(f"inauthor:{author}")
+        params = {"q": "+".join(q_parts), "maxResults": 5}
+        candidates = _google_books_search(params)
+        for c in candidates:
+            c["asin"] = None
+            c["amazon_url"] = None
+    else:
+        raise HTTPException(status_code=400, detail="Provide title, author, asin, or url")
+
+    return {"candidates": candidates}
+
+
+class BookCreateRequest(BaseModel):
+    name: str
+    author: str | None = None
+    isbn: str | None = None
+    publisher: str | None = None
+    year: str | None = None
+    url: str | None = None          # canonical URL (tinyurl or other)
+    amazon_url: str | None = None
+    cover_url: str | None = None
+    google_books_id: str | None = None
+    comments: str | None = None
+    priority: str = "medium"
+    topic_ids: list[int] = []
+
+
+@router.post("/books")
+def create_book(body: BookCreateRequest):
+    """Create a fully-specified book entry (used by the book creation form).
+
+    Inserts into library_books with all provided fields, creates the
+    library_entries row, assigns topics, sets needs_enrichment=1.
+    """
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Name is required")
+    if body.priority not in ("high", "medium", "low"):
+        raise HTTPException(status_code=400, detail="Priority must be high, medium, or low")
+
+    year_int: int | None = None
+    if body.year:
+        try:
+            year_int = int(body.year[:4])
+        except (ValueError, TypeError):
+            pass
+
+    db = get_db()
+
+    with get_write_db() as dbw:
+        # Book entity row
+        book_cursor = dbw.execute(
+            """INSERT INTO library_books
+               (author, isbn, publisher, year, cover_url, google_books_id)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (body.author, body.isbn, body.publisher, year_int,
+             body.cover_url, body.google_books_id),
+        )
+        book_id = book_cursor.lastrowid
+
+        # Library entry row
+        entry_cursor = dbw.execute(
+            """INSERT INTO library_entries
+               (name, type_code, url, amazon_url, comments, priority, entity_id,
+                needs_enrichment, created_at, updated_at)
+               VALUES (?, 'b', ?, ?, ?, ?, ?, 1, datetime('now'), datetime('now'))""",
+            (name, body.url or None, body.amazon_url or None,
+             body.comments or None, body.priority, book_id),
+        )
+        entry_id = entry_cursor.lastrowid
+
+        # Assign topics
+        if body.topic_ids:
+            all_topic_ids = {
+                r["id"] for r in db.execute("SELECT id FROM library_topics").fetchall()
+            }
+            for tid in body.topic_ids:
+                if tid in all_topic_ids:
+                    dbw.execute(
+                        "INSERT OR IGNORE INTO library_entry_topics (entry_id, topic_id) VALUES (?, ?)",
+                        (entry_id, tid),
+                    )
+
+        dbw.commit()
+
+    logger.info("Created book entry %d: %r", entry_id, name)
+    return {"id": entry_id, "status": "created", "name": name, "type_code": "b"}

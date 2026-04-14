@@ -10168,3 +10168,127 @@ span.news-item-title {
   font-style: italic;
 }
 
+
+/* --- Libby Book Creation Form --- */
+
+.libby-form-input--short {
+  width: 100px;
+}
+
+.libby-book-mode-toggle {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.libby-book-mode-btn {
+  padding: 4px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  background: none;
+  font-size: var(--text-sm);
+  cursor: pointer;
+  color: var(--color-text-light);
+}
+
+.libby-book-mode-btn--active {
+  background: var(--color-accent);
+  color: #fff;
+  border-color: var(--color-accent);
+}
+
+.libby-book-lookup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.libby-book-lookup-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.libby-book-candidates {
+  margin: 8px 0 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.libby-book-candidate {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  cursor: pointer;
+  background: var(--color-bg-secondary, #fafafa);
+  transition: background 0.1s;
+}
+
+.libby-book-candidate:hover {
+  background: var(--color-bg-hover, #f0f0f0);
+}
+
+.libby-book-candidate-title {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.libby-book-candidate-author {
+  font-size: 0.75rem;
+  color: var(--color-text-light);
+}
+
+.libby-book-candidate-year,
+.libby-book-candidate-isbn {
+  font-size: 0.7rem;
+  color: var(--color-text-light);
+}
+
+.libby-book-no-results {
+  font-size: var(--text-sm);
+  color: var(--color-text-light);
+  font-style: italic;
+  padding: 4px 0;
+}
+
+.libby-book-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-top: 1px solid var(--color-border);
+  padding-top: 12px;
+  margin-top: 4px;
+}
+
+.libby-book-topics {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.libby-book-topic-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-sm);
+  cursor: pointer;
+  user-select: none;
+}
+
+.libby-book-topic-code {
+  font-size: 0.7rem;
+  font-family: var(--font-mono, monospace);
+  color: var(--color-text-light);
+  min-width: 22px;
+}
+
+.libby-book-topic-name {
+  color: var(--color-text);
+}

@@ -32,6 +32,465 @@ interface QueueEntry {
   status: 'pending' | 'processing' | 'ready' | 'failed';
 }
 
+interface LibraryTopic {
+  id: number;
+  code: string;
+  name: string;
+}
+
+interface BookCandidate {
+  google_books_id: string | null;
+  title: string;
+  author: string;
+  isbn: string | null;
+  publisher: string | null;
+  year: string | null;
+  description: string | null;
+  cover_url: string | null;
+  asin: string | null;
+  amazon_url: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Book creation form — search + Amazon URL modes
+// ---------------------------------------------------------------------------
+
+function BookCreationForm({
+  topics,
+  onSaved,
+}: {
+  topics: LibraryTopic[];
+  onSaved: (name: string) => void;
+}) {
+  const [mode, setMode] = useState<'search' | 'url'>('search');
+
+  // Lookup inputs
+  const [searchTitle, setSearchTitle] = useState('');
+  const [searchAuthor, setSearchAuthor] = useState('');
+  const [lookupUrl, setLookupUrl] = useState('');
+  const [candidates, setCandidates] = useState<BookCandidate[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [searched, setSearched] = useState(false);
+
+  // Pre-filled form fields
+  const [name, setName] = useState('');
+  const [author, setAuthor] = useState('');
+  const [isbn, setIsbn] = useState('');
+  const [publisher, setPublisher] = useState('');
+  const [year, setYear] = useState('');
+  const [url, setUrl] = useState('');
+  const [amazonUrl, setAmazonUrl] = useState('');
+  const [googleBooksId, setGoogleBooksId] = useState('');
+  const [comments, setComments] = useState('');
+  const [priority, setPriority] = useState<'high' | 'medium' | 'low'>('medium');
+  const [selectedTopicIds, setSelectedTopicIds] = useState<Set<number>>(new Set());
+
+  // Save state
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const fillFromCandidate = (c: BookCandidate) => {
+    setName(c.title || '');
+    setAuthor(c.author || '');
+    setIsbn(c.isbn || '');
+    setPublisher(c.publisher || '');
+    setYear(c.year || '');
+    setAmazonUrl(c.amazon_url || '');
+    setGoogleBooksId(c.google_books_id || '');
+    // Pre-fill comments from description (truncated to 300 chars)
+    if (c.description) setComments(c.description.slice(0, 300));
+    setCandidates([]);
+    setSearched(false);
+  };
+
+  const handleSearch = async () => {
+    if (!searchTitle.trim() && !searchAuthor.trim()) return;
+    setSearching(true);
+    setSearchError(null);
+    setCandidates([]);
+    setSearched(false);
+    try {
+      const params = new URLSearchParams();
+      if (searchTitle.trim()) params.set('title', searchTitle.trim());
+      if (searchAuthor.trim()) params.set('author', searchAuthor.trim());
+      const resp = await fetch(`/api/libby/books/lookup?${params}`);
+      const data = await resp.json();
+      setCandidates(data.candidates ?? []);
+      setSearched(true);
+    } catch {
+      setSearchError('Lookup failed');
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const handleUrlLookup = async () => {
+    if (!lookupUrl.trim()) return;
+    setSearching(true);
+    setSearchError(null);
+    setCandidates([]);
+    setSearched(false);
+    try {
+      const params = new URLSearchParams({ url: lookupUrl.trim() });
+      const resp = await fetch(`/api/libby/books/lookup?${params}`);
+      const data = await resp.json();
+      const first = data.candidates?.[0];
+      if (first) {
+        fillFromCandidate(first);
+        // Preserve the pasted URL as the canonical url if amazon_url is set
+        if (first.amazon_url) setUrl(first.amazon_url);
+      }
+      setCandidates(data.candidates ?? []);
+      setSearched(true);
+    } catch {
+      setSearchError('Lookup failed');
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const toggleTopic = (id: number) => {
+    setSelectedTopicIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const resetForm = () => {
+    setName(''); setAuthor(''); setIsbn(''); setPublisher('');
+    setYear(''); setUrl(''); setAmazonUrl(''); setGoogleBooksId('');
+    setComments(''); setPriority('medium'); setSelectedTopicIds(new Set());
+    setCandidates([]); setSearched(false); setSearchError(null); setSaveError(null);
+    setSearchTitle(''); setSearchAuthor(''); setLookupUrl('');
+  };
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const resp = await fetch('/api/libby/books', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: name.trim(),
+          author: author.trim() || null,
+          isbn: isbn.trim() || null,
+          publisher: publisher.trim() || null,
+          year: year.trim() || null,
+          url: url.trim() || null,
+          amazon_url: amazonUrl.trim() || null,
+          cover_url: null,
+          google_books_id: googleBooksId.trim() || null,
+          comments: comments.trim() || null,
+          priority,
+          topic_ids: Array.from(selectedTopicIds),
+        }),
+      });
+      const data = await resp.json();
+      if (resp.ok) {
+        onSaved(data.name);
+        resetForm();
+      } else {
+        setSaveError(data.detail ?? 'Save failed');
+      }
+    } catch {
+      setSaveError('Save failed — server error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="libby-book-form">
+      {/* Mode toggle */}
+      <div className="libby-book-mode-toggle">
+        <button
+          type="button"
+          className={`libby-book-mode-btn${mode === 'search' ? ' active' : ''}`}
+          onClick={() => { setMode('search'); setSearched(false); setCandidates([]); }}
+        >
+          Search
+        </button>
+        <button
+          type="button"
+          className={`libby-book-mode-btn${mode === 'url' ? ' active' : ''}`}
+          onClick={() => { setMode('url'); setSearched(false); setCandidates([]); }}
+        >
+          Amazon URL
+        </button>
+      </div>
+
+      {/* Lookup section */}
+      {mode === 'search' ? (
+        <div className="libby-book-lookup">
+          <div className="libby-book-lookup-row">
+            <input
+              className="libby-form-input"
+              value={searchTitle}
+              onChange={e => setSearchTitle(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleSearch(); } }}
+              placeholder="Title…"
+              autoFocus
+            />
+            <input
+              className="libby-form-input"
+              value={searchAuthor}
+              onChange={e => setSearchAuthor(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleSearch(); } }}
+              placeholder="Author…"
+            />
+            <button
+              type="button"
+              className="libby-admin-btn libby-admin-btn--primary"
+              onClick={handleSearch}
+              disabled={searching || (!searchTitle.trim() && !searchAuthor.trim())}
+            >
+              {searching ? '…' : 'Search'}
+            </button>
+          </div>
+          {searchError && <div className="libby-admin-error">{searchError}</div>}
+          {searched && candidates.length === 0 && (
+            <div className="libby-book-no-results">No results — fill fields manually below</div>
+          )}
+          {candidates.length > 0 && (
+            <ul className="libby-book-candidates">
+              {candidates.map((c, i) => (
+                <li
+                  key={c.google_books_id ?? i}
+                  className="libby-book-candidate"
+                  onClick={() => fillFromCandidate(c)}
+                >
+                  <span className="libby-book-candidate-title">{c.title}</span>
+                  {c.author && <span className="libby-book-candidate-author">{c.author}</span>}
+                  {c.year && <span className="libby-book-candidate-year">{c.year}</span>}
+                  {c.isbn && <span className="libby-book-candidate-isbn">ISBN {c.isbn}</span>}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : (
+        <div className="libby-book-lookup">
+          <div className="libby-book-lookup-row">
+            <input
+              className="libby-form-input"
+              value={lookupUrl}
+              onChange={e => setLookupUrl(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleUrlLookup(); } }}
+              placeholder="https://www.amazon.com/dp/…"
+              autoFocus
+            />
+            <button
+              type="button"
+              className="libby-admin-btn libby-admin-btn--primary"
+              onClick={handleUrlLookup}
+              disabled={searching || !lookupUrl.trim()}
+            >
+              {searching ? '…' : 'Lookup'}
+            </button>
+          </div>
+          {searchError && <div className="libby-admin-error">{searchError}</div>}
+          {searched && candidates.length === 0 && (
+            <div className="libby-book-no-results">ASIN not found in Google Books — fill fields manually</div>
+          )}
+          {candidates.length > 1 && (
+            <ul className="libby-book-candidates">
+              {candidates.slice(1).map((c, i) => (
+                <li
+                  key={c.google_books_id ?? i}
+                  className="libby-book-candidate"
+                  onClick={() => fillFromCandidate(c)}
+                >
+                  <span className="libby-book-candidate-title">{c.title}</span>
+                  {c.author && <span className="libby-book-candidate-author">{c.author}</span>}
+                  {c.year && <span className="libby-book-candidate-year">{c.year}</span>}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {/* Pre-filled / manual form */}
+      <form className="libby-new-form" onSubmit={handleSave}>
+        <div className="libby-new-form-heading">Book details</div>
+
+        <div className="libby-form-row">
+          <label className="libby-form-label">title *</label>
+          <input className="libby-form-input" value={name} onChange={e => setName(e.target.value)} required placeholder="Title" />
+        </div>
+        <div className="libby-form-row">
+          <label className="libby-form-label">author</label>
+          <input className="libby-form-input" value={author} onChange={e => setAuthor(e.target.value)} placeholder="Author name(s)" />
+        </div>
+        <div className="libby-form-row">
+          <label className="libby-form-label">isbn</label>
+          <input className="libby-form-input libby-form-input--short" value={isbn} onChange={e => setIsbn(e.target.value)} placeholder="ISBN-13" />
+          <label className="libby-form-label" style={{ marginLeft: '12px' }}>year</label>
+          <input className="libby-form-input libby-form-input--short" value={year} onChange={e => setYear(e.target.value)} placeholder="2018" />
+        </div>
+        <div className="libby-form-row">
+          <label className="libby-form-label">publisher</label>
+          <input className="libby-form-input" value={publisher} onChange={e => setPublisher(e.target.value)} placeholder="Publisher" />
+        </div>
+        <div className="libby-form-row">
+          <label className="libby-form-label">url</label>
+          <input className="libby-form-input" value={url} onChange={e => setUrl(e.target.value)} placeholder="https://…" />
+        </div>
+        <div className="libby-form-row">
+          <label className="libby-form-label">amazon url</label>
+          <input className="libby-form-input" value={amazonUrl} onChange={e => setAmazonUrl(e.target.value)} placeholder="https://www.amazon.com/dp/…" />
+        </div>
+        <div className="libby-form-row">
+          <label className="libby-form-label">comments</label>
+          <textarea
+            className="libby-form-input libby-form-textarea"
+            value={comments}
+            onChange={e => setComments(e.target.value)}
+            placeholder="Brief annotation (optional)"
+            rows={3}
+          />
+        </div>
+        <div className="libby-form-row">
+          <label className="libby-form-label">priority</label>
+          <select className="libby-form-input libby-form-select" value={priority} onChange={e => setPriority(e.target.value as 'high' | 'medium' | 'low')}>
+            <option value="high">high</option>
+            <option value="medium">medium</option>
+            <option value="low">low</option>
+          </select>
+        </div>
+
+        {/* Topics */}
+        {topics.length > 0 && (
+          <div className="libby-form-row libby-form-row--topics">
+            <label className="libby-form-label" style={{ paddingTop: '2px' }}>topics</label>
+            <div className="libby-book-topics">
+              {topics.map(t => (
+                <label key={t.id} className="libby-book-topic-chip">
+                  <input
+                    type="checkbox"
+                    checked={selectedTopicIds.has(t.id)}
+                    onChange={() => toggleTopic(t.id)}
+                  />
+                  <span className="libby-book-topic-code">{t.code}</span>
+                  <span className="libby-book-topic-name">{t.name}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {saveError && <div className="libby-admin-error">{saveError}</div>}
+        <div className="libby-form-actions">
+          <button
+            type="submit"
+            className="libby-admin-btn libby-admin-btn--primary"
+            disabled={saving || !name.trim()}
+          >
+            {saving ? 'Saving…' : 'Add book'}
+          </button>
+          <button type="button" className="libby-admin-btn" onClick={resetForm}>
+            clear
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Generic creation form (non-book types)
+// ---------------------------------------------------------------------------
+
+function GenericCreationForm({
+  typeCode,
+  typeName,
+  onSaved,
+}: {
+  typeCode: string;
+  typeName: string;
+  onSaved: (name: string) => void;
+}) {
+  const [name, setName] = useState('');
+  const [url, setUrl] = useState('');
+  const [comments, setComments] = useState('');
+  const [priority, setPriority] = useState<'high' | 'medium' | 'low'>('medium');
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const resetForm = () => {
+    setName(''); setUrl(''); setComments(''); setPriority('medium'); setSaveError(null);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const resp = await fetch('/api/libby/entries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: name.trim(),
+          type_code: typeCode,
+          url: url.trim() || null,
+          comments: comments.trim() || null,
+          priority,
+        }),
+      });
+      const data = await resp.json();
+      if (resp.ok) {
+        onSaved(data.name);
+        resetForm();
+      } else {
+        setSaveError(data.detail ?? 'Save failed');
+      }
+    } catch {
+      setSaveError('Save failed — server error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <form className="libby-new-form" onSubmit={handleSubmit}>
+      <div className="libby-new-form-heading">New {typeName}</div>
+      <div className="libby-form-row">
+        <label className="libby-form-label">name *</label>
+        <input className="libby-form-input" value={name} onChange={e => setName(e.target.value)} placeholder="Title or name" required autoFocus spellCheck={false} />
+      </div>
+      <div className="libby-form-row">
+        <label className="libby-form-label">url</label>
+        <input className="libby-form-input" value={url} onChange={e => setUrl(e.target.value)} placeholder="https://…" spellCheck={false} />
+      </div>
+      <div className="libby-form-row">
+        <label className="libby-form-label">comments</label>
+        <textarea className="libby-form-input libby-form-textarea" value={comments} onChange={e => setComments(e.target.value)} placeholder="Brief annotation (optional)" rows={3} />
+      </div>
+      <div className="libby-form-row">
+        <label className="libby-form-label">priority</label>
+        <select className="libby-form-input libby-form-select" value={priority} onChange={e => setPriority(e.target.value as 'high' | 'medium' | 'low')}>
+          <option value="high">high</option>
+          <option value="medium">medium</option>
+          <option value="low">low</option>
+        </select>
+      </div>
+      {saveError && <div className="libby-admin-error">{saveError}</div>}
+      <div className="libby-form-actions">
+        <button type="submit" className="libby-admin-btn libby-admin-btn--primary" disabled={saving || !name.trim()}>
+          {saving ? 'Saving…' : 'Add to library'}
+        </button>
+        <button type="button" className="libby-admin-btn" onClick={resetForm}>clear</button>
+      </div>
+    </form>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // LibbyNewPage
 // ---------------------------------------------------------------------------
@@ -42,14 +501,7 @@ export function LibbyNewPage() {
   const [selectedType, setSelectedType] = useState<string | null>(null);
   const [queue, setQueue] = useState<QueueEntry[]>([]);
   const [loadingQueue, setLoadingQueue] = useState(true);
-
-  // Generic form state
-  const [name, setName] = useState('');
-  const [url, setUrl] = useState('');
-  const [comments, setComments] = useState('');
-  const [priority, setPriority] = useState<'high' | 'medium' | 'low'>('medium');
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const [topics, setTopics] = useState<LibraryTopic[]>([]);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
 
   const loadQueue = () => {
@@ -61,52 +513,26 @@ export function LibbyNewPage() {
 
   useEffect(loadQueue, []);
 
+  useEffect(() => {
+    fetch('/api/libby/topics')
+      .then(r => r.ok ? r.json() : { topics: [] })
+      .then(d => setTopics(d.topics ?? []))
+      .catch(() => {});
+  }, []);
+
   const handleTypeSelect = (code: string) => {
     setSelectedType(prev => prev === code ? null : code);
-    setSaveError(null);
     setSaveSuccess(null);
   };
 
-  const resetForm = () => {
-    setName(''); setUrl(''); setComments(''); setPriority('medium');
-    setSaveError(null); setSaveSuccess(null);
+  const handleSaved = (name: string) => {
+    setSaveSuccess(`Added: "${name}"`);
+    setTimeout(() => setSaveSuccess(null), 4000);
+    loadQueue();
+    refreshQueueCount();
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name.trim() || !selectedType) return;
-    setSaving(true);
-    setSaveError(null);
-    setSaveSuccess(null);
-    try {
-      const resp = await fetch('/api/libby/entries', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: name.trim(),
-          type_code: selectedType,
-          url: url.trim() || null,
-          comments: comments.trim() || null,
-          priority,
-        }),
-      });
-      const data = await resp.json();
-      if (resp.ok) {
-        setSaveSuccess(`Added: "${data.name}"`);
-        resetForm();
-        loadQueue();
-        refreshQueueCount();
-      } else {
-        setSaveError(data.detail ?? 'Save failed');
-      }
-    } catch {
-      setSaveError('Save failed — server error');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const selectedTypeName = ALL_TYPES.find(t => t.code === selectedType)?.name;
+  const selectedTypeDef = ALL_TYPES.find(t => t.code === selectedType);
 
   return (
     <div className="libby-new-page">
@@ -126,77 +552,19 @@ export function LibbyNewPage() {
         ))}
       </div>
 
+      {saveSuccess && <div className="libby-save-success">{saveSuccess}</div>}
+
       {/* ── Creation form ── */}
-      {selectedType ? (
-        <form className="libby-new-form" onSubmit={handleSubmit}>
-          <div className="libby-new-form-heading">
-            New {selectedTypeName}
-          </div>
-
-          <div className="libby-form-row">
-            <label className="libby-form-label">name *</label>
-            <input
-              className="libby-form-input"
-              value={name}
-              onChange={e => setName(e.target.value)}
-              placeholder="Title or name"
-              required
-              autoFocus
-              spellCheck={false}
-            />
-          </div>
-
-          <div className="libby-form-row">
-            <label className="libby-form-label">url</label>
-            <input
-              className="libby-form-input"
-              value={url}
-              onChange={e => setUrl(e.target.value)}
-              placeholder="https://…"
-              spellCheck={false}
-            />
-          </div>
-
-          <div className="libby-form-row">
-            <label className="libby-form-label">comments</label>
-            <textarea
-              className="libby-form-input libby-form-textarea"
-              value={comments}
-              onChange={e => setComments(e.target.value)}
-              placeholder="Brief annotation (optional)"
-              rows={3}
-            />
-          </div>
-
-          <div className="libby-form-row">
-            <label className="libby-form-label">priority</label>
-            <select
-              className="libby-form-input libby-form-select"
-              value={priority}
-              onChange={e => setPriority(e.target.value as 'high' | 'medium' | 'low')}
-            >
-              <option value="high">high</option>
-              <option value="medium">medium</option>
-              <option value="low">low</option>
-            </select>
-          </div>
-
-          {saveError && <div className="libby-admin-error">{saveError}</div>}
-          {saveSuccess && <div className="libby-save-success">{saveSuccess}</div>}
-
-          <div className="libby-form-actions">
-            <button
-              type="submit"
-              className="libby-admin-btn libby-admin-btn--primary"
-              disabled={saving || !name.trim()}
-            >
-              {saving ? 'Saving…' : 'Add to library'}
-            </button>
-            <button type="button" className="libby-admin-btn" onClick={resetForm}>
-              clear
-            </button>
-          </div>
-        </form>
+      {selectedType && selectedTypeDef ? (
+        selectedType === 'b' ? (
+          <BookCreationForm topics={topics} onSaved={handleSaved} />
+        ) : (
+          <GenericCreationForm
+            typeCode={selectedType}
+            typeName={selectedTypeDef.name}
+            onSaved={handleSaved}
+          />
+        )
       ) : (
         <div className="libby-new-prompt">Select a type above to add a new entry</div>
       )}
@@ -205,9 +573,8 @@ export function LibbyNewPage() {
       <div className="libby-queue-section">
         <h3 className="libby-queue-title">Review queue</h3>
         <p className="libby-admin-desc">
-          Entries awaiting auto-tagging and auto-synopsis. Click a row to review once ready.
+          Entries awaiting auto-tagging and auto-synopsis.
         </p>
-
         {loadingQueue ? (
           <div className="libby-admin-loading">Loading…</div>
         ) : queue.length === 0 ? (
