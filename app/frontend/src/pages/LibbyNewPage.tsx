@@ -536,7 +536,6 @@ export function LibbyNewPage() {
 
   return (
     <div className="libby-new-page">
-      <h2 className="libby-page-name">New</h2>
 
       {/* ── Type selector ── */}
       <div className="libby-type-selector">

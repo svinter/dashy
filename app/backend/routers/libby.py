@@ -115,6 +115,7 @@ def search_library(q: str = "", client_id: int | None = None):
             e.amazon_url,
             e.webpage_url,
             e.gdoc_id,
+            e.comments,
             CASE e.type_code
                 WHEN 'b' THEN lb.author
                 WHEN 'a' THEN la.author
@@ -137,8 +138,8 @@ def search_library(q: str = "", client_id: int | None = None):
         params.append(type_code)
 
     for tok in name_tokens:
-        sql += " AND lower(e.name) LIKE ?"
-        params.append(f"%{tok}%")
+        sql += " AND (lower(e.name) LIKE ? OR (e.type_code = 'q' AND lower(e.comments) LIKE ?))"
+        params.extend([f"%{tok}%", f"%{tok}%"])
 
     for pfx in topic_prefixes:
         sql += """
@@ -171,12 +172,27 @@ def search_library(q: str = "", client_id: int | None = None):
                 {"code": tr["code"], "name": tr["name"]}
             )
 
+    def _quote_author(comments: str | None) -> str | None:
+        if not comments:
+            return None
+        idx = comments.find(" \u2014 ")  # em dash with spaces
+        if idx < 0:
+            return None
+        return comments[idx + 3:].strip() or None
+
     # Score, rank, cap
     results = []
     for row in rows:
         name_score = _name_match_score(row["name"], name_tokens) if name_tokens else 1
         if name_tokens and name_score == 0:
-            continue
+            # For quotes, also accept a match in comments
+            if row["type_code"] == "q":
+                name_score = _name_match_score(row["comments"] or "", name_tokens)
+            if name_score == 0:
+                continue
+        author = row["author"] or (
+            _quote_author(row["comments"]) if row["type_code"] == "q" else None
+        )
         results.append({
             "id": row["id"],
             "name": row["name"],
@@ -187,7 +203,7 @@ def search_library(q: str = "", client_id: int | None = None):
             "amazon_url": row["amazon_url"],
             "webpage_url": row["webpage_url"],
             "gdoc_id": row["gdoc_id"],
-            "author": row["author"],
+            "author": author,
             "topics": topics_by_entry.get(row["id"], []),
             "_rank": (
                 _PRIORITY_RANK.get(row["priority"], 0),

@@ -114,7 +114,6 @@ export function LibbyTagsPage() {
 
   return (
     <div className="libby-admin-page">
-      <h2 className="libby-page-name">Tags</h2>
       <p className="libby-admin-desc">
         {topics.length} topic{topics.length !== 1 ? 's' : ''} · Edit code or name inline · Merge to reassign all entries
       </p>

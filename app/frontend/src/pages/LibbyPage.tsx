@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Routes, Route, Navigate, NavLink } from 'react-router-dom';
 import { useLibbyContext } from '../contexts/LibbyContext';
 import type { LibbyFilterSelection, LibbyGroup } from '../contexts/LibbyContext';
@@ -307,7 +307,9 @@ function parseTopicPrefix(query: string): string | null {
 // ---------------------------------------------------------------------------
 
 function CatalogPage() {
-  const { activeClientId, activeClientName, activeCompanyId, isHelpOpen } = useLibbyContext();
+  const { activeClientId, activeClientName, activeCompanyId, isHelpOpen, onSelectionChange } = useLibbyContext();
+
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const [query, setQuery] = useState('');
   const [uiState, setUiState] = useState<UiState>('SEARCH');
@@ -320,6 +322,13 @@ function CatalogPage() {
   const [toastVariant, setToastVariant] = useState<'default' | 'warning'>('default');
   const [loading, setLoading] = useState(false);
   const [allTopics, setAllTopics] = useState<LibraryTopic[]>([]);
+
+  // Auto-focus search box when a client is selected
+  useEffect(() => {
+    if (activeClientId !== null) {
+      searchInputRef.current?.focus();
+    }
+  }, [activeClientId]);
 
   // Load all topics once on mount for client-side filtering feedback
   useEffect(() => {
@@ -453,6 +462,7 @@ function CatalogPage() {
           return;
         }
         if (e.key === 'Escape') { setQuery(''); setResults([]); return; }
+        if (e.metaKey && e.key === 'a') { e.preventDefault(); onSelectionChange([], true); return; }
       }
 
       if (uiState === 'SELECT') {
@@ -491,7 +501,7 @@ function CatalogPage() {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [uiState, results, frozenResults, selected, activeClientId, isHelpOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [uiState, results, frozenResults, selected, activeClientId, isHelpOpen, onSelectionChange]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const displayResults = uiState === 'SEARCH' ? results : frozenResults;
   const displayQuery = uiState === 'SELECT' ? query + ',' : uiState === 'ACTION' ? '' : query;
@@ -513,7 +523,6 @@ function CatalogPage() {
 
   return (
     <div className="libby-find-page">
-      <h2 className="libby-page-name">Catalog</h2>
       <LibbyClientFilter />
 
       {/* Search box */}
@@ -524,6 +533,7 @@ function CatalogPage() {
           </div>
         ) : (
           <input
+            ref={searchInputRef}
             className="libby-search-input"
             type="text"
             placeholder={uiState === 'SEARCH' ? 'b .le atomic…' : ''}
@@ -571,8 +581,9 @@ function CatalogPage() {
       {uiState !== 'ACTION' && displayResults.length > 0 && (
         <div className="libby-results-header">
           <span className="libby-result-label">key</span>
-          <span className="libby-result-name-cell">
-            title <span style={{ color: 'var(--color-text-light)', fontWeight: 'normal' }}>by author</span>
+          <span className="libby-result-name-cell" style={{ flexDirection: 'row', alignItems: 'baseline', gap: '4px' }}>
+            <span style={{ color: '#000' }}>title</span>
+            <span style={{ color: 'var(--color-text-light)', fontWeight: 'normal' }}>by author</span>
           </span>
           <span className="libby-result-type">type</span>
           <span className="libby-priority-dots">pri</span>
