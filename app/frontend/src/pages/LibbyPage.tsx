@@ -6,6 +6,7 @@ import { ClientFilterBar } from '../components/shared/ClientFilterBar';
 import type { HelpShortcut } from '../components/shared/ClientFilterBar';
 import { LibbyTagsPage } from './LibbyTagsPage';
 import { LibbyTypesPage } from './LibbyTypesPage';
+import { LibbyNewPage } from './LibbyNewPage';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -245,7 +246,7 @@ function LibbyClientFilter() {
 // ---------------------------------------------------------------------------
 
 function LibbyLayout({ children }: { children: React.ReactNode }) {
-  const { isHelpOpen, setHelpOpen } = useLibbyContext();
+  const { isHelpOpen, setHelpOpen, queueCount } = useLibbyContext();
 
   // ⌘? opens help; Escape closes it (without interfering with Catalog machine)
   useEffect(() => {
@@ -276,6 +277,9 @@ function LibbyLayout({ children }: { children: React.ReactNode }) {
         </NavLink>
         <NavLink to="/libby/types" className={({ isActive }) => `libby-sub-nav-link${isActive ? ' active' : ''}`}>
           Types
+        </NavLink>
+        <NavLink to="/libby/new" className={({ isActive }) => `libby-sub-nav-link${isActive ? ' active' : ''}${queueCount > 0 ? ' libby-sub-nav-link--badge' : ''}`}>
+          {queueCount > 0 ? `New (${queueCount})` : 'New'}
         </NavLink>
       </nav>
       {children}
@@ -692,6 +696,7 @@ export function LibbyPage() {
           <Route path="catalog" element={<CatalogPage />} />
           <Route path="tags" element={<LibbyTagsPage />} />
           <Route path="types" element={<LibbyTypesPage />} />
+          <Route path="new" element={<LibbyNewPage />} />
         </Routes>
       </LibbyLayout>
     </div>

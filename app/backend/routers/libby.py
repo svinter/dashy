@@ -5,6 +5,8 @@ Design: ~/Obsidian/MyNotes/Projects/Dashy/libby-design.md
 Endpoints:
   GET  /api/libby/search                       — keyword + type + topic search
   GET  /api/libby/active-client                — default client for current session
+  GET  /api/libby/queue                        — entries awaiting enrichment
+  POST /api/libby/entries                      — create a new library entry
   POST /api/libby/entries/{id}/action/copy     — return URL for clipboard
   POST /api/libby/entries/{id}/action/record   — log share, write Obsidian notes, append to Manifest
   POST /api/libby/entries/{id}/action/make     — generate GitHub Pages HTML, git push, set webpage_url
@@ -31,13 +33,14 @@ router = APIRouter(prefix="/api/libby", tags=["libby"])
 # ---------------------------------------------------------------------------
 
 _PRIORITY_RANK = {"high": 3, "medium": 2, "low": 1}
-_VALID_TYPE_CODES = frozenset("abptw")
+_VALID_TYPE_CODES = frozenset({"a", "b", "e", "p", "v", "m", "t", "w", "s", "z", "n", "d", "f", "c", "r", "q"})
 _TYPE_NAMES = {
-    "b": "book",
-    "a": "article",
-    "p": "podcast",
-    "t": "tool",
-    "w": "webpage",
+    "b": "Book",        "a": "Article",    "e": "Essay",
+    "p": "Podcast",     "v": "Video",      "m": "Movie",
+    "t": "Tool",        "w": "Webpage",    "s": "Worksheet",
+    "z": "Assessment",  "n": "Note",       "d": "Document",
+    "f": "Framework",   "c": "Course",     "r": "Research",
+    "q": "Quote",
 }
 
 
@@ -1000,3 +1003,108 @@ def create_type(body: TypeCreateRequest):
         )
         dbw.commit()
     return {"status": "ok", "code": code, "name": name, "description": body.description}
+
+
+# ---------------------------------------------------------------------------
+# GET  /api/libby/queue  — entries awaiting enrichment (needs_enrichment = 1)
+# POST /api/libby/entries — create a new library entry
+# ---------------------------------------------------------------------------
+
+@router.get("/queue")
+def get_queue():
+    """Return all library entries pending enrichment, with current status.
+
+    Status is derived from libby_enrichment_log:
+      pending    — no log rows yet (just created)
+      processing — any row in 'processing' state
+      ready      — all rows complete (needs_enrichment should be 0 by then)
+      failed     — any row in 'failed' state
+    For now returns 'pending' for everything until Items 3/4 are implemented.
+    """
+    db = get_db()
+    rows = db.execute(
+        """
+        SELECT e.id, e.name, e.type_code, e.created_at,
+               COALESCE(
+                 CASE
+                   WHEN SUM(CASE WHEN el.status = 'failed'     THEN 1 ELSE 0 END) > 0 THEN 'failed'
+                   WHEN SUM(CASE WHEN el.status = 'processing' THEN 1 ELSE 0 END) > 0 THEN 'processing'
+                   WHEN COUNT(el.id) > 0
+                    AND SUM(CASE WHEN el.status = 'complete'   THEN 1 ELSE 0 END) = COUNT(el.id)
+                        THEN 'ready'
+                   ELSE 'pending'
+                 END,
+                 'pending'
+               ) AS status
+        FROM library_entries e
+        LEFT JOIN libby_enrichment_log el ON el.entry_id = e.id
+        WHERE e.needs_enrichment = 1
+        GROUP BY e.id
+        ORDER BY e.created_at DESC
+        """
+    ).fetchall()
+    entries = [
+        {
+            "id": r["id"],
+            "name": r["name"],
+            "type_code": r["type_code"],
+            "created_at": r["created_at"],
+            "status": r["status"],
+        }
+        for r in rows
+    ]
+    return {"entries": entries, "count": len(entries)}
+
+
+class EntryCreateRequest(BaseModel):
+    name: str
+    type_code: str
+    url: str | None = None
+    comments: str | None = None
+    priority: str = "medium"
+
+
+@router.post("/entries")
+def create_entry(body: EntryCreateRequest):
+    """Create a new library entry with the generic common fields.
+
+    Inserts a minimal row into the type-specific entity table, then inserts
+    into library_entries. Sets needs_enrichment = 1. Returns new entry id.
+    """
+    name = body.name.strip()
+    type_code = body.type_code.lower().strip()
+
+    if not name:
+        raise HTTPException(status_code=400, detail="Name is required")
+    if type_code not in _VALID_TYPE_CODES:
+        raise HTTPException(status_code=400, detail=f"Unknown type code: {type_code!r}")
+    if body.priority not in ("high", "medium", "low"):
+        raise HTTPException(status_code=400, detail="Priority must be high, medium, or low")
+
+    db = get_db()
+    type_row = db.execute(
+        "SELECT table_name FROM library_types WHERE code = ?", (type_code,)
+    ).fetchone()
+    if not type_row:
+        raise HTTPException(status_code=400, detail=f"Type '{type_code}' not registered in library_types")
+
+    table_name = type_row["table_name"]
+
+    with get_write_db() as dbw:
+        # Minimal entity row (id only)
+        entity_cursor = dbw.execute(f"INSERT INTO {table_name} (id) VALUES (NULL)")
+        entity_id = entity_cursor.lastrowid
+
+        # Main entry row
+        entry_cursor = dbw.execute(
+            """INSERT INTO library_entries
+               (name, type_code, url, comments, priority, entity_id,
+                needs_enrichment, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, 1, datetime('now'), datetime('now'))""",
+            (name, type_code, body.url or None, body.comments or None, body.priority, entity_id),
+        )
+        entry_id = entry_cursor.lastrowid
+        dbw.commit()
+
+    logger.info("Created library entry %d: %r (%s)", entry_id, name, type_code)
+    return {"id": entry_id, "status": "created", "name": name, "type_code": type_code}

@@ -9945,3 +9945,226 @@ span.news-item-title {
   margin-top: 16px;
 }
 
+/* ── Libby sub-nav badge ── */
+
+.libby-sub-nav-link--badge {
+  color: var(--color-accent, #2563eb);
+  font-weight: 600;
+}
+
+/* ── Libby New page ── */
+
+.libby-new-page {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  max-width: 680px;
+}
+
+.libby-type-selector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.libby-type-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  font-size: var(--text-sm);
+  font-family: inherit;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-text-light);
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+}
+
+.libby-type-btn:hover {
+  background: var(--color-bg-subtle, rgba(0,0,0,0.04));
+  color: var(--color-text);
+}
+
+.libby-type-btn--selected {
+  background: var(--color-text);
+  color: var(--color-bg, #fff);
+  border-color: var(--color-text);
+}
+
+.libby-type-btn--selected:hover {
+  opacity: 0.85;
+  background: var(--color-text);
+  color: var(--color-bg, #fff);
+}
+
+.libby-type-btn-code {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.75rem;
+  font-weight: 700;
+  opacity: 0.7;
+}
+
+.libby-type-btn--selected .libby-type-btn-code {
+  opacity: 1;
+}
+
+.libby-type-btn-name {
+  font-size: 0.8rem;
+}
+
+.libby-new-prompt {
+  font-size: var(--text-sm);
+  color: var(--color-text-light);
+  font-style: italic;
+  padding: 8px 0;
+}
+
+.libby-new-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  padding: 16px 20px;
+  background: var(--color-bg-subtle, rgba(0,0,0,0.015));
+}
+
+.libby-new-form-heading {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: 4px;
+}
+
+.libby-form-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.libby-form-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-light);
+  white-space: nowrap;
+  min-width: 70px;
+  padding-top: 5px;
+}
+
+.libby-form-input {
+  font-size: var(--text-sm);
+  font-family: inherit;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  padding: 4px 8px;
+  background: var(--color-bg, #fff);
+  color: var(--color-text);
+  flex: 1;
+  min-width: 0;
+}
+
+.libby-form-input:focus {
+  outline: 1px solid var(--color-accent, #2563eb);
+}
+
+.libby-form-textarea {
+  resize: vertical;
+  line-height: 1.5;
+  padding-top: 6px;
+}
+
+.libby-form-select {
+  flex: 0 0 auto;
+  width: 120px;
+}
+
+.libby-form-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.libby-save-success {
+  font-size: var(--text-sm);
+  color: var(--color-success, #27ae60);
+  font-weight: 500;
+}
+
+/* ── Queue section ── */
+
+.libby-queue-section {
+  border-top: 1px solid var(--color-border);
+  padding-top: 16px;
+}
+
+.libby-queue-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin: 0 0 4px;
+}
+
+.libby-queue-table {
+  max-width: 100%;
+}
+
+.libby-queue-row {
+  cursor: default;
+}
+
+.libby-queue-name {
+  font-weight: 500;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.libby-queue-date {
+  color: var(--color-text-light);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.libby-queue-pending {
+  font-size: var(--text-xs);
+  color: var(--color-text-light);
+}
+
+.libby-queue-status {
+  font-size: 0.7rem;
+  font-weight: 500;
+  text-transform: lowercase;
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+
+.libby-queue-status--pending {
+  color: var(--color-text-light);
+  background: var(--color-bg-subtle, rgba(0,0,0,0.04));
+}
+
+.libby-queue-status--processing {
+  color: #b8860b;
+  background: rgba(184,134,11,0.08);
+}
+
+.libby-queue-status--ready {
+  color: var(--color-success, #27ae60);
+  background: rgba(39,174,96,0.08);
+}
+
+.libby-queue-status--failed {
+  color: var(--color-danger, #c0392b);
+  background: rgba(192,57,43,0.08);
+}
+
+.libby-queue-empty {
+  font-size: var(--text-sm);
+  color: var(--color-text-light);
+  font-style: italic;
+}
+

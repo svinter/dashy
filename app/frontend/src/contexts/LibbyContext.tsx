@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import type { FilterItem } from '../components/shared/ClientFilterBar';
 
 // ---------------------------------------------------------------------------
@@ -32,6 +32,10 @@ interface LibbyContextValue {
   activeCompanyId: number | null;     // non-null when company chip selected
   activeCompanyName: string | null;   // company name when company chip selected
 
+  // Queue badge
+  queueCount: number;
+  refreshQueueCount: () => void;
+
   // Help popup
   isHelpOpen: boolean;
   setHelpOpen: (open: boolean) => void;
@@ -50,6 +54,8 @@ const LibbyContext = createContext<LibbyContextValue>({
   activeClientName: null,
   activeCompanyId: null,
   activeCompanyName: null,
+  queueCount: 0,
+  refreshQueueCount: () => {},
   isHelpOpen: false,
   setHelpOpen: () => {},
 });
@@ -63,6 +69,21 @@ export function LibbyProvider({ children }: { children: ReactNode }) {
   const [selection, setSelection] = useState<LibbyFilterSelection[]>([]);
   const [allChip, setAllChip] = useState(false);
   const [isHelpOpen, setHelpOpen] = useState(false);
+  const [queueCount, setQueueCount] = useState(0);
+
+  const refreshQueueCount = useCallback(() => {
+    fetch('/api/libby/queue')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.count != null) setQueueCount(d.count); })
+      .catch(() => {});
+  }, []);
+
+  // Poll queue count every 30s + on mount
+  useEffect(() => {
+    refreshQueueCount();
+    const timer = setInterval(refreshQueueCount, 30_000);
+    return () => clearInterval(timer);
+  }, [refreshQueueCount]);
 
   // Fetch groups + active-client in parallel on mount
   useEffect(() => {
@@ -125,6 +146,8 @@ export function LibbyProvider({ children }: { children: ReactNode }) {
         activeClientName,
         activeCompanyId,
         activeCompanyName,
+        queueCount,
+        refreshQueueCount,
         isHelpOpen,
         setHelpOpen,
       }}
