@@ -99,7 +99,7 @@ export function LibbyTypesPage() {
 
   return (
     <div className="libby-admin-page">
-      <h2 className="libby-admin-title">Types</h2>
+      <h2 className="libby-page-name">Types</h2>
       <p className="libby-admin-desc">
         {types.length} type{types.length !== 1 ? 's' : ''} · Edit name and description inline · Types with entries cannot be deleted
       </p>

@@ -268,6 +268,7 @@ function LibbyLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="libby-layout">
+      <h1>Library</h1>
       <nav className="libby-sub-nav">
         <NavLink to="/libby/catalog" className={({ isActive }) => `libby-sub-nav-link${isActive ? ' active' : ''}`}>
           Catalog
@@ -506,14 +507,13 @@ function CatalogPage() {
     : [];
   const topicPrefixColor = matchingTopics.length === 1 ? 'var(--color-text)' : 'var(--color-text-light)';
 
+
   // Show shared-indicator column when a specific client (not just company) is selected
   const showSharedColumn = activeClientId !== null;
 
   return (
     <div className="libby-find-page">
-      <div className="libby-header">
-        <span className="libby-header-title">Catalog</span>
-      </div>
+      <h2 className="libby-page-name">Catalog</h2>
       <LibbyClientFilter />
 
       {/* Search box */}
@@ -539,7 +539,15 @@ function CatalogPage() {
 
       {/* State hint */}
       <div className="libby-state-hint">
-        {uiState === 'SEARCH' && (query ? `${results.length} result${results.length !== 1 ? 's' : ''} · , to select` : 'type to search · ⌘? for help')}
+        {uiState === 'SEARCH' && (
+          query
+            ? results.length === 0
+              ? 'no results'
+              : results.length === 1
+                ? <>1 result — use <kbd>return</kbd> to select</>
+                : <>{results.length} results — use <kbd>,</kbd><kbd>choice</kbd> to select</>
+            : 'type to search · ⌘? for help'
+        )}
         {uiState === 'SELECT' && 'press a–t to select · Backspace to search'}
         {uiState === 'ACTION' && '⌥c copy · ⌥r record · ⌥m make · ⌥d doc · ⌥f full · Escape to reset'}
       </div>
@@ -563,12 +571,13 @@ function CatalogPage() {
       {uiState !== 'ACTION' && displayResults.length > 0 && (
         <div className="libby-results-header">
           <span className="libby-result-label">key</span>
-          <span className="libby-result-name-cell">title</span>
-          <span className="libby-result-author">author</span>
+          <span className="libby-result-name-cell">
+            title <span style={{ color: 'var(--color-text-light)', fontWeight: 'normal' }}>by author</span>
+          </span>
           <span className="libby-result-type">type</span>
           <span className="libby-priority-dots">pri</span>
-          <span className="libby-result-freq">freq</span>
-          {showSharedColumn && <span className="libby-result-shared">shared</span>}
+          <span className="libby-result-freq">shared</span>
+          {showSharedColumn && <span className="libby-result-shared">with</span>}
         </div>
       )}
 
@@ -596,12 +605,16 @@ function CatalogPage() {
               >
                 <span className={`libby-result-label ${isHighlit ? 'libby-result-label--active' : ''}`}>{label}</span>
                 <span className="libby-result-name-cell">
-                  <span className="libby-result-name">{entry.name}</span>
+                  <span className="libby-result-name">
+                    {entry.name}
+                    {entry.author && (
+                      <span className="libby-result-author-inline"> by {entry.author}</span>
+                    )}
+                  </span>
                   {rowTopics.length > 0 && (
                     <span className="libby-result-name-topics">{rowTopics.map(t => t.name).join(', ')}</span>
                   )}
                 </span>
-                {entry.author && <span className="libby-result-author">{entry.author}</span>}
                 <span className="libby-result-type">{TYPE_LABELS[entry.type_code] ?? entry.type_code}</span>
                 <PriorityDots priority={entry.priority} />
                 {entry.frequency > 0 && (
