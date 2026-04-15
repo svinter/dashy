@@ -1,0 +1,1352 @@
+matches:
+- action: move
+  confidence: high
+  src_path: 3 Tech/Uncertainty.md
+  dest_path: 4 Library/Books/Uncertain.md
+  db_title: 'Uncertain: The Wisdom and Wonder of Being Unsure'
+  db_author: Maggie Jackson
+  content_chars: 28759
+  _entry_id: 1395
+- action: skip
+  confidence: review
+  src_path: 3 Tech/Social AI.md
+  dest_path: 4 Library/Books/Social.md
+  db_title: 'Social: Why Our Brains Are Wired to Connect'
+  db_author: 'Matthew Lieberman: importance of social connections'
+  content_chars: 746
+  _entry_id: 1114
+- action: move
+  confidence: review
+  src_path: 3 Tech/Consciousness Explained (highlights).md
+  dest_path: 4 Library/Books/Consciousness Explained.md
+  db_title: Consciousness Explained
+  db_author: Daniel Dennett
+  content_chars: 1024
+  _entry_id: 621
+- action: move
+  confidence: high
+  src_path: 4 Library/Team of Teams.md
+  dest_path: 4 Library/Books/Team of Teams.md
+  db_title: 'Team of Teams: New Rules of Engagement for a Complex World'
+  db_author: Gen. Stanley McChrystal
+  content_chars: 20705
+  _entry_id: 1152
+- action: skip
+  confidence: review
+  src_path: 5 Philosophy/trauma.md
+  dest_path: 4 Library/Books/Truman.md
+  db_title: Truman
+  db_author: David McCullough
+  content_chars: 782
+  _entry_id: 1389
+- action: move
+  confidence: review
+  src_path: 5 Philosophy/wisdom.md
+  dest_path: 4 Library/Books/Wisdom 2.0.md
+  db_title: 'Wisdom 2.0: The New Movement Toward Purposeful Engagement in Business
+    and in Life'
+  db_author: Soren Gordhamer
+  content_chars: 7591
+  _entry_id: 1457
+- action: move
+  confidence: review
+  src_path: 5 Philosophy/Writing tips.md
+  dest_path: 4 Library/Books/Writing Tools.md
+  db_title: 'Writing Tools: 55 Essential Strategies for Every Writer'
+  db_author: Clark, Roy Peter
+  content_chars: 12153
+  _entry_id: 1467
+- action: move
+  confidence: review
+  src_path: 5 Philosophy/Exploring Leadership.md
+  dest_path: 4 Library/Books/Mastering Leadership.md
+  db_title: 'Mastering Leadership: An Integrated Framework for Breakthrough Performance
+    and Extraordinary Business Results'
+  db_author: Robert J. Anderson and William A. Adams
+  content_chars: 2962
+  _entry_id: 951
+- action: skip
+  confidence: high
+  src_path: 9 Unfiled/Master.md
+  dest_path: 4 Library/Books/Mastery.md
+  db_title: Mastery
+  db_author: Robert Greene
+  content_chars: 592
+  _entry_id: 952
+- action: move
+  confidence: review
+  src_path: 9 Unfiled/My Writing.md
+  dest_path: 4 Library/Books/On Writing.md
+  db_title: 'On Writing: A Memoir of the Craft'
+  db_author: Stephen King
+  content_chars: 26706
+  _entry_id: 997
+- action: move
+  confidence: review
+  src_path: 9 Unfiled/Life Multipliers.md
+  dest_path: 4 Library/Books/Multipliers.md
+  db_title: 'Multipliers: How the Best Leaders Make Everyone Smarter'
+  db_author: Liz Wiseman and Greg McKeown
+  content_chars: 1984
+  _entry_id: 969
+- action: move
+  confidence: high
+  src_path: 9 Unfiled/Insights.md
+  dest_path: 4 Library/Books/Insight.md
+  db_title: 'Insight: The Surprising Truth About How Others See Us, How We See Ourselves,
+    and Why the Answers Matter More Than We Think'
+  db_author: Tasha Eurich
+  content_chars: 439
+  _entry_id: 860
+- action: move
+  confidence: review
+  src_path: 9 Unfiled/intelligence.md
+  dest_path: 4 Library/Books/Superintelligence.md
+  db_title: 'Superintelligence: Paths, Dangers, Strategies'
+  db_author: Nick Bostrom
+  content_chars: 4010
+  _entry_id: 1138
+- action: move
+  confidence: high
+  src_path: 9 Unfiled/Change Your Thoughts - Change Your Life (highli....md
+  dest_path: 4 Library/Books/Change Your Thoughts, Change Your Life.md
+  db_title: 'Change Your Thoughts, Change Your Life: Living the Wisdom of the Tao'
+  db_author: Dr. Wayne W. Dyer
+  content_chars: 1106
+  _entry_id: 591
+- action: move
+  confidence: high
+  src_path: Libby/Books/mans-search-for-meaning.md
+  dest_path: 4 Library/Books/Man's Search For Meaning.md
+  db_title: Man's Search For Meaning
+  db_author: Victor Frankl
+  content_chars: 593
+  _entry_id: 940
+- action: move
+  confidence: review
+  src_path: 4 Library/Essays/Exploring Happiness.md
+  dest_path: 4 Library/Books/Delivering Happiness.md
+  db_title: 'Delivering Happiness: A Path to Profits, Passion, and Purpose'
+  db_author: Tony Hsieh
+  content_chars: 11369
+  _entry_id: 650
+- action: move
+  confidence: high
+  src_path: 4 Library/Papers/Predictably Irrational.md
+  dest_path: 4 Library/Books/Predictably Irrational.md
+  db_title: Predictably Irrational
+  db_author: Dan Ariely
+  content_chars: 5450
+  _entry_id: 1029
+- action: skip
+  confidence: review
+  src_path: 4 Library/Exploring/Trauma.md
+  dest_path: 4 Library/Books/Truman.md
+  db_title: Truman
+  db_author: David McCullough
+  content_chars: 849
+  _entry_id: 1389
+- action: move
+  confidence: review
+  src_path: 4 Library/Exploring/Exploring Leadership.md
+  dest_path: 4 Library/Books/Mastering Leadership.md
+  db_title: 'Mastering Leadership: An Integrated Framework for Breakthrough Performance
+    and Extraordinary Business Results'
+  db_author: Robert J. Anderson and William A. Adams
+  content_chars: 2628
+  _entry_id: 951
+- action: move
+  confidence: review
+  src_path: 4 Library/Summaries/Accountable Leaders Summary.md
+  dest_path: 4 Library/Books/Accountable Leaders.md
+  db_title: 'Accountable Leaders: Inspire a Culture Where Everyone Steps Up, Takes
+    Ownership, and Delivers Results'
+  db_author: Vince Molinaro
+  content_chars: 8672
+  _entry_id: 483
+- action: move
+  confidence: high
+  src_path: 4 Library/Summaries/Immunity to Change.md
+  dest_path: 4 Library/Books/Immunity to Change.md
+  db_title: 'Immunity to Change: How to Overcome It and Unlock the Potential in Yourself
+    and Your Organization (Leadership for the Common Good)'
+  db_author: Lisa Lahey and Bob Kegan
+  content_chars: 482
+  _entry_id: 851
+- action: move
+  confidence: high
+  src_path: 4 Library/Summaries/Principles.md
+  dest_path: 4 Library/Books/Principles.md
+  db_title: Principles
+  db_author: Ray Dalio
+  content_chars: 1266
+  _entry_id: 1035
+- action: move
+  confidence: high
+  src_path: 4 Library/Summaries/The Gifts of Imperfection.md
+  dest_path: 4 Library/Books/The Gifts of Imperfection.md
+  db_title: The Gifts of Imperfection
+  db_author: Brené Brown
+  content_chars: 19325
+  _entry_id: 1290
+- action: move
+  confidence: high
+  src_path: 4 Library/Summaries/Debugging Teams.md
+  dest_path: 4 Library/Books/Debugging Teams.md
+  db_title: 'Debugging Teams: Better Productivity through Collaboration'
+  db_author: Brian W. Fitzpatrick and Ben Collins-Sussman
+  content_chars: 3738
+  _entry_id: 644
+- action: move
+  confidence: high
+  src_path: 4 Library/Summaries/Getting More.md
+  dest_path: 4 Library/Books/Getting More.md
+  db_title: 'Getting More: How You Can Negotiate to Succeed in Work and Life'
+  db_author: Stuart Diamond
+  content_chars: 6339
+  _entry_id: 763
+- action: move
+  confidence: high
+  src_path: 4 Library/Summaries/Rich Dad, Poor Dad.md
+  dest_path: 4 Library/Books/Rich Dad Poor Dad.md
+  db_title: 'Rich Dad Poor Dad: What The Rich Teach Their Kids About Money That the
+    Poor and Middle Class Do Not!'
+  db_author: Robert T. Kiyosaki
+  content_chars: 1480
+  _entry_id: 1068
+- action: move
+  confidence: high
+  src_path: 4 Library/Summaries/Talent is Overrated.md
+  dest_path: 4 Library/Books/Talent is Overrated.md
+  db_title: Talent is Overrated
+  db_author: Geoff Colvin
+  content_chars: 8319
+  _entry_id: 1143
+- action: move
+  confidence: high
+  src_path: 4 Library/Summaries/Flawless Consulting.md
+  dest_path: 4 Library/Books/Flawless Consulting.md
+  db_title: 'Flawless Consulting: A Guide to Getting Your Expertise Used'
+  db_author: Peter Bloc
+  content_chars: 13209
+  _entry_id: 736
+- action: move
+  confidence: high
+  src_path: 4 Library/Summaries/Zone to Win.md
+  dest_path: 4 Library/Books/Zone to Win.md
+  db_title: 'Zone to Win: Organizing to Compete in an Age of Disruption'
+  db_author: Geoffrey A. Moore
+  content_chars: 8313
+  _entry_id: 1478
+- action: move
+  confidence: review
+  src_path: 4 Library/Summaries/The Friction Project Summary.md
+  dest_path: 4 Library/Books/The Friction Project.md
+  db_title: 'The Friction Project: How Smart Leaders Make the Right Things Easier
+    and the Wrong Things Harder'
+  db_author: Robert I. Sutton, Huggy Rao
+  content_chars: 9295
+  _entry_id: 1284
+- action: move
+  confidence: high
+  src_path: 4 Library/Summaries/The Coaching Habit.md
+  dest_path: 4 Library/Books/The Coaching Habit.md
+  db_title: 'The Coaching Habit: Say Less, Ask More & Change the Way You Lead Forever'
+  db_author: Michael Bungay StanierHelping managers be better coaches
+  content_chars: 5019
+  _entry_id: 1225
+- action: move
+  confidence: review
+  src_path: 4 Library/Summaries/5 Dysfunctions of a Team.md
+  dest_path: 4 Library/Books/The Five Dysfunctions of a Team.md
+  db_title: 'The Five Dysfunctions of a Team: A Leadership Fable'
+  db_author: Patrick Lencioni
+  content_chars: 2185
+  _entry_id: 1276
+- action: move
+  confidence: high
+  src_path: 4 Library/Summaries/The Four Greatest Coaching Conversations.md
+  dest_path: 4 Library/Books/The Four Greatest Coaching Conversations.md
+  db_title: 'The Four Greatest Coaching Conversations: Change mindsets, shift attitudes,
+    and achieve extraordinary results'
+  db_author: Jerry Connor and Karim Hirani
+  content_chars: 2808
+  _entry_id: 1283
+- action: move
+  confidence: high
+  src_path: 4 Library/Summaries/An-Everyone-Culture.md
+  dest_path: 4 Library/Books/An Everyone Culture.md
+  db_title: 'An Everyone Culture: Becoming a Deliberately Developmental Organization'
+  db_author: Robert Kegan
+  content_chars: 28667
+  _entry_id: 502
+- action: move
+  confidence: review
+  src_path: 4 Library/Summaries/Who Do We Choose to Be Summary.md
+  dest_path: 4 Library/Books/Who Do We Choose to Be.md
+  db_title: 'Who Do We Choose to Be?: Facing Reality, Claiming Leadership, Restoring
+    Sanity'
+  db_author: Margaret J. Wheatley
+  content_chars: 14290
+  _entry_id: 1441
+- action: move
+  confidence: review
+  src_path: 4 Library/Summaries/Remote, not Distant Summary.md
+  dest_path: 4 Library/Books/Remote Not Distant.md
+  db_title: 'Remote Not Distant: Design a Company Culture That Will Help You Thrive
+    in a Hybrid Workplace'
+  db_author: Gustavo Razzetti
+  content_chars: 14472
+  _entry_id: 1059
+- action: move
+  confidence: high
+  src_path: 4 Library/Summaries/Enlightment Now.md
+  dest_path: 4 Library/Books/Enlightenment Now.md
+  db_title: Enlightenment Now
+  db_author: Steven Pinker
+  content_chars: 1656
+  _entry_id: 700
+- action: move
+  confidence: high
+  src_path: 4 Library/Summaries/Authentic Leadership.md
+  dest_path: 4 Library/Books/Authentic Leadership.md
+  db_title: 'Authentic Leadership: Rediscovering the Secrets to Creating Lasting Value'
+  db_author: Bill George
+  content_chars: 4240
+  _entry_id: 526
+- action: move
+  confidence: high
+  src_path: 4 Library/Summaries/Six Simple Rules.md
+  dest_path: 4 Library/Books/Six Simple Rules.md
+  db_title: 'Six Simple Rules: How to Manage Complexity without Getting Complicated'
+  db_author: Yves Morieux and Peter Tollman
+  content_chars: 11374
+  _entry_id: 1107
+- action: skip
+  confidence: review
+  src_path: 4 Library/Summaries/Leading the Life You Want.md
+  dest_path: 4 Library/Books/Getting the Love You Want.md
+  db_title: 'Getting the Love You Want: A Guide for Couples'
+  db_author: Helen LaKelly Hunt
+  content_chars: 2825
+  _entry_id: 765
+- action: move
+  confidence: high
+  src_path: 4 Library/Summaries/Wisdom at Work.md
+  dest_path: 4 Library/Books/Wisdom at Work.md
+  db_title: 'Wisdom at Work: The Making of a Modern Elder'
+  db_author: Chip Conle
+  content_chars: 2301
+  _entry_id: 1458
+- action: move
+  confidence: high
+  src_path: 4 Library/Summaries/I'll Push You.md
+  dest_path: 4 Library/Books/I'll Push You.md
+  db_title: I'll Push You
+  db_author: Patrick Gray and Justin Skeesuck
+  content_chars: 1941
+  _entry_id: 847
+- action: move
+  confidence: high
+  src_path: 4 Library/Summaries/Escape Velocity.md
+  dest_path: 4 Library/Books/Escape Velocity.md
+  db_title: 'Escape Velocity: Free Your Company''s Future from the Pull of the Past'
+  db_author: Geoffrey Moore
+  content_chars: 20487
+  _entry_id: 702
+- action: move
+  confidence: high
+  src_path: 4 Library/Summaries/Anatomy of Peace.md
+  dest_path: 4 Library/Books/The Anatomy of Peace.md
+  db_title: 'The Anatomy of Peace: Resolving the Heart of Conflict'
+  db_author: The Arbinger Institute
+  content_chars: 732
+  _entry_id: 1180
+- action: move
+  confidence: high
+  src_path: 4 Library/Summaries/Influencer.md
+  dest_path: 4 Library/Books/Influencer.md
+  db_title: 'Influencer: The New Science of Leading Change'
+  db_author: Joseph Grenny, Kerry Patterson, David Maxfield, Ron McMillan, Al Switzler
+  content_chars: 1011
+  _entry_id: 856
+- action: move
+  confidence: high
+  src_path: 4 Library/Summaries/Switch.md
+  dest_path: 4 Library/Books/Switch.md
+  db_title: 'Switch: How to Change Things When Change Is Hard'
+  db_author: Chip and Dan Heath
+  content_chars: 4982
+  _entry_id: 1141
+- action: move
+  confidence: high
+  src_path: 4 Library/Summaries/Unlocking Leadership Mindtraps.md
+  dest_path: 4 Library/Books/Unlocking Leadership Mindtraps.md
+  db_title: 'Unlocking Leadership Mindtraps: How to Thrive in Complexity'
+  db_author: Jennifer Garvey Berger
+  content_chars: 16784
+  _entry_id: 1398
+- action: move
+  confidence: high
+  src_path: 4 Library/Summaries/Man’s Search for Meaning.md
+  dest_path: 4 Library/Books/Man's Search For Meaning.md
+  db_title: Man's Search For Meaning
+  db_author: Victor Frankl
+  content_chars: 9095
+  _entry_id: 940
+- action: move
+  confidence: review
+  src_path: 4 Library/Highlights/God, Human, Animal, Machine - highlights.md
+  dest_path: 4 Library/Books/God, Human, Animal, Machine.md
+  db_title: 'God, Human, Animal, Machine: Technology, Metaphor, and the Search for
+    Meaning'
+  db_author: Meghan O'Gieblyn
+  content_chars: 4052
+  _entry_id: 771
+- action: move
+  confidence: high
+  src_path: 4 Library/Highlights/The 15 Commitments of Conscious Leadership - highlights.md
+  dest_path: 4 Library/Books/The 15 Commitments of Conscious Leadership.md
+  db_title: 'The 15 Commitments of Conscious Leadership: A New Paradigm for Sustainable
+    Success'
+  db_author: Jim Dethmer, Diana Chapman, Kaley Klemp
+  content_chars: 19707
+  _entry_id: 1160
+- action: move
+  confidence: review
+  src_path: 4 Library/Highlights/Failure Is Not an Option - highlights.md
+  dest_path: 4 Library/Books/Failure Is Not an Option.md
+  db_title: 'Failure Is Not an Option: Mission Control from Mercury to Apollo 13 and
+    Beyond'
+  db_author: Gene Kranz, et al
+  content_chars: 663
+  _entry_id: 720
+- action: move
+  confidence: high
+  src_path: 4 Library/Highlights/Organizational Culture and Leadership - highlights.md
+  dest_path: 4 Library/Books/Organizational Culture and Leadership.md
+  db_title: Organizational Culture and Leadership
+  db_author: Edgar Schein
+  content_chars: 8238
+  _entry_id: 1002
+- action: move
+  confidence: review
+  src_path: 4 Library/Highlights/Good Strategy Bad Strategy - highlights.md
+  dest_path: 4 Library/Books/Good Strategy  Bad Strategy.md
+  db_title: Good Strategy / Bad Strategy
+  db_author: Richard Rumelt
+  content_chars: 13290
+  _entry_id: 774
+- action: move
+  confidence: review
+  src_path: 4 Library/Highlights/A Brief History of Intelligence - highlights.md
+  dest_path: 4 Library/Books/A Brief History of Intelligence.md
+  db_title: 'A Brief History of Intelligence: Evolution, AI, and the Five Breakthroughs
+    That Made Our Brains'
+  db_author: Max S. Bennett
+  content_chars: 56592
+  _entry_id: 456
+- action: move
+  confidence: review
+  src_path: 4 Library/Highlights/Leadership Team Coaching - highlights.md
+  dest_path: 4 Library/Books/Leadership Team Coaching.md
+  db_title: 'Leadership Team Coaching: Developing Collective Transformational Leadership'
+  db_author: Peter Hawkins
+  content_chars: 8362
+  _entry_id: 890
+- action: move
+  confidence: review
+  src_path: 4 Library/Highlights/Boundary Spanning Leadership - highlights.md
+  dest_path: 4 Library/Books/Boundary Spanning Leadership.md
+  db_title: 'Boundary Spanning Leadership: Six Practices for Solving Problems, Driving
+    Innovation, and Transforming Organizations'
+  db_author: Chris Ernst, Donna Chrobot-Mason
+  content_chars: 2461
+  _entry_id: 566
+- action: move
+  confidence: review
+  src_path: 4 Library/Highlights/What Makes You Not a Buddhist - highlights.md
+  dest_path: 4 Library/Books/What Makes You Not a Buddhist.md
+  db_title: What Makes You Not a Buddhist
+  db_author: Dzongsar Jamyang Khyentse
+  content_chars: 20910
+  _entry_id: 1425
+- action: move
+  confidence: review
+  src_path: 4 Library/Highlights/How We Live Is How We Die - highlights.md
+  dest_path: 4 Library/Books/How We Live Is How We Die.md
+  db_title: How We Live Is How We Die
+  db_author: Pema Chodron
+  content_chars: 4098
+  _entry_id: 822
+- action: move
+  confidence: review
+  src_path: 4 Library/Highlights/Man's Search for Meaning (highlights).md
+  dest_path: 4 Library/Books/Man's Search For Meaning.md
+  db_title: Man's Search For Meaning
+  db_author: Victor Frankl
+  content_chars: 9152
+  _entry_id: 940
+- action: move
+  confidence: review
+  src_path: 4 Library/Highlights/Life in Three Dimensions - highlights.md
+  dest_path: 4 Library/Books/Life in Three Dimensions.md
+  db_title: 'Life in Three Dimensions: How Curiosity, Exploration, and Experience
+    Make a Fuller, Better Life'
+  db_author: Shigehiro Oishi
+  content_chars: 17428
+  _entry_id: 912
+- action: move
+  confidence: review
+  src_path: 4 Library/Highlights/All the Leader You Can Be - highlights.md
+  dest_path: 4 Library/Books/All the Leader You Can Be.md
+  db_title: 'All the Leader You Can Be: The Science of Achieving Extraordinary Executive
+    Presence'
+  db_author: Suzanne Bates
+  content_chars: 6817
+  _entry_id: 494
+- action: move
+  confidence: high
+  src_path: 4 Library/Highlights/101 Essays That Will Change The Way You Think - highlights.md
+  dest_path: 4 Library/Books/101 Essays That Will Change The Way You Think.md
+  db_title: 101 Essays That Will Change The Way You Think
+  db_author: Brianna Wiest
+  content_chars: 3402
+  _entry_id: 443
+- action: move
+  confidence: review
+  src_path: 4 Library/Highlights/Organization Development - highlights.md
+  dest_path: 4 Library/Books/Organization Development & Change.md
+  db_title: Organization Development & Change
+  db_author: Thomas G. Cummings & Christopher Worley
+  content_chars: 4123
+  _entry_id: 1000
+- action: move
+  confidence: review
+  src_path: 4 Library/Highlights/From Strength to Strength - highlights.md
+  dest_path: 4 Library/Books/From Strength to Strength.md
+  db_title: 'From Strength to Strength: Finding Success, Happiness, and Deep Purpose
+    in the Second Half of Life'
+  db_author: Arthur C. Brooks
+  content_chars: 35845
+  _entry_id: 754
+- action: move
+  confidence: review
+  src_path: 4 Library/Highlights/Leadership from the Inside Out - highlights.md
+  dest_path: 4 Library/Books/Leadership from the Inside Out.md
+  db_title: 'Leadership from the Inside Out: Becoming a Leader for Life'
+  db_author: Kevin Cashman, “growing the whole person to grow the whole leader. Leadership
+    is authentic influence that creates value. Involves clarifying our inner identity,
+    purpose, and vision so that our lives thereafter are dedicated to a more conscious,
+    intentional manner of living and leading. Anyone who is authentically influencing
+    to create value is leading.
+  content_chars: 10754
+  _entry_id: 894
+- action: move
+  confidence: review
+  src_path: 4 Library/Highlights/Reinventing Organizations - highlights.md
+  dest_path: 4 Library/Books/Reinventing Organizations.md
+  db_title: 'Reinventing Organizations: A Guide to Creating Organizations Inspired
+    by the Next Stage of Human Consciousness'
+  db_author: Frederic Laloux, Ken Wilber
+  content_chars: 8119
+  _entry_id: 1054
+- action: move
+  confidence: review
+  src_path: 4 Library/Highlights/Its Not Always Depression - highlights.md
+  dest_path: 4 Library/Books/It's Not Always Depression.md
+  db_title: 'It''s Not Always Depression: Working the Change Triangle to Listen to
+    the Body, Discover Core Emotions, and Connect to Your Authentic Self'
+  db_author: Hilary Jacobs Hendel, Diana Fosha
+  content_chars: 37206
+  _entry_id: 866
+- action: move
+  confidence: high
+  src_path: 4 Library/Highlights/Change Your Thoughts, Change Your Life - highlights.md
+  dest_path: 4 Library/Books/Change Your Thoughts, Change Your Life.md
+  db_title: 'Change Your Thoughts, Change Your Life: Living the Wisdom of the Tao'
+  db_author: Dr. Wayne W. Dyer
+  content_chars: 3685
+  _entry_id: 591
+- action: skip
+  confidence: review
+  src_path: 4 Library/Coaching Papers/Decoding Leadership.md
+  dest_path: 4 Library/Books/Scaling Leadership.md
+  db_title: 'Scaling Leadership: Building Organizational Capability and Capacity to
+    Create Outcomes that Matter Most'
+  db_author: Robert J. Anderson, William A. Adams, et al. (the Leadership Circle founders)
+  content_chars: 6622
+  _entry_id: 1085
+- action: move
+  confidence: review
+  src_path: 4 Library/Coaching/PQ/Positive Intelligence Chapt 1-8.md
+  dest_path: 4 Library/Books/Positive Intelligence.md
+  db_title: Positive Intelligence
+  db_author: Shirzad Chamine
+  content_chars: 253294
+  _entry_id: 1024
+- action: move
+  confidence: high
+  src_path: 4 Library/Coaching/Tools/Managing Transitions.md
+  dest_path: 4 Library/Books/Managing Transitions.md
+  db_title: Managing Transitions
+  db_author: William Bridges
+  content_chars: 5238
+  _entry_id: 943
+- action: move
+  confidence: review
+  src_path: 4 Library/Coaching/Tools/Coaching basics.md
+  dest_path: 4 Library/Books/Coaching Skills.md
+  db_title: 'Coaching Skills: The Definitive Guide to Being A Coach'
+  db_author: Jenny Rogers
+  content_chars: 9358
+  _entry_id: 607
+- action: move
+  confidence: high
+  src_path: 4 Library/Coaching/Tools/Influence.md
+  dest_path: 4 Library/Books/Influence.md
+  db_title: 'Influence: the Psychology of Persuasion'
+  db_author: Robert Cialdini
+  content_chars: 555
+  _entry_id: 855
+- action: move
+  confidence: high
+  src_path: 4 Library/Coaching/Aging/The Gift of Years.md
+  dest_path: 4 Library/Books/The Gift of Years.md
+  db_title: 'The Gift of Years: Growing Old Gracefully'
+  db_author: Joan Chittister
+  content_chars: 50063
+  _entry_id: 1289
+- action: move
+  confidence: review
+  src_path: 4 Library/Coaching/OD/Readings/Dialogic Org Development.md
+  dest_path: 4 Library/Books/Dialogic Organizational Development.md
+  db_title: 'Dialogic Organizational Development: the theory and practice of transformational
+    change'
+  db_author: Bushe and Marshak
+  content_chars: 30419
+  _entry_id: 658
+- action: skip
+  confidence: review
+  src_path: 4 Library/Coaching/Tools/The Big Share/The Big Share.md
+  dest_path: 4 Library/Books/The Big Short.md
+  db_title: The Big Short
+  db_author: Michael Lewis
+  content_chars: 1090
+  _entry_id: 1201
+- action: move
+  confidence: high
+  src_path: 4 Library/Coaching/Tools/Leadership Frameworks/Immunity to Change.md
+  dest_path: 4 Library/Books/Immunity to Change.md
+  db_title: 'Immunity to Change: How to Overcome It and Unlock the Potential in Yourself
+    and Your Organization (Leadership for the Common Good)'
+  db_author: Lisa Lahey and Bob Kegan
+  content_chars: 7165
+  _entry_id: 851
+- action: move
+  confidence: high
+  src_path: 4 Library/Coaching/Tools/Leadership Frameworks/Theory U.md
+  dest_path: 4 Library/Books/Theory U.md
+  db_title: 'Theory U: Learning from the Future as It Emerges'
+  db_author: C. Otto Scharmer
+  content_chars: 7790
+  _entry_id: 1359
+- action: move
+  confidence: high
+  src_path: 4 Library/HBR/On Managing Yourself/How Will You Measure Your Life-.md
+  dest_path: 4 Library/Books/How Will You Measure Your Life.md
+  db_title: How Will You Measure Your Life?
+  db_author: Clayton M. Christensen, James Allworth, Karen Dillon
+  content_chars: 25941
+  _entry_id: 823
+- action: move
+  confidence: high
+  src_path: 4 Library/HBR/On Emotional Intelligence/Emotional Agility.md
+  dest_path: 4 Library/Books/Emotional Agility.md
+  db_title: 'Emotional Agility: Get Unstuck, Embrace Change, and Thrive in Work and
+    Life'
+  db_author: Susan David
+  content_chars: 15435
+  _entry_id: 690
+- action: move
+  confidence: review
+  src_path: 4 Library/Summaries/Win Friends and Influence People/RIG_How To Win Friends
+    and Influence People Text Summary.md
+  dest_path: 4 Library/Books/How to Win Friends and Influence People.md
+  db_title: How to Win Friends and Influence People
+  db_author: Dale Carnegie
+  content_chars: 25903
+  _entry_id: 838
+- action: skip
+  confidence: review
+  src_path: PoL/Notes/Core Principles.md
+  dest_path: 4 Library/Books/Principles.md
+  db_title: Principles
+  db_author: Ray Dalio
+  content_chars: 10770
+  _entry_id: 1035
+orphans:
+- action: move_orphan
+  src_path: 2 Coaching/Wheel of Meaning.md
+  dest_path: 4 Library/Books/orphans/Wheel of Meaning.md
+  content_chars: 9
+- action: move_orphan
+  src_path: 2 Coaching/team-lcoaching.md
+  dest_path: 4 Library/Books/orphans/team-lcoaching.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 2 Coaching/team-coaching.md
+  dest_path: 4 Library/Books/orphans/team-coaching.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 2 Coaching/Coaching insight.md
+  dest_path: 4 Library/Books/orphans/Coaching insight.md
+  content_chars: 82
+- action: move_orphan
+  src_path: 3 Tech/Teaching Lab.md
+  dest_path: 4 Library/Books/orphans/Teaching Lab.md
+  content_chars: 73
+- action: move_orphan
+  src_path: 3 Tech/Interorganizational Collaboration.md
+  dest_path: 4 Library/Books/orphans/Interorganizational Collaboration.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 3 Tech/Collaboration Overload Workshop.md
+  dest_path: 4 Library/Books/orphans/Collaboration Overload Workshop.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 3 Tech/Genomics.md
+  dest_path: 4 Library/Books/orphans/Genomics.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 3 Tech/brain.md
+  dest_path: 4 Library/Books/orphans/brain.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 3 Tech/The Case Against Education.md
+  dest_path: 4 Library/Books/orphans/The Case Against Education.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 3 Tech/Captains of Innovation.md
+  dest_path: 4 Library/Books/orphans/Captains of Innovation.md
+  content_chars: 73
+- action: move_orphan
+  src_path: 3 Tech/Fairness.md
+  dest_path: 4 Library/Books/orphans/Fairness.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 3 Tech/hiddenbrain.md
+  dest_path: 4 Library/Books/orphans/hiddenbrain.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 3 Tech/Twelve Against The Gods.md
+  dest_path: 4 Library/Books/orphans/Twelve Against The Gods.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 3 Tech/Pain of paying.md
+  dest_path: 4 Library/Books/orphans/Pain of paying.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 3 Tech/The Second Brain.md
+  dest_path: 4 Library/Books/orphans/The Second Brain.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 3 Tech/Living with Uncertainty.md
+  dest_path: 4 Library/Books/orphans/Living with Uncertainty.md
+  content_chars: 121
+- action: move_orphan
+  src_path: 4 Library/Happiness.md
+  dest_path: 4 Library/Books/orphans/Happiness.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 5 Philosophy/Sludge.md
+  dest_path: 4 Library/Books/orphans/Sludge.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 5 Philosophy/SMART Goals.md
+  dest_path: 4 Library/Books/orphans/SMART Goals.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 5 Philosophy/Social norm.md
+  dest_path: 4 Library/Books/orphans/Social norm.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 5 Philosophy/Whatever Happened to Wisdom?.md
+  dest_path: 4 Library/Books/orphans/Whatever Happened to Wisdom?.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 5 Philosophy/Transformation.md
+  dest_path: 4 Library/Books/orphans/Transformation.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 5 Philosophy/Practical Wisdom.md
+  dest_path: 4 Library/Books/orphans/Practical Wisdom.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 5 Philosophy/McMindfulness.md
+  dest_path: 4 Library/Books/orphans/McMindfulness.md
+  content_chars: 0
+- action: move_orphan
+  src_path: .trash/Untitled.md
+  dest_path: 4 Library/Books/orphans/Untitled.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Interventions.md
+  dest_path: 4 Library/Books/orphans/Interventions.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Free Time.md
+  dest_path: 4 Library/Books/orphans/Free Time.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Connected Leadership.md
+  dest_path: 4 Library/Books/orphans/Connected Leadership.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/self-discipline.md
+  dest_path: 4 Library/Books/orphans/self-discipline.md
+  content_chars: 161
+- action: move_orphan
+  src_path: 9 Unfiled/Catalant.md
+  dest_path: 4 Library/Books/orphans/Catalant.md
+  content_chars: 36
+- action: move_orphan
+  src_path: 9 Unfiled/Enlightment.md
+  dest_path: 4 Library/Books/orphans/Enlightment.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/sleep.md
+  dest_path: 4 Library/Books/orphans/sleep.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Building Resilience in Students Impacted by Adv....md
+  dest_path: 4 Library/Books/orphans/Building Resilience in Students Impacted by Adv....md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/managing.md
+  dest_path: 4 Library/Books/orphans/managing.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/org-learning.md
+  dest_path: 4 Library/Books/orphans/org-learning.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/crystallized intelligence.md
+  dest_path: 4 Library/Books/orphans/crystallized intelligence.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/reference.md
+  dest_path: 4 Library/Books/orphans/reference.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/advantage.md
+  dest_path: 4 Library/Books/orphans/advantage.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/science.md
+  dest_path: 4 Library/Books/orphans/science.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/movie.md
+  dest_path: 4 Library/Books/orphans/movie.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/thinking.md
+  dest_path: 4 Library/Books/orphans/thinking.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Sludge.md
+  dest_path: 4 Library/Books/orphans/Sludge.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Situational Leadership.md
+  dest_path: 4 Library/Books/orphans/Situational Leadership.md
+  content_chars: 115
+- action: move_orphan
+  src_path: 9 Unfiled/Reinforcement Learning.md
+  dest_path: 4 Library/Books/orphans/Reinforcement Learning.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Learning_641e.md
+  dest_path: 4 Library/Books/orphans/Learning_641e.md
+  content_chars: 162
+- action: move_orphan
+  src_path: 9 Unfiled/Jer-Ming.md
+  dest_path: 4 Library/Books/orphans/Jer-Ming.md
+  content_chars: 56
+- action: move_orphan
+  src_path: 9 Unfiled/parenting.md
+  dest_path: 4 Library/Books/orphans/parenting.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/SMART Goals.md
+  dest_path: 4 Library/Books/orphans/SMART Goals.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Theogen.md
+  dest_path: 4 Library/Books/orphans/Theogen.md
+  content_chars: 63
+- action: move_orphan
+  src_path: 9 Unfiled/improve.md
+  dest_path: 4 Library/Books/orphans/improve.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/emotional rewards.md
+  dest_path: 4 Library/Books/orphans/emotional rewards.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Holding Space.md
+  dest_path: 4 Library/Books/orphans/Holding Space.md
+  content_chars: 94
+- action: move_orphan
+  src_path: 9 Unfiled/Gordy.md
+  dest_path: 4 Library/Books/orphans/Gordy.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/DRIVN.md
+  dest_path: 4 Library/Books/orphans/DRIVN.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Reframing.md
+  dest_path: 4 Library/Books/orphans/Reframing.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Limitations.md
+  dest_path: 4 Library/Books/orphans/Limitations.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Mystery.md
+  dest_path: 4 Library/Books/orphans/Mystery.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Emotional Regulation.md
+  dest_path: 4 Library/Books/orphans/Emotional Regulation.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/A Theory of Everything.md
+  dest_path: 4 Library/Books/orphans/A Theory of Everything.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/accountability.md
+  dest_path: 4 Library/Books/orphans/accountability.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/integrity.md
+  dest_path: 4 Library/Books/orphans/integrity.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Social norm.md
+  dest_path: 4 Library/Books/orphans/Social norm.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/A Promised Land.md
+  dest_path: 4 Library/Books/orphans/A Promised Land.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Regeneron.md
+  dest_path: 4 Library/Books/orphans/Regeneron.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/meditation.md
+  dest_path: 4 Library/Books/orphans/meditation.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/machine-intelligence.md
+  dest_path: 4 Library/Books/orphans/machine-intelligence.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Identity economics.md
+  dest_path: 4 Library/Books/orphans/Identity economics.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Management Skills.md
+  dest_path: 4 Library/Books/orphans/Management Skills.md
+  content_chars: 27
+- action: move_orphan
+  src_path: 9 Unfiled/NoteTaking.md
+  dest_path: 4 Library/Books/orphans/NoteTaking.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/focus.md
+  dest_path: 4 Library/Books/orphans/focus.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/consulting.md
+  dest_path: 4 Library/Books/orphans/consulting.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Coatue.md
+  dest_path: 4 Library/Books/orphans/Coatue.md
+  content_chars: 36
+- action: move_orphan
+  src_path: 9 Unfiled/Factions.md
+  dest_path: 4 Library/Books/orphans/Factions.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Emotional Intelligence 2.0.md
+  dest_path: 4 Library/Books/orphans/Emotional Intelligence 2.0.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Chase.md
+  dest_path: 4 Library/Books/orphans/Chase.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Cultivating Leadership.md
+  dest_path: 4 Library/Books/orphans/Cultivating Leadership.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Notion.md
+  dest_path: 4 Library/Books/orphans/Notion.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Show Your Work.md
+  dest_path: 4 Library/Books/orphans/Show Your Work.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/table.md
+  dest_path: 4 Library/Books/orphans/table.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/mental-toughness.md
+  dest_path: 4 Library/Books/orphans/mental-toughness.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/influence_e45c.md
+  dest_path: 4 Library/Books/orphans/influence_e45c.md
+  content_chars: 6
+- action: move_orphan
+  src_path: 9 Unfiled/Stripe.md
+  dest_path: 4 Library/Books/orphans/Stripe.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Asking Big Questions.md
+  dest_path: 4 Library/Books/orphans/Asking Big Questions.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/mis-wanting.md
+  dest_path: 4 Library/Books/orphans/mis-wanting.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Saying.md
+  dest_path: 4 Library/Books/orphans/Saying.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Personal Leadership.md
+  dest_path: 4 Library/Books/orphans/Personal Leadership.md
+  content_chars: 128
+- action: move_orphan
+  src_path: 9 Unfiled/Ten Forward.md
+  dest_path: 4 Library/Books/orphans/Ten Forward.md
+  content_chars: 1
+- action: move_orphan
+  src_path: 9 Unfiled/FSA Store.md
+  dest_path: 4 Library/Books/orphans/FSA Store.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Destined for War.md
+  dest_path: 4 Library/Books/orphans/Destined for War.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/eating.md
+  dest_path: 4 Library/Books/orphans/eating.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/mid-life-crisis.md
+  dest_path: 4 Library/Books/orphans/mid-life-crisis.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Information Bias.md
+  dest_path: 4 Library/Books/orphans/Information Bias.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Recognition heuristic.md
+  dest_path: 4 Library/Books/orphans/Recognition heuristic.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/racism.md
+  dest_path: 4 Library/Books/orphans/racism.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Haven.md
+  dest_path: 4 Library/Books/orphans/Haven.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/comment.md
+  dest_path: 4 Library/Books/orphans/comment.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/ego integrity.md
+  dest_path: 4 Library/Books/orphans/ego integrity.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/female-leadership.md
+  dest_path: 4 Library/Books/orphans/female-leadership.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/revelation.md
+  dest_path: 4 Library/Books/orphans/revelation.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/org-development.md
+  dest_path: 4 Library/Books/orphans/org-development.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Solitude.md
+  dest_path: 4 Library/Books/orphans/Solitude.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/happiness.md
+  dest_path: 4 Library/Books/orphans/happiness.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/death.md
+  dest_path: 4 Library/Books/orphans/death.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Coaches Rising.md
+  dest_path: 4 Library/Books/orphans/Coaches Rising.md
+  content_chars: 57
+- action: move_orphan
+  src_path: 9 Unfiled/Kate O'Brien.md
+  dest_path: 4 Library/Books/orphans/Kate O'Brien.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/justice.md
+  dest_path: 4 Library/Books/orphans/justice.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Criticism.md
+  dest_path: 4 Library/Books/orphans/Criticism.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/teaching.md
+  dest_path: 4 Library/Books/orphans/teaching.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Insead.md
+  dest_path: 4 Library/Books/orphans/Insead.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Conscious Leadership Group.md
+  dest_path: 4 Library/Books/orphans/Conscious Leadership Group.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Thrive.md
+  dest_path: 4 Library/Books/orphans/Thrive.md
+  content_chars: 97
+- action: move_orphan
+  src_path: 9 Unfiled/Growth Mindset.md
+  dest_path: 4 Library/Books/orphans/Growth Mindset.md
+  content_chars: 82
+- action: move_orphan
+  src_path: 9 Unfiled/enlightenment.md
+  dest_path: 4 Library/Books/orphans/enlightenment.md
+  content_chars: 1
+- action: move_orphan
+  src_path: 9 Unfiled/criticalthinking.md
+  dest_path: 4 Library/Books/orphans/criticalthinking.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/fulfillment_634e.md
+  dest_path: 4 Library/Books/orphans/fulfillment_634e.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/homework_1a3c.md
+  dest_path: 4 Library/Books/orphans/homework_1a3c.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/retirement.md
+  dest_path: 4 Library/Books/orphans/retirement.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/sleeping.md
+  dest_path: 4 Library/Books/orphans/sleeping.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/emotional-energy.md
+  dest_path: 4 Library/Books/orphans/emotional-energy.md
+  content_chars: 1
+- action: move_orphan
+  src_path: 9 Unfiled/GetHuman.md
+  dest_path: 4 Library/Books/orphans/GetHuman.md
+  content_chars: 186
+- action: move_orphan
+  src_path: 9 Unfiled/inprogress.md
+  dest_path: 4 Library/Books/orphans/inprogress.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/growth-mindset.md
+  dest_path: 4 Library/Books/orphans/growth-mindset.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Preference.md
+  dest_path: 4 Library/Books/orphans/Preference.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Service Organization.md
+  dest_path: 4 Library/Books/orphans/Service Organization.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Crime and Punishment.md
+  dest_path: 4 Library/Books/orphans/Crime and Punishment.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/conflict.md
+  dest_path: 4 Library/Books/orphans/conflict.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/resistance.md
+  dest_path: 4 Library/Books/orphans/resistance.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Safe Superintelligence.md
+  dest_path: 4 Library/Books/orphans/Safe Superintelligence.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/education.md
+  dest_path: 4 Library/Books/orphans/education.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/elder.md
+  dest_path: 4 Library/Books/orphans/elder.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/DeepMind.md
+  dest_path: 4 Library/Books/orphans/DeepMind.md
+  content_chars: 1
+- action: move_orphan
+  src_path: 9 Unfiled/reading.md
+  dest_path: 4 Library/Books/orphans/reading.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Thinking in Systems.md
+  dest_path: 4 Library/Books/orphans/Thinking in Systems.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/It’s OK to Manage Your Boss.md
+  dest_path: 4 Library/Books/orphans/It’s OK to Manage Your Boss.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Helion.md
+  dest_path: 4 Library/Books/orphans/Helion.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/gentleness.md
+  dest_path: 4 Library/Books/orphans/gentleness.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Affect heuristic.md
+  dest_path: 4 Library/Books/orphans/Affect heuristic.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/fluid intelligence.md
+  dest_path: 4 Library/Books/orphans/fluid intelligence.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/psychology.md
+  dest_path: 4 Library/Books/orphans/psychology.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/mental fitness.md
+  dest_path: 4 Library/Books/orphans/mental fitness.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Taoism.md
+  dest_path: 4 Library/Books/orphans/Taoism.md
+  content_chars: 66
+- action: move_orphan
+  src_path: 9 Unfiled/games.md
+  dest_path: 4 Library/Books/orphans/games.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Philippines.md
+  dest_path: 4 Library/Books/orphans/Philippines.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Consciousness.md
+  dest_path: 4 Library/Books/orphans/Consciousness.md
+  content_chars: 1
+- action: move_orphan
+  src_path: 9 Unfiled/Awakening.md
+  dest_path: 4 Library/Books/orphans/Awakening.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Discovering Your Authentic Leadership.md
+  dest_path: 4 Library/Books/orphans/Discovering Your Authentic Leadership.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Redirect.md
+  dest_path: 4 Library/Books/orphans/Redirect.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/General Fusion.md
+  dest_path: 4 Library/Books/orphans/General Fusion.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Stillness Is The Key.md
+  dest_path: 4 Library/Books/orphans/Stillness Is The Key.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Newness.md
+  dest_path: 4 Library/Books/orphans/Newness.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Leadership Circle.md
+  dest_path: 4 Library/Books/orphans/Leadership Circle.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/teams.md
+  dest_path: 4 Library/Books/orphans/teams.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/life-transitions.md
+  dest_path: 4 Library/Books/orphans/life-transitions.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Candace.md
+  dest_path: 4 Library/Books/orphans/Candace.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/gaming.md
+  dest_path: 4 Library/Books/orphans/gaming.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Sacred Economics.md
+  dest_path: 4 Library/Books/orphans/Sacred Economics.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Organizational Physics.md
+  dest_path: 4 Library/Books/orphans/Organizational Physics.md
+  content_chars: 0
+- action: move_orphan
+  src_path: 9 Unfiled/Machine Learning.md
+  dest_path: 4 Library/Books/orphans/Machine Learning.md
+  content_chars: 109
+- action: move_orphan
+  src_path: Libby/Books/the-alchemist.md
+  dest_path: 4 Library/Books/orphans/the-alchemist.md
+  content_chars: 15
+- action: move_orphan
+  src_path: Libby/Books/thinking-fast-and-slow.md
+  dest_path: 4 Library/Books/orphans/thinking-fast-and-slow.md
+  content_chars: 25
+- action: move_orphan
+  src_path: 4 Library/Summaries/How to Win Friends and Influence People.md
+  dest_path: 4 Library/Books/orphans/How to Win Friends and Influence People.md
+  content_chars: 65
+- action: move_orphan
+  src_path: 4 Library/Summaries/Playing to Win.md
+  dest_path: 4 Library/Books/orphans/Playing to Win.md
+  content_chars: 79
+- action: move_orphan
+  src_path: 4 Library/Coaching/Tools/Relational Leadership.md
+  dest_path: 4 Library/Books/orphans/Relational Leadership.md
+  content_chars: 75
+- action: move_orphan
+  src_path: 4 Library/Coaching/Tools/Leadership reflection/READ ME.md
+  dest_path: 4 Library/Books/orphans/READ ME.md
+  content_chars: 59
+- action: move_orphan
+  src_path: 4 Library/Coaching/Tools/Coaching readiness/READ ME.md
+  dest_path: 4 Library/Books/orphans/READ ME.md
+  content_chars: 48
