@@ -42,6 +42,7 @@ def get_coaching_clients():
             bc.prepaid,
             bc.obsidian_name,
             bc.gdrive_coaching_docs_url,
+            bc.manifest_gdoc_url,
             bco.id   AS company_id,
             bco.name AS company_name,
             bco.default_rate
@@ -119,6 +120,7 @@ def get_coaching_clients():
             "display_session_number": display_session_number,
             "days_ago": days_ago,
             "next_session_date": next_by_client.get(r["id"]),
+            "manifest_gdoc_url": r["manifest_gdoc_url"],
         }
 
     company_groups: dict[int, dict] = {}

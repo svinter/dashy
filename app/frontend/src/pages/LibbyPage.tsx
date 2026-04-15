@@ -306,8 +306,169 @@ function parseTopicPrefix(query: string): string | null {
 // Catalog Page (was FindPage)
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// ManifestOverlay
+// ---------------------------------------------------------------------------
+
+interface ManifestDoc { name: string; url: string | null }
+interface ManifestOther { name: string; url: string | null; date: string | null }
+interface ManifestData {
+  manifest_url: string;
+  documents: ManifestDoc[];
+  others: ManifestOther[];
+}
+
+function ManifestOverlay({
+  clientId,
+  clientName,
+  onClose,
+  flashName,
+}: {
+  clientId: number;
+  clientName: string;
+  onClose: () => void;
+  flashName: string | null;
+}) {
+  const [data, setData] = useState<ManifestData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [docsOpen, setDocsOpen] = useState(true);
+  const [othersOpen, setOthersOpen] = useState(true);
+  const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [flashedName, setFlashedName] = useState<string | null>(null);
+
+  const fetchManifest = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const resp = await fetch(`/api/libby/manifest/${clientId}`);
+      if (!resp.ok) throw new Error(`${resp.status}`);
+      setData(await resp.json());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load manifest');
+    } finally {
+      setLoading(false);
+    }
+  }, [clientId]);
+
+  useEffect(() => { fetchManifest(); }, [fetchManifest]);
+
+  // Flash newly added entry in Others
+  useEffect(() => {
+    if (!flashName || loading) return;
+    setFlashedName(flashName);
+    if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+    flashTimerRef.current = setTimeout(() => setFlashedName(null), 2000);
+    return () => { if (flashTimerRef.current) clearTimeout(flashTimerRef.current); };
+  }, [flashName, loading]);
+
+  // Escape key closes
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onClose(); }
+    };
+    window.addEventListener('keydown', handler, true);
+    return () => window.removeEventListener('keydown', handler, true);
+  }, [onClose]);
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div className="libby-manifest-backdrop" onClick={onClose} />
+      {/* Panel */}
+      <div className="libby-manifest-panel">
+        <div className="libby-manifest-header">
+          <span className="libby-manifest-title">{clientName}</span>
+          <div className="libby-manifest-header-actions">
+            {data && (
+              <a
+                href={data.manifest_url}
+                target="_blank"
+                rel="noreferrer"
+                className="libby-manifest-open-link"
+                title="Open full manifest"
+              >
+                manifest ↗
+              </a>
+            )}
+            <button className="libby-manifest-close" onClick={onClose} title="Close (Esc)">×</button>
+          </div>
+        </div>
+
+        <div className="libby-manifest-body">
+          {loading && <div className="libby-manifest-loading">Loading…</div>}
+          {error && <div className="libby-manifest-error">Error: {error}</div>}
+          {data && (
+            <>
+              {/* Documents section */}
+              <div className="libby-manifest-section">
+                <button
+                  className="libby-manifest-section-toggle"
+                  onClick={() => setDocsOpen(o => !o)}
+                >
+                  <span className="libby-manifest-section-caret">{docsOpen ? '▾' : '▸'}</span>
+                  Documents
+                </button>
+                {docsOpen && (
+                  <ul className="libby-manifest-list">
+                    {data.documents.length === 0 && (
+                      <li className="libby-manifest-empty">—</li>
+                    )}
+                    {data.documents.map((doc, i) => (
+                      <li key={i} className="libby-manifest-item">
+                        {doc.url
+                          ? <a href={doc.url} target="_blank" rel="noreferrer">{doc.name}</a>
+                          : <span>{doc.name}</span>
+                        }
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              {/* Others section */}
+              <div className="libby-manifest-section">
+                <button
+                  className="libby-manifest-section-toggle"
+                  onClick={() => setOthersOpen(o => !o)}
+                >
+                  <span className="libby-manifest-section-caret">{othersOpen ? '▾' : '▸'}</span>
+                  Others
+                </button>
+                {othersOpen && (
+                  <ul className="libby-manifest-list">
+                    {data.others.length === 0 && (
+                      <li className="libby-manifest-empty">—</li>
+                    )}
+                    {data.others.map((item, i) => (
+                      <li
+                        key={i}
+                        className={`libby-manifest-item${flashedName && item.name.startsWith(flashedName.substring(0, 20)) ? ' libby-manifest-item--flash' : ''}`}
+                      >
+                        {item.url
+                          ? <a href={item.url} target="_blank" rel="noreferrer">{item.name}</a>
+                          : <span>{item.name}</span>
+                        }
+                        {item.date && <span className="libby-manifest-item-date">{item.date}</span>}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// CatalogPage
+// ---------------------------------------------------------------------------
+
 function CatalogPage() {
-  const { activeClientId, activeClientName, activeCompanyId, isHelpOpen, onSelectionChange } = useLibbyContext();
+  const { activeClientId, activeClientName, activeCompanyId, activeClientManifestUrl, isHelpOpen, onSelectionChange } = useLibbyContext();
 
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -322,6 +483,10 @@ function CatalogPage() {
   const [toastVariant, setToastVariant] = useState<'default' | 'warning'>('default');
   const [loading, setLoading] = useState(false);
   const [allTopics, setAllTopics] = useState<LibraryTopic[]>([]);
+
+  // Manifest overlay
+  const [manifestOpen, setManifestOpen] = useState(false);
+  const [manifestFlashName, setManifestFlashName] = useState<string | null>(null);
 
   // Auto-focus search box when a client is selected
   useEffect(() => {
@@ -429,6 +594,10 @@ function CatalogPage() {
         if (data.manifest_updated === false && data.manifest_skipped !== true) {
           showToast('Note: Manifest not updated', 'warning');
         }
+        if (activeClientManifestUrl && data.entry_name) {
+          setManifestFlashName(data.entry_name);
+          setManifestOpen(true);
+        }
       } else {
         const err = await resp.json().catch(() => ({}));
         setStatusMsg(err.detail ?? 'Record failed');
@@ -523,7 +692,18 @@ function CatalogPage() {
 
   return (
     <div className="libby-find-page">
-      <LibbyClientFilter />
+      <div className="libby-catalog-topbar">
+        <LibbyClientFilter />
+        {activeClientManifestUrl && activeClientId && activeClientName && (
+          <button
+            className="libby-manifest-btn"
+            onClick={() => setManifestOpen(o => !o)}
+            title="Open manifest"
+          >
+            manifest
+          </button>
+        )}
+      </div>
 
       {/* Search box */}
       <div className={`libby-search-wrap libby-search-wrap--${uiState.toLowerCase()}`}>
@@ -701,6 +881,16 @@ function CatalogPage() {
       {/* Empty state */}
       {uiState === 'SEARCH' && query && !loading && results.length === 0 && (
         <div className="libby-empty">No results for "{query}"</div>
+      )}
+
+      {/* Manifest overlay */}
+      {manifestOpen && activeClientId && activeClientName && (
+        <ManifestOverlay
+          clientId={activeClientId}
+          clientName={activeClientName}
+          onClose={() => { setManifestOpen(false); setManifestFlashName(null); }}
+          flashName={manifestFlashName}
+        />
       )}
     </div>
   );

@@ -72,6 +72,7 @@ function BookCreationForm({
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [searched, setSearched] = useState(false);
+  const [urlFallback, setUrlFallback] = useState(false); // true when ASIN lookup found nothing
 
   // Pre-filled form fields
   const [name, setName] = useState('');
@@ -131,17 +132,22 @@ function BookCreationForm({
     setSearchError(null);
     setCandidates([]);
     setSearched(false);
+    setUrlFallback(false);
     try {
       const params = new URLSearchParams({ url: lookupUrl.trim() });
       const resp = await fetch(`/api/libby/books/lookup?${params}`);
       const data = await resp.json();
-      const first = data.candidates?.[0];
+      const cands: BookCandidate[] = data.candidates ?? [];
+      const first = cands[0];
       if (first) {
         fillFromCandidate(first);
-        // Preserve the pasted URL as the canonical url if amazon_url is set
         if (first.amazon_url) setUrl(first.amazon_url);
+      } else {
+        // Pre-fill amazon_url so the user doesn't lose the URL they pasted
+        setAmazonUrl(lookupUrl.trim());
+        setUrlFallback(true);
       }
-      setCandidates(data.candidates ?? []);
+      setCandidates(cands);
       setSearched(true);
     } catch {
       setSearchError('Lookup failed');
@@ -163,7 +169,7 @@ function BookCreationForm({
     setYear(''); setUrl(''); setAmazonUrl(''); setGoogleBooksId('');
     setComments(''); setPriority('medium'); setSelectedTopicIds(new Set());
     setCandidates([]); setSearched(false); setSearchError(null); setSaveError(null);
-    setSearchTitle(''); setSearchAuthor(''); setLookupUrl('');
+    setSearchTitle(''); setSearchAuthor(''); setLookupUrl(''); setUrlFallback(false);
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -294,10 +300,57 @@ function BookCreationForm({
             </button>
           </div>
           {searchError && <div className="libby-admin-error">{searchError}</div>}
-          {searched && candidates.length === 0 && (
-            <div className="libby-book-no-results">ASIN not found in Google Books — fill fields manually</div>
+          {urlFallback && (
+            <>
+              <div className="libby-book-no-results libby-book-no-results--warn">
+                Could not find this book automatically — please fill in the details manually.
+              </div>
+              <div className="libby-book-fallback-search">
+                <span className="libby-book-fallback-label">Or search by title/author:</span>
+                <div className="libby-book-lookup-row">
+                  <input
+                    className="libby-form-input"
+                    value={searchTitle}
+                    onChange={e => setSearchTitle(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleSearch(); } }}
+                    placeholder="Title…"
+                  />
+                  <input
+                    className="libby-form-input"
+                    value={searchAuthor}
+                    onChange={e => setSearchAuthor(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleSearch(); } }}
+                    placeholder="Author…"
+                  />
+                  <button
+                    type="button"
+                    className="libby-admin-btn libby-admin-btn--primary"
+                    onClick={handleSearch}
+                    disabled={searching || (!searchTitle.trim() && !searchAuthor.trim())}
+                  >
+                    {searching ? '…' : 'Search'}
+                  </button>
+                </div>
+                {candidates.length > 0 && (
+                  <ul className="libby-book-candidates">
+                    {candidates.map((c, i) => (
+                      <li
+                        key={c.google_books_id ?? i}
+                        className="libby-book-candidate"
+                        onClick={() => { fillFromCandidate(c); setAmazonUrl(lookupUrl.trim()); setUrlFallback(false); }}
+                      >
+                        <span className="libby-book-candidate-title">{c.title}</span>
+                        {c.author && <span className="libby-book-candidate-author">{c.author}</span>}
+                        {c.year && <span className="libby-book-candidate-year">{c.year}</span>}
+                        {c.isbn && <span className="libby-book-candidate-isbn">ISBN {c.isbn}</span>}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </>
           )}
-          {candidates.length > 1 && (
+          {!urlFallback && candidates.length > 1 && (
             <ul className="libby-book-candidates">
               {candidates.slice(1).map((c, i) => (
                 <li

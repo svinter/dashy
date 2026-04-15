@@ -8,7 +8,7 @@ import type { FilterItem } from '../components/shared/ClientFilterBar';
 export interface LibbyGroup {
   company_id: number | null;
   company_name: string;
-  clients: { id: number; name: string }[];
+  clients: { id: number; name: string; manifest_gdoc_url?: string | null }[];
 }
 
 // FilterItem-compatible selection model (company or individual client)
@@ -31,6 +31,7 @@ interface LibbyContextValue {
   activeClientName: string | null;    // person name when client selected
   activeCompanyId: number | null;     // non-null when company chip selected
   activeCompanyName: string | null;   // company name when company chip selected
+  activeClientManifestUrl: string | null;  // manifest_gdoc_url for active individual client
 
   // Queue badge
   queueCount: number;
@@ -54,6 +55,7 @@ const LibbyContext = createContext<LibbyContextValue>({
   activeClientName: null,
   activeCompanyId: null,
   activeCompanyName: null,
+  activeClientManifestUrl: null,
   queueCount: 0,
   refreshQueueCount: () => {},
   isHelpOpen: false,
@@ -97,7 +99,7 @@ export function LibbyProvider({ children }: { children: ReactNode }) {
           company_id: g.company_id,
           company_name: g.company_name,
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          clients: (g.clients ?? []).map((c: any) => ({ id: c.id, name: c.name })),
+          clients: (g.clients ?? []).map((c: any) => ({ id: c.id, name: c.name, manifest_gdoc_url: c.manifest_gdoc_url ?? null })),
         }));
         setGroups(rawGroups);
 
@@ -134,6 +136,9 @@ export function LibbyProvider({ children }: { children: ReactNode }) {
   const activeClientName = sel?.type === 'client' ? sel.label : null;
   const activeCompanyId = sel?.type === 'company' ? sel.id : null;
   const activeCompanyName = sel?.type === 'company' ? sel.label : null;
+  const activeClientManifestUrl = activeClientId != null
+    ? (groups.flatMap(g => g.clients).find(c => c.id === activeClientId)?.manifest_gdoc_url ?? null)
+    : null;
 
   return (
     <LibbyContext.Provider
@@ -146,6 +151,7 @@ export function LibbyProvider({ children }: { children: ReactNode }) {
         activeClientName,
         activeCompanyId,
         activeCompanyName,
+        activeClientManifestUrl,
         queueCount,
         refreshQueueCount,
         isHelpOpen,

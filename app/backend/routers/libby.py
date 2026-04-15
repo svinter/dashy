@@ -395,6 +395,107 @@ def action_copy(entry_id: int):
 
 
 # ---------------------------------------------------------------------------
+# GET /api/libby/manifest/{client_id}
+# ---------------------------------------------------------------------------
+
+@router.get("/manifest/{client_id}")
+def get_manifest(client_id: int):
+    """Return parsed manifest contents for a client.
+
+    Reads the client's manifest_gdoc_url, fetches the Google Doc via API,
+    and parses the Documents and Others sections into structured data.
+
+    Returns:
+      {
+        manifest_url: str,
+        documents: [{name, url}],
+        others: [{name, url, date}],
+      }
+    """
+    db = get_db()
+    row = db.execute(
+        "SELECT manifest_gdoc_url FROM billing_clients WHERE id = ?", (client_id,)
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    manifest_url = row["manifest_gdoc_url"]
+    if not manifest_url:
+        raise HTTPException(status_code=404, detail="Client has no manifest")
+
+    doc_id = _doc_id_from_url(manifest_url)
+    if not doc_id:
+        raise HTTPException(status_code=422, detail="Invalid manifest URL")
+
+    try:
+        from connectors.google_auth import get_google_credentials
+        from googleapiclient.discovery import build
+
+        creds = get_google_credentials()
+        docs_svc = build("docs", "v1", credentials=creds)
+        doc = docs_svc.documents().get(documentId=doc_id).execute()
+    except Exception as exc:
+        logger.error("Failed to fetch manifest doc %s: %s", doc_id, exc)
+        raise HTTPException(status_code=502, detail=f"Google Docs error: {exc}")
+
+    content = doc.get("body", {}).get("content", [])
+
+    def _elem_link(elem: dict) -> str | None:
+        """Return the first hyperlink URL found in a paragraph's textRuns."""
+        for pe in elem.get("paragraph", {}).get("elements", []):
+            url = pe.get("textRun", {}).get("textStyle", {}).get("link", {}).get("url")
+            if url:
+                return url
+        return None
+
+    documents: list[dict] = []
+    others: list[dict] = []
+    current_section: str | None = None  # "documents" | "others"
+
+    for elem in content:
+        if "paragraph" not in elem:
+            continue
+
+        text = _para_text(elem).strip()
+        style = _para_named_style(elem)
+
+        if style.startswith("HEADING_"):
+            tl = text.lower()
+            if tl.startswith("documents"):
+                current_section = "documents"
+            elif tl.startswith("others"):
+                current_section = "others"
+            else:
+                current_section = None
+            continue
+
+        if not text or not text.startswith("\u2022"):
+            continue
+
+        # Strip bullet prefix "• "
+        name = text.lstrip("\u2022").strip()
+        url = _elem_link(elem)
+
+        if current_section == "documents":
+            documents.append({"name": name, "url": url})
+        elif current_section == "others":
+            # Try to extract trailing date (last token matching YYYY-MM-DD)
+            import re as _re
+            date_match = _re.search(r"(\d{4}-\d{2}-\d{2})\s*$", name)
+            entry_date = date_match.group(1) if date_match else None
+            # Strip the trailing " — date" suffix from display name
+            if date_match:
+                name = name[: date_match.start()].rstrip(" \u2014-").strip()
+            others.append({"name": name, "url": url, "date": entry_date})
+
+    return {
+        "manifest_url": manifest_url,
+        "documents": documents,
+        "others": others,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Manifest Google Doc helpers (used by record action)
 # ---------------------------------------------------------------------------
 
@@ -623,6 +724,7 @@ def action_record(entry_id: int, body: RecordRequest):
         "details": messages,
         "manifest_updated": manifest_updated,
         "manifest_skipped": manifest_skipped,
+        "entry_name": entry_row["name"],
     }
 
 
