@@ -40,6 +40,7 @@ import {
   useBillingSyncCalendar,
   useConfirmPastBanana,
   useBillingProjects,
+  useObsidianVault,
 } from '../api/hooks';
 import type { BillingUnprocessedEvent, BillingCompany, BillingProject, BillingSession, BillingPrepaidBlock, BillingInvoice, BillingInvoiceDetail, BillingSummaryData, BillingSummaryCell, BillingPayment, BillingLunchMoneySyncResult, InvoiceLineInput, InvoiceBulkImportRow, InvoiceBulkImportResult } from '../api/types';
 import { ClientFilterBar, HelpPopover } from '../components/shared/ClientFilterBar';
@@ -310,6 +311,24 @@ function getWeekLabel(weekStart: string): string {
 function getMonthLabel(monthKey: string): string {
   const [y, mo] = monthKey.split('-').map(Number);
   return new Date(y, mo - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+}
+
+/** "Katie Rae" → "KR", "Katie" → "K" */
+function nameToInitials(name: string | null | undefined): string {
+  if (!name) return '';
+  return name.trim().split(/\s+/).map(p => p[0]?.toUpperCase() ?? '').join('');
+}
+
+/** Replace name parts in a meeting summary with single initials */
+function anonymizeSummary(summary: string, clientName: string | null | undefined): string {
+  if (!clientName) return summary;
+  let result = summary;
+  for (const part of clientName.trim().split(/\s+/)) {
+    if (part.length > 1) {
+      result = result.replace(new RegExp(`\\b${part}\\b`, 'gi'), part[0].toUpperCase());
+    }
+  }
+  return result;
 }
 
 /** "Tue 4/10" — short weekday + month/day, no year, no leading zeros */
@@ -726,7 +745,7 @@ function SessionRow({ session: s, companies, blocks = [], onUpdate, onDelete, on
       )}
       <td style={{ fontSize: 'var(--text-sm)' }}>
         {s.client_name
-          ? s.client_name
+          ? (demo ? nameToInitials(s.client_name) : s.client_name)
           : s.project_name
             ? <span style={{ color: '#7B52AB' }}>◆ {s.project_name}</span>
             : <span style={{ color: 'var(--color-text-light)' }}>{s.company_name ?? '—'}</span>}
@@ -860,7 +879,7 @@ function CompanyGroup({ companyName, sessions, companies, blocks = [], showPrepa
             {byClient.size > 1 && (
               <tr key={`client-${clientName}`}>
                 <td colSpan={colCount} style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)', padding: '2px 8px 2px 28px', fontStyle: 'italic' }}>
-                  {clientName}
+                  {demo ? nameToInitials(clientName) : clientName}
                   <span style={{ float: 'right' }}>{ch.toFixed(2)}h · {demo ? '—' : `$${ca.toFixed(2)}`}</span>
                 </td>
               </tr>
@@ -1098,7 +1117,7 @@ function SessionsView() {
     <div>
       {/* Toolbar */}
       <div style={{ display: 'flex', gap: 'var(--space-md)', alignItems: 'center', marginBottom: 'var(--space-sm)', flexWrap: 'wrap' }}>
-        <h2 style={{ margin: 0 }}>Sessions</h2>
+        <h2 style={{ margin: 0 }}>Confirmed Sessions</h2>
         <label style={{ fontSize: 'var(--text-sm)', display: 'flex', gap: 4, alignItems: 'center' }}>
           <input type="checkbox" checked={unconfirmedOnly} onChange={e => setUnconfirmedOnly(e.target.checked)} />
           Unprocessed only
@@ -1542,6 +1561,7 @@ interface RowProps {
   companies: BillingCompany[];
   companyAbbrev?: string | null;
   expectedRevenue?: number | null;
+  vaultName?: string;
   onConfirm: (
     ev: BillingUnprocessedEvent,
     clientId: number | null,
@@ -1553,7 +1573,7 @@ interface RowProps {
   onDismiss: (ev: BillingUnprocessedEvent) => void;
 }
 
-function UnprocessedRow({ event: ev, companies, companyAbbrev, expectedRevenue, onConfirm, onDismiss }: RowProps) {
+function UnprocessedRow({ event: ev, companies, companyAbbrev, expectedRevenue, vaultName, onConfirm, onDismiss }: RowProps) {
   const { demo } = useDemoMode();
   const [expanded, setExpanded] = useState(false);
   const { data: allProjects = [] } = useBillingProjects();
@@ -1648,7 +1668,15 @@ function UnprocessedRow({ event: ev, companies, companyAbbrev, expectedRevenue, 
       >
         <span style={{ fontSize: '0.65em', opacity: 0.4 }}>{expanded ? '▾' : '▸'}</span>
         {colorBadge(ev.color_id)}
-        <span style={{ width: 90, fontSize: 'var(--text-sm)', flexShrink: 0, color: 'var(--color-text-light)' }}>{formatDate(ev.start_time)}</span>
+        {vaultName ? (
+          <a
+            style={{ width: 90, fontSize: 'var(--text-sm)', flexShrink: 0, color: 'var(--color-text-light)', textDecoration: 'none' }}
+            href={`obsidian://open?vault=${encodeURIComponent(vaultName)}&file=${encodeURIComponent(ev.start_time.slice(0, 10))}`}
+            onClick={e => { e.preventDefault(); e.stopPropagation(); openExternal(`obsidian://open?vault=${encodeURIComponent(vaultName)}&file=${encodeURIComponent(ev.start_time.slice(0, 10))}`); }}
+          >{formatDate(ev.start_time)}</a>
+        ) : (
+          <span style={{ width: 90, fontSize: 'var(--text-sm)', flexShrink: 0, color: 'var(--color-text-light)' }}>{formatDate(ev.start_time)}</span>
+        )}
         {displayAbbrev && (
           <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)', flexShrink: 0, minWidth: 28 }}>
             {displayAbbrev}
@@ -1656,7 +1684,7 @@ function UnprocessedRow({ event: ev, companies, companyAbbrev, expectedRevenue, 
         )}
         {displayClient && (
           <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-light)', width: 160, flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {confidenceBadge(ev.inferred_confidence)} {displayClient}
+            {confidenceBadge(ev.inferred_confidence)} {demo && displayClient && !selectedProject ? nameToInitials(displayClient) : displayClient}
           </span>
         )}
         {ev.obsidian?.found && (
@@ -1664,7 +1692,16 @@ function UnprocessedRow({ event: ev, companies, companyAbbrev, expectedRevenue, 
             style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)', textDecoration: 'none', flexShrink: 0 }}
             onClick={e => { e.preventDefault(); e.stopPropagation(); openExternal(ev.obsidian!.obsidian_link); }}>◆</a>
         )}
-        <span style={{ width: 314, flexShrink: 0, fontSize: 'var(--text-sm)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.summary}</span>
+        {ev.obsidian?.found ? (
+          <a
+            style={{ width: 314, flexShrink: 0, fontSize: 'var(--text-sm)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'inherit', textDecoration: 'none' }}
+            href={ev.obsidian.obsidian_link}
+            title="Open session note in Obsidian"
+            onClick={e => { e.preventDefault(); e.stopPropagation(); openExternal(ev.obsidian!.obsidian_link); }}
+          >{demo ? anonymizeSummary(ev.summary, ev.inferred_client_name) : ev.summary}</a>
+        ) : (
+          <span style={{ width: 314, flexShrink: 0, fontSize: 'var(--text-sm)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{demo ? anonymizeSummary(ev.summary, ev.inferred_client_name) : ev.summary}</span>
+        )}
         <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-light)', width: 52, flexShrink: 0 }}>
           {Math.round(ev.duration_hours * 60)}min
         </span>
@@ -1680,7 +1717,7 @@ function UnprocessedRow({ event: ev, companies, companyAbbrev, expectedRevenue, 
               style={{ fontSize: 'var(--text-xs)', padding: '2px 8px',
                 ...(isConfidenceHigh ? {} : { background: '#e9a040', borderColor: '#c8861a' }) }}
               title={isConfidenceHigh
-                ? `Confirm: ${ev.inferred_client_name}`
+                ? `Confirm: ${demo ? nameToInitials(ev.inferred_client_name) : ev.inferred_client_name}`
                 : `Low confidence (${Math.round(ev.inferred_confidence * 100)}%) — review client assignment before confirming`}
               onClick={e => { e.stopPropagation(); onConfirm(ev, ev.inferred_client_id!, ev.inferred_company_id ?? null, ev.duration_hours, ''); }}
             >
@@ -1856,6 +1893,7 @@ function PastBananaRow({ event: ev, companies, expectedRevenue, onNeedReauth, on
   const { demo } = useDemoMode();
   const confirmPastBanana = useConfirmPastBanana();
   const [loading, setLoading] = useState(false);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
 
   const isConfidenceHigh = ev.inferred_confidence >= 0.75;
   const canConfirm = ev.inferred_client_id != null;
@@ -1865,10 +1903,10 @@ function PastBananaRow({ event: ev, companies, expectedRevenue, onNeedReauth, on
     (Date.now() - new Date(ev.start_time.slice(0, 10) + 'T00:00:00').getTime()) / 86_400_000
   );
 
-  async function handleCheck(e: React.ChangeEvent<HTMLInputElement>) {
-    e.preventDefault();
+  async function doConfirm() {
     if (!canConfirm || loading) return;
     setLoading(true);
+    setConfirmError(null);
     try {
       const result = await confirmPastBanana.mutateAsync({
         calendar_event_id: ev.calendar_event_id,
@@ -1880,8 +1918,11 @@ function PastBananaRow({ event: ev, companies, expectedRevenue, onNeedReauth, on
       if (result.need_reauth) {
         onNeedReauth();
       } else if (result.no_active_prepaid_block) {
-        onPrepaidWarning(`${ev.inferred_client_name ?? 'Client'} — session confirmed but no active prepaid block found`);
+        onPrepaidWarning(`${demo ? nameToInitials(ev.inferred_client_name) || 'Client' : (ev.inferred_client_name ?? 'Client')} — session confirmed but no active prepaid block found`);
       }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setConfirmError(msg || 'Confirm failed');
     } finally {
       setLoading(false);
     }
@@ -1904,11 +1945,12 @@ function PastBananaRow({ event: ev, companies, expectedRevenue, onNeedReauth, on
       ) : (
         <input
           type="checkbox"
+          checked={false}
           disabled={!canConfirm}
           title={canConfirm
-            ? `Confirm: update GCal color → grape, then confirm session for ${ev.inferred_client_name}`
-            : 'No client inferred — expand below to assign manually'}
-          onChange={handleCheck}
+            ? `Confirm: update GCal color → grape, then confirm session for ${demo ? nameToInitials(ev.inferred_client_name) : ev.inferred_client_name}`
+            : 'No client inferred — cannot confirm'}
+          onChange={() => { doConfirm(); }}
           style={{ cursor: canConfirm ? 'pointer' : 'not-allowed', flexShrink: 0 }}
         />
       )}
@@ -1929,15 +1971,24 @@ function PastBananaRow({ event: ev, companies, expectedRevenue, onNeedReauth, on
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           opacity: isConfidenceHigh ? 1 : 0.65,
         }}>
-          {confidenceBadge(ev.inferred_confidence)} {ev.inferred_client_name}
+          {confidenceBadge(ev.inferred_confidence)} {demo ? nameToInitials(ev.inferred_client_name) : ev.inferred_client_name}
         </span>
+      )}
+      {ev.obsidian?.found && (
+        <a href={ev.obsidian.obsidian_link} title="Open session note in Obsidian"
+          style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)', textDecoration: 'none', flexShrink: 0 }}
+          onClick={e => { e.preventDefault(); openExternal(ev.obsidian!.obsidian_link); }}>◆</a>
       )}
       <span style={{
         fontSize: 'var(--text-sm)', color: 'var(--color-text-light)',
         overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexGrow: 1,
       }}>
-        {ev.summary}
+        {demo ? anonymizeSummary(ev.summary, ev.inferred_client_name) : ev.summary}
       </span>
+      {confirmError && (
+        <span style={{ fontSize: 'var(--text-xs)', color: '#c0392b', flexShrink: 0, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+          title={confirmError}>⚠ {confirmError}</span>
+      )}
       <span style={{ marginLeft: 'auto', fontSize: 'var(--text-sm)', color: 'var(--color-text-light)', flexShrink: 0, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
         {Math.round(ev.duration_hours * 60)}min
         {expectedRevenue != null && !demo ? ` · $${expectedRevenue.toFixed(2)}` : ''}
@@ -1997,8 +2048,11 @@ function UnprocessedQueue() {
   const today = new Date().toISOString().slice(0, 10);
   const events = data?.events ?? [];
 
+  const { data: vaultData } = useObsidianVault();
+  const vaultName = vaultData?.active_path?.split('/').pop() ?? '';
+
   // Past banana events: banana color, date < today, matching company filter.
-  // Shown in a separate "Past" section above all month groupings.
+  // Shown in a separate "Unprocessed" section above all month groupings.
   const pastBanana = events
     .filter(ev => {
       if (ev.color_id !== '5') return false;
@@ -2015,7 +2069,7 @@ function UnprocessedQueue() {
 
   const visible = events
     .filter(ev => {
-      if (pastBananaIds.has(ev.calendar_event_id)) return false; // shown in Past section
+      if (pastBananaIds.has(ev.calendar_event_id)) return false; // shown in Unprocessed section
       if (!showBanana && ev.color_id === '5') return false;
       const dateStr = ev.start_time.slice(0, 10);
       const evYear = Number(dateStr.slice(0, 4));
@@ -2030,14 +2084,28 @@ function UnprocessedQueue() {
     })
     .sort((a, b) => a.start_time.localeCompare(b.start_time));
 
+  // Split visible into "Next" (today or next upcoming day) and "Future" (the rest)
+  const nextDate = (() => {
+    const todayEvents = visible.filter(ev => ev.start_time.slice(0, 10) === today);
+    if (todayEvents.length > 0) return today;
+    const upcoming = visible
+      .map(ev => ev.start_time.slice(0, 10))
+      .filter(d => d > today)
+      .sort();
+    return upcoming[0] ?? null;
+  })();
+  const nextEvents = nextDate ? visible.filter(ev => ev.start_time.slice(0, 10) === nextDate) : [];
+  const nextEventIds = new Set(nextEvents.map(ev => ev.calendar_event_id));
+  const futureEvents = visible.filter(ev => !nextEventIds.has(ev.calendar_event_id));
+
   const grapeCount = events.filter(e => e.color_id === '3').length;
   const bananaCount = events.filter(e => e.color_id === '5').length;
   const totalHours = visible.reduce((s, e) => s + e.duration_hours, 0);
   const totalRevenue = visible.reduce((s, e) => s + (expectedRevenue(e) ?? 0), 0);
 
-  // Group into months (for month headers) while keeping flat date order within each month
+  // Group futureEvents into months (for month headers)
   const byMonth = new Map<string, BillingUnprocessedEvent[]>();
-  for (const ev of visible) {
+  for (const ev of futureEvents) {
     const mk = ev.start_time.slice(0, 7); // YYYY-MM
     if (!byMonth.has(mk)) byMonth.set(mk, []);
     byMonth.get(mk)!.push(ev);
@@ -2050,7 +2118,7 @@ function UnprocessedQueue() {
     <div>
       {/* Toolbar */}
       <div style={{ display: 'flex', gap: 'var(--space-md)', alignItems: 'center', marginBottom: 'var(--space-md)', flexWrap: 'wrap' }}>
-        <h2 style={{ margin: 0 }}>Unprocessed Sessions</h2>
+        <h2 style={{ margin: 0 }}>Sessions</h2>
         <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-light)' }}>
           {grapeCount} grape · {bananaCount} banana
         </span>
@@ -2113,7 +2181,7 @@ function UnprocessedQueue() {
 
       {visible.length === 0 && (
         <p className="empty-state">
-          {events.length === 0 ? 'No unprocessed sessions.' : 'No sessions match the current filters.'}
+          {events.length === 0 ? 'No sessions.' : 'No sessions match the current filters.'}
         </p>
       )}
 
@@ -2134,18 +2202,17 @@ function UnprocessedQueue() {
         </div>
       )}
 
-      {/* ── Past banana section ── */}
+      {/* ── Unprocessed section (past banana) ── */}
       {pastBanana.length > 0 && (
         <div style={{ marginBottom: 'var(--space-xl)' }}>
           <div style={{
             fontWeight: 700, fontSize: 'var(--text-sm)', padding: '5px 8px',
-            borderBottom: '2px solid #d97706',
+            borderBottom: '2px solid var(--color-border)',
             marginBottom: 'var(--space-xs)',
             display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            background: 'color-mix(in srgb, #fef3c7 40%, transparent)',
           }}>
-            <span style={{ color: '#92400e' }}>⚠ Past — calendar still shows banana ({pastBanana.length})</span>
-            <span style={{ fontWeight: 400, fontSize: 'var(--text-xs)', color: '#b45309' }}>
+            <span>Past Sessions ({pastBanana.length})</span>
+            <span style={{ fontWeight: 400, fontSize: 'var(--text-xs)', color: 'var(--color-text-light)' }}>
               Check box to recolor → grape and confirm
             </span>
           </div>
@@ -2174,6 +2241,62 @@ function UnprocessedQueue() {
         </div>
       )}
 
+      {/* ── Next section ── */}
+      {nextEvents.length > 0 && (
+        <div style={{ marginBottom: 'var(--space-xl)' }}>
+          <div style={{
+            fontWeight: 700, fontSize: 'var(--text-sm)', padding: '5px 8px',
+            borderBottom: '2px solid var(--color-border)',
+            marginBottom: 'var(--space-sm)',
+            display: 'flex', justifyContent: 'space-between',
+          }}>
+            <span>Next Sessions</span>
+            <span style={{ fontWeight: 400, color: 'var(--color-text-light)' }}>
+              {nextDate === today ? 'Today' : formatDate(nextDate + 'T00:00:00')} · {nextEvents.length} session{nextEvents.length !== 1 ? 's' : ''}
+            </span>
+          </div>
+          {nextEvents.map(ev => {
+            const abbrev = companyAbbrev(ev);
+            const rev = expectedRevenue(ev);
+            return (
+              <UnprocessedRow
+                key={ev.calendar_event_id}
+                event={ev}
+                companies={companies}
+                companyAbbrev={abbrev}
+                expectedRevenue={rev}
+                vaultName={vaultName || undefined}
+                onConfirm={(ev, clientId, companyId, durationHours, notes, projectId) => {
+                  confirm.mutate(
+                    { calendar_event_id: ev.calendar_event_id, client_id: clientId, company_id: companyId, duration_hours: durationHours, notes, project_id: projectId },
+                    {
+                      onSuccess: (session) => {
+                        if (session.no_active_prepaid_block) {
+                          setBlockWarnings(w => [...w, `${demo ? nameToInitials(session.client_name) || 'Client' : (session.client_name ?? 'Client')} — session confirmed but no active prepaid block found`]);
+                        }
+                      },
+                    }
+                  );
+                }}
+                onDismiss={ev => {
+                  if (window.confirm(`Dismiss "${ev.summary}"?`)) dismiss.mutate(ev.calendar_event_id);
+                }}
+              />
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── Future section ── */}
+      {monthEntries.length > 0 && (
+        <div style={{
+          fontWeight: 700, fontSize: 'var(--text-sm)', padding: '5px 8px',
+          borderBottom: '2px solid var(--color-border)',
+          marginBottom: 'var(--space-sm)',
+        }}>
+          Future Sessions
+        </div>
+      )}
       {monthEntries.map(([monthKey, mEvents]) => {
         const mHours = mEvents.reduce((s, e) => s + e.duration_hours, 0);
         const mRevenue = mEvents.reduce((s, e) => s + (expectedRevenue(e) ?? 0), 0);
@@ -2181,7 +2304,7 @@ function UnprocessedQueue() {
           <div key={monthKey} style={{ marginBottom: 'var(--space-xl)' }}>
             <div style={{
               fontWeight: 700, fontSize: 'var(--text-sm)', padding: '5px 8px',
-              borderBottom: '2px solid var(--color-border)',
+              borderBottom: '1px solid var(--color-border)',
               marginBottom: 'var(--space-sm)',
               display: 'flex', justifyContent: 'space-between',
             }}>
@@ -2201,13 +2324,14 @@ function UnprocessedQueue() {
                   companies={companies}
                   companyAbbrev={abbrev}
                   expectedRevenue={rev}
+                  vaultName={vaultName || undefined}
                   onConfirm={(ev, clientId, companyId, durationHours, notes, projectId) => {
                     confirm.mutate(
                       { calendar_event_id: ev.calendar_event_id, client_id: clientId, company_id: companyId, duration_hours: durationHours, notes, project_id: projectId },
                       {
                         onSuccess: (session) => {
                           if (session.no_active_prepaid_block) {
-                            setBlockWarnings(w => [...w, `${session.client_name ?? 'Client'} — session confirmed but no active prepaid block found`]);
+                            setBlockWarnings(w => [...w, `${demo ? nameToInitials(session.client_name) || 'Client' : (session.client_name ?? 'Client')} — session confirmed but no active prepaid block found`]);
                           }
                         },
                       }
@@ -2249,14 +2373,14 @@ function UnprocessedQueue() {
               </span>
               {s.client_name && (
                 <span style={{ color: 'var(--color-text-light)', width: 160, flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {s.client_name}
+                  {demo ? nameToInitials(s.client_name) : s.client_name}
                 </span>
               )}
               {s.company_name && !s.client_name && (
                 <span style={{ color: 'var(--color-text-light)', width: 160, flexShrink: 0 }}>{s.company_name}</span>
               )}
               <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {s.summary ?? '—'}
+                {demo ? anonymizeSummary(s.summary ?? '—', s.client_name) : (s.summary ?? '—')}
               </span>
               <button
                 className="btn-link"
@@ -3276,7 +3400,7 @@ function ReconcilePanel({ invoice }: { invoice: BillingInvoiceDetail }) {
                       <input type="checkbox" checked={checked.has(s.id)} onChange={() => toggle(s.id)} onClick={e => e.stopPropagation()} />
                     </td>
                     <td style={{ padding: '5px 8px', whiteSpace: 'nowrap' }}>{formatDate(s.date)}</td>
-                    <td style={{ padding: '5px 8px' }}>{s.client_name ?? s.company_name ?? '—'}</td>
+                    <td style={{ padding: '5px 8px' }}>{s.client_name ? (demo ? nameToInitials(s.client_name) : s.client_name) : (s.company_name ?? '—')}</td>
                     <td style={{ padding: '5px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{s.duration_hours.toFixed(2)}h</td>
                     <td style={{ padding: '5px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>${s.amount.toFixed(2)}</td>
                     <td style={{ padding: '5px 8px', color: 'var(--color-text-light)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -3661,7 +3785,7 @@ function InvoiceDetailView() {
                 {invoice.sessions.map(s => (
                   <tr key={s.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
                     <td style={{ padding: '5px 8px', whiteSpace: 'nowrap' }}>{formatDate(s.date)}</td>
-                    <td style={{ padding: '5px 8px' }}>{s.client_name ?? s.company_name ?? '—'}</td>
+                    <td style={{ padding: '5px 8px' }}>{s.client_name ? (demo ? nameToInitials(s.client_name) : s.client_name) : (s.company_name ?? '—')}</td>
                     <td style={{ padding: '5px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{s.duration_hours.toFixed(2)}h</td>
                     <td style={{ padding: '5px 8px', textAlign: 'right', color: 'var(--color-text-light)', fontVariantNumeric: 'tabular-nums' }}>
                       {s.rate != null ? (demo ? '—' : `$${s.rate}`) : '—'}
@@ -4502,8 +4626,8 @@ function BillingNav() {
   const prepTo = month !== null ? `/billing/prepare/${year}/${month}` : prepLink();
   return (
     <div className="tab-bar">
-      <NavLink to="/billing" end className={({ isActive }) => `tab${isActive ? ' active' : ''}`}>Queue</NavLink>
-      <NavLink to="/billing/sessions" className={({ isActive }) => `tab${isActive ? ' active' : ''}`}>Sessions</NavLink>
+      <NavLink to="/billing" end className={({ isActive }) => `tab${isActive ? ' active' : ''}`}>Sessions</NavLink>
+      <NavLink to="/billing/sessions" className={({ isActive }) => `tab${isActive ? ' active' : ''}`}>Confirmed</NavLink>
       <NavLink to="/billing/invoices" className={() => `tab${onInvoices ? ' active' : ''}`}>Invoices</NavLink>
       <NavLink to="/billing/payments" className={() => `tab${onPayments ? ' active' : ''}`}>Payments</NavLink>
       <NavLink to="/billing/summary" className={() => `tab${onSummary ? ' active' : ''}`}>Summary</NavLink>
@@ -4548,25 +4672,6 @@ export function BillingPage() {
       <BillingScopeContext.Provider value={scope}>
         <div>
           <h1>Billing</h1>
-          {demo && (
-            <div style={{
-              background: '#f59e0b',
-              color: '#1c1917',
-              padding: '6px 14px',
-              borderRadius: 4,
-              fontSize: 'var(--text-sm)',
-              fontWeight: 600,
-              marginBottom: 'var(--space-md)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 'var(--space-sm)',
-            }}>
-              Demo Mode — dollar amounts hidden.
-              <button onClick={toggle} style={{ background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: 'var(--text-sm)', padding: 0, color: '#1c1917' }}>
-                Turn off ×
-              </button>
-            </div>
-          )}
           <BillingNav />
           <BillingScopeBar />
           <Routes>

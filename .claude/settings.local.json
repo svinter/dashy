@@ -45,7 +45,9 @@
       "Bash(venv/bin/python scripts/seed_libby_tools.py)",
       "Bash(venv/bin/python -)",
       "Bash(2>&1)",
-      "Bash(venv/bin/python:*)"
+      "Bash(venv/bin/python:*)",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(python -c \"import routers.billing\")"
     ]
   }
 }

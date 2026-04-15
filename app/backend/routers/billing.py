@@ -1249,7 +1249,7 @@ _CALENDAR_WRITE_SCOPES = {
 
 def _has_calendar_write_scope() -> bool:
     """Return True if the stored Google token includes a calendar write scope."""
-    from config import TOKEN_PATH
+    from connectors.google_auth import TOKEN_PATH
 
     if not TOKEN_PATH.exists():
         return False
@@ -1732,13 +1732,18 @@ def delete_session(session_id: int):
 def unprocess_session(session_id: int):
     """Move a confirmed session back to the unprocessed queue.
 
-    Clears invoice_line_id (if any), resets is_confirmed=0 and dismissed=0,
-    restores color_id='5' (projected) so it re-appears in the queue.
-    The calendar_event_id must still be present for the event to show up.
+    For past sessions whose calendar event is currently grape (colorId='3'),
+    also reverts the Google Calendar event color to banana (colorId='5') and
+    updates local calendar_events accordingly — symmetric with confirm-past-banana.
+    Returns {"need_reauth": true} if GCal write scope is missing.
     """
     with get_write_db() as db:
         row = db.execute(
-            "SELECT id, invoice_line_id, calendar_event_id FROM billing_sessions WHERE id = ?",
+            "SELECT bs.id, bs.invoice_line_id, bs.calendar_event_id, "
+            "       bs.date, ce.color_id AS ce_color_id "
+            "FROM billing_sessions bs "
+            "LEFT JOIN calendar_events ce ON ce.id = bs.calendar_event_id "
+            "WHERE bs.id = ?",
             (session_id,)
         ).fetchone()
         if not row:
@@ -1746,11 +1751,45 @@ def unprocess_session(session_id: int):
         if not row["calendar_event_id"]:
             raise HTTPException(status_code=400, detail="Session has no calendar_event_id — cannot unprocess")
 
-        # If linked to an invoice line, clear that link (don't delete the line)
+        today = __import__("datetime").date.today().isoformat()
+        is_past_grape = (
+            row["date"] is not None
+            and row["date"] < today
+            and row["ce_color_id"] == "3"
+        )
+
+        # For past grape events, revert GCal color to banana before touching the DB
+        if is_past_grape:
+            if not _has_calendar_write_scope():
+                return {"need_reauth": True}
+            try:
+                from googleapiclient.discovery import build
+                from connectors.google_auth import get_google_credentials
+
+                creds = get_google_credentials()
+                service = build("calendar", "v3", credentials=creds)
+                service.events().patch(
+                    calendarId="primary",
+                    eventId=row["calendar_event_id"],
+                    body={"colorId": "5"},
+                ).execute()
+                logger.info(
+                    "unprocess_session: reverted GCal event %s colorId → banana",
+                    row["calendar_event_id"],
+                )
+            except Exception as e:
+                logger.error("unprocess_session: GCal revert failed: %s", e)
+                raise HTTPException(status_code=500, detail=f"Failed to revert Google Calendar color: {e}")
+
+            db.execute(
+                "UPDATE calendar_events SET color_id='5' WHERE id=?",
+                (row["calendar_event_id"],),
+            )
+
         db.execute(
             "UPDATE billing_sessions SET is_confirmed=0, dismissed=0, color_id='5', invoice_line_id=NULL "
             "WHERE id=?",
-            (session_id,)
+            (session_id,),
         )
         db.commit()
     return {"ok": True}
