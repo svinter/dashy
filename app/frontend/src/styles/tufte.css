@@ -8135,12 +8135,36 @@ span.news-item-title {
 
 /* Client Filter */
 
-.coaching-filter {
+.coaching-topbar {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 40px;
+  margin-bottom: 4px;
+}
+
+.coaching-topbar-chips {
   margin-bottom: var(--space-md);
+}
+
+.coaching-filter {
   display: flex;
   flex-direction: column;
   gap: var(--space-xs);
-  max-width: 560px;
+  max-width: 437px;
+  flex-shrink: 0;
+  position: relative;
+}
+
+/* Inside the topbar, autocomplete floats below input */
+.coaching-topbar .coaching-filter-autocomplete {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  white-space: nowrap;
+  background: var(--color-bg);
+  z-index: 5;
+  min-height: unset;
 }
 
 /* Inline variant — used in horizontal scope bars (Billing).
@@ -8371,6 +8395,142 @@ span.news-item-title {
   font-size: var(--text-sm);
   color: var(--color-text-light);
   padding: var(--space-md) 0;
+}
+
+/* ── Date mode bar ───────────────────────────────────────────────────────── */
+
+.coaching-date-bar {
+  display: flex;
+  gap: 4px;
+  padding: 2px 0 0;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.coaching-date-bar-sep {
+  display: inline-block;
+  width: 16px;
+}
+
+.coaching-date-bar-hints {
+  margin-left: 12px;
+  font-size: var(--text-xs, 11px);
+  color: var(--color-text-light);
+  white-space: nowrap;
+}
+
+.coaching-date-btn {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  background: none;
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 4px;
+  padding: 3px 10px;
+  cursor: pointer;
+  font-size: var(--text-sm);
+  color: var(--color-text-light);
+  transition: background 0.1s, color 0.1s;
+}
+
+.coaching-date-btn:hover {
+  background: var(--color-bg-hover, #f3f4f6);
+  color: var(--color-text);
+}
+
+.coaching-date-btn--active {
+  background: var(--color-accent, #2563eb);
+  color: #fff;
+  border-color: var(--color-accent, #2563eb);
+}
+
+.coaching-date-btn--active:hover {
+  opacity: 0.9;
+  background: var(--color-accent, #2563eb);
+  color: #fff;
+}
+
+.coaching-date-btn--dim {
+  opacity: 0.45;
+}
+
+.coaching-date-btn-key {
+  font-size: 10px;
+  opacity: 0.6;
+  font-family: monospace;
+}
+
+/* ── Date view ───────────────────────────────────────────────────────────── */
+
+.coaching-date-view {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.coaching-date-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.coaching-date-group-header {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--color-text-light);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 4px 0 6px;
+  border-bottom: 1px solid var(--color-border, #e5e7eb);
+  margin-bottom: 4px;
+}
+
+.coaching-date-session-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--color-border-light, #f3f4f6);
+  font-size: var(--text-sm);
+}
+
+.coaching-date-session-time {
+  min-width: 56px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-light);
+  font-size: var(--text-xs);
+}
+
+.coaching-date-session-client {
+  min-width: 140px;
+  font-weight: 500;
+}
+
+.coaching-date-session-company {
+  min-width: 100px;
+  font-size: var(--text-xs);
+  color: var(--color-text-light);
+}
+
+.coaching-date-session-num {
+  min-width: 36px;
+  font-size: var(--text-xs);
+  color: var(--color-text-light);
+}
+
+.coaching-date-session-rel {
+  min-width: 64px;
+  font-size: var(--text-xs);
+  color: var(--color-text-light);
+}
+
+.coaching-date-session-links {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.coaching-date-note-exists {
+  color: #7B52AB;
 }
 
 /* Vinny iframe */

@@ -47,7 +47,14 @@
       "Bash(2>&1)",
       "Bash(venv/bin/python:*)",
       "Bash(echo \"EXIT:$?\")",
-      "Bash(python -c \"import routers.billing\")"
+      "Bash(python -c \"import routers.billing\")",
+      "Bash(cp '/Users/stevevinter/Dropbox/Downloads/Book files/Curated.md' /Users/stevevinter/dashy/app/backend/pipeline/sources/Curated.md)",
+      "Bash(cp '/Users/stevevinter/Dropbox/Downloads/Book files/Favorites.md' /Users/stevevinter/dashy/app/backend/pipeline/sources/Favorites.md)",
+      "Bash(cp '/Users/stevevinter/Dropbox/Downloads/Book files/Summaries.md' /Users/stevevinter/dashy/app/backend/pipeline/sources/Summaries.md)",
+      "Bash(cp '/Users/stevevinter/Dropbox/Downloads/Book files/ground truth.txt' /Users/stevevinter/dashy/app/backend/pipeline/sources/ground_truth.txt)",
+      "Bash(cp '/Users/stevevinter/Dropbox/Downloads/Book files/Your library.pdf' /Users/stevevinter/dashy/app/backend/pipeline/sources/Your_library.pdf)",
+      "Bash(python run.py --dry-run)",
+      "Bash(pip3 install:*)"
     ]
   }
 }

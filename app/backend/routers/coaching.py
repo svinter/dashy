@@ -62,20 +62,17 @@ def get_coaching_clients():
     last_sessions = db.execute(
         f"""
         WITH sno AS (
-            SELECT id, client_id, date, session_number,
+            SELECT client_id, date, session_number,
                    ROW_NUMBER() OVER (PARTITION BY client_id ORDER BY date) AS rn
             FROM billing_sessions
             WHERE is_confirmed = 1
-        ),
-        ranked AS (
-            SELECT sno.client_id, sno.date,
-                   COALESCE(sno.session_number, sno.rn) AS display_session_number,
-                   ROW_NUMBER() OVER (PARTITION BY sno.client_id ORDER BY sno.date DESC) AS recency
-            FROM sno
-            WHERE sno.client_id IN ({placeholders})
+              AND client_id IN ({placeholders})
         )
-        SELECT client_id, date, display_session_number
-        FROM ranked WHERE recency = 1
+        SELECT client_id,
+               MAX(date) AS date,
+               MAX(COALESCE(session_number, rn)) AS display_session_number
+        FROM sno
+        GROUP BY client_id
         """,
         client_ids,
     ).fetchall()
@@ -165,9 +162,15 @@ def get_coaching_clients():
             project_ids,
         ).fetchall()
         proj_session_counts = db.execute(
-            f"""SELECT project_id, COUNT(*) as cnt
-                FROM billing_sessions
-                WHERE project_id IN ({ph}) AND is_confirmed = 1
+            f"""WITH sno AS (
+                    SELECT project_id, session_number,
+                           ROW_NUMBER() OVER (PARTITION BY project_id ORDER BY date) AS rn
+                    FROM billing_sessions
+                    WHERE project_id IN ({ph}) AND is_confirmed = 1
+                )
+                SELECT project_id,
+                       MAX(COALESCE(session_number, rn)) AS cnt
+                FROM sno
                 GROUP BY project_id""",
             project_ids,
         ).fetchall()
@@ -235,6 +238,256 @@ def get_coaching_clients():
         })
 
     return {"groups": groups}
+
+
+# ---------------------------------------------------------------------------
+# GET /api/coaching/clients/by-date
+# ---------------------------------------------------------------------------
+
+@router.get("/clients/by-date")
+def get_clients_by_date(mode: str = "today", days: int = 7):
+    """
+    Return billing sessions grouped by day for the by-date view.
+
+    mode:
+      past    — last 10 confirmed sessions (is_confirmed=1), most recent first
+      today   — all sessions today (grape color_id=11 or banana color_id=5)
+      next    — next 10 upcoming banana sessions (date >= today), soonest first
+      week    — all sessions Mon–Sun of current week (grape + banana)
+      future  — all banana sessions in next `days` rolling days
+      days    — next N rolling days banana sessions (used for ;1–;9 shortcuts)
+    """
+    db = get_db()
+    today = date.today()
+    today_str = today.isoformat()
+
+    # Monday of current week
+    week_start = today - __import__('datetime').timedelta(days=today.weekday())
+    week_end = week_start + __import__('datetime').timedelta(days=6)
+
+    if mode == "past":
+        rows = db.execute(
+            """
+            SELECT
+                bs.id, bs.date, bs.client_id, bs.company_id,
+                bs.is_confirmed, bs.color_id, bs.obsidian_note_path,
+                bs.session_number, bs.project_id,
+                bc.name   AS client_name,
+                bc.obsidian_name,
+                bc.gdrive_coaching_docs_url,
+                bco.name  AS company_name,
+                ce.start_time
+            FROM billing_sessions bs
+            JOIN billing_clients bc ON bc.id = bs.client_id
+            JOIN billing_companies bco ON bco.id = bs.company_id
+            LEFT JOIN calendar_events ce ON ce.id = bs.calendar_event_id
+            WHERE bs.is_confirmed = 1
+              AND bs.client_id IS NOT NULL
+            ORDER BY bs.date DESC, ce.start_time ASC
+            LIMIT 10
+            """
+        ).fetchall()
+
+    elif mode == "today":
+        rows = db.execute(
+            """
+            SELECT
+                bs.id, bs.date, bs.client_id, bs.company_id,
+                bs.is_confirmed, bs.color_id, bs.obsidian_note_path,
+                bs.session_number, bs.project_id,
+                bc.name   AS client_name,
+                bc.obsidian_name,
+                bc.gdrive_coaching_docs_url,
+                bco.name  AS company_name,
+                ce.start_time
+            FROM billing_sessions bs
+            JOIN billing_clients bc ON bc.id = bs.client_id
+            JOIN billing_companies bco ON bco.id = bs.company_id
+            LEFT JOIN calendar_events ce ON ce.id = bs.calendar_event_id
+            WHERE bs.date = ?
+              AND bs.client_id IS NOT NULL
+              AND bs.color_id IN ('5', '11')
+            ORDER BY ce.start_time ASC
+            """,
+            [today_str],
+        ).fetchall()
+
+    elif mode == "next":
+        rows = db.execute(
+            """
+            SELECT
+                bs.id, bs.date, bs.client_id, bs.company_id,
+                bs.is_confirmed, bs.color_id, bs.obsidian_note_path,
+                bs.session_number, bs.project_id,
+                bc.name   AS client_name,
+                bc.obsidian_name,
+                bc.gdrive_coaching_docs_url,
+                bco.name  AS company_name,
+                ce.start_time
+            FROM billing_sessions bs
+            JOIN billing_clients bc ON bc.id = bs.client_id
+            JOIN billing_companies bco ON bco.id = bs.company_id
+            LEFT JOIN calendar_events ce ON ce.id = bs.calendar_event_id
+            WHERE bs.date >= ?
+              AND bs.client_id IS NOT NULL
+              AND bs.color_id = '5'
+              AND bs.is_confirmed = 0
+            ORDER BY bs.date ASC, ce.start_time ASC
+            LIMIT 10
+            """,
+            [today_str],
+        ).fetchall()
+
+    elif mode == "week":
+        rows = db.execute(
+            """
+            SELECT
+                bs.id, bs.date, bs.client_id, bs.company_id,
+                bs.is_confirmed, bs.color_id, bs.obsidian_note_path,
+                bs.session_number, bs.project_id,
+                bc.name   AS client_name,
+                bc.obsidian_name,
+                bc.gdrive_coaching_docs_url,
+                bco.name  AS company_name,
+                ce.start_time
+            FROM billing_sessions bs
+            JOIN billing_clients bc ON bc.id = bs.client_id
+            JOIN billing_companies bco ON bco.id = bs.company_id
+            LEFT JOIN calendar_events ce ON ce.id = bs.calendar_event_id
+            WHERE bs.date BETWEEN ? AND ?
+              AND bs.client_id IS NOT NULL
+              AND bs.color_id IN ('5', '11')
+            ORDER BY bs.date ASC, ce.start_time ASC
+            """,
+            [week_start.isoformat(), week_end.isoformat()],
+        ).fetchall()
+
+    else:
+        # future or ;N days mode
+        end_date = today + __import__('datetime').timedelta(days=days)
+        rows = db.execute(
+            """
+            SELECT
+                bs.id, bs.date, bs.client_id, bs.company_id,
+                bs.is_confirmed, bs.color_id, bs.obsidian_note_path,
+                bs.session_number, bs.project_id,
+                bc.name   AS client_name,
+                bc.obsidian_name,
+                bc.gdrive_coaching_docs_url,
+                bco.name  AS company_name,
+                ce.start_time
+            FROM billing_sessions bs
+            JOIN billing_clients bc ON bc.id = bs.client_id
+            JOIN billing_companies bco ON bco.id = bs.company_id
+            LEFT JOIN calendar_events ce ON ce.id = bs.calendar_event_id
+            WHERE bs.date BETWEEN ? AND ?
+              AND bs.client_id IS NOT NULL
+              AND bs.color_id = '5'
+              AND bs.is_confirmed = 0
+            ORDER BY bs.date ASC, ce.start_time ASC
+            """,
+            [today_str, end_date.isoformat()],
+        ).fetchall()
+
+    # Build per-session display_session_number from confirmed counts
+    client_ids = list({r["client_id"] for r in rows if r["client_id"]})
+    session_numbers: dict[int, int] = {}
+    if client_ids:
+        ph = ",".join("?" * len(client_ids))
+        sn_rows = db.execute(
+            f"""
+            WITH sno AS (
+                SELECT id, client_id, date, session_number,
+                       ROW_NUMBER() OVER (PARTITION BY client_id ORDER BY date) AS rn
+                FROM billing_sessions
+                WHERE is_confirmed = 1
+            ),
+            ranked AS (
+                SELECT sno.client_id,
+                       COALESCE(sno.session_number, sno.rn) AS display_session_number,
+                       ROW_NUMBER() OVER (PARTITION BY sno.client_id ORDER BY sno.date DESC) AS recency
+                FROM sno
+                WHERE sno.client_id IN ({ph})
+            )
+            SELECT client_id, display_session_number
+            FROM ranked WHERE recency = 1
+            """,
+            client_ids,
+        ).fetchall()
+        session_numbers = {r["client_id"]: r["display_session_number"] for r in sn_rows}
+
+    # Group sessions by day
+    from collections import defaultdict
+    days_map: dict[str, list] = defaultdict(list)
+
+    for r in rows:
+        day_key = r["date"]
+        start_time = r["start_time"]  # ISO string or None
+
+        # Format time as "2:00pm"
+        time_str = None
+        if start_time:
+            try:
+                dt = datetime.fromisoformat(start_time)
+                h, m = dt.hour, dt.minute
+                ampm = "am" if h < 12 else "pm"
+                h12 = h % 12 or 12
+                time_str = f"{h12}:{m:02d}{ampm}" if m else f"{h12}{ampm}"
+            except ValueError:
+                pass
+
+        # Days relative to today
+        try:
+            session_date = date.fromisoformat(r["date"])
+            delta = (session_date - today).days
+            if delta == 0:
+                relative = "today"
+            elif delta < 0:
+                relative = f"{abs(delta)}d ago"
+            else:
+                relative = f"in {delta}d"
+        except ValueError:
+            relative = None
+
+        # Obsidian note exists check (path is set)
+        has_note = bool(r["obsidian_note_path"])
+
+        days_map[day_key].append({
+            "id": r["id"],
+            "date": r["date"],
+            "time": time_str,
+            "client_id": r["client_id"],
+            "client_name": r["client_name"],
+            "company_name": r["company_name"],
+            "obsidian_name": r["obsidian_name"],
+            "gdrive_coaching_docs_url": r["gdrive_coaching_docs_url"],
+            "is_confirmed": bool(r["is_confirmed"]),
+            "color_id": r["color_id"],
+            "display_session_number": session_numbers.get(r["client_id"]),
+            "relative": relative,
+            "has_note": has_note,
+            "obsidian_note_path": r["obsidian_note_path"],
+        })
+
+    # Format day group headers
+    day_groups = []
+    for day_key in sorted(days_map.keys(), reverse=(mode == "past")):
+        sessions = days_map[day_key]
+        try:
+            d = date.fromisoformat(day_key)
+            dow = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][d.weekday()]
+            mon = d.strftime("%b")
+            header = f"{dow} {mon} {d.day}"
+        except ValueError:
+            header = day_key
+        day_groups.append({
+            "date": day_key,
+            "header": header,
+            "session_count": len(sessions),
+            "sessions": sessions,
+        })
+
+    return {"mode": mode, "day_groups": day_groups}
 
 
 # ---------------------------------------------------------------------------

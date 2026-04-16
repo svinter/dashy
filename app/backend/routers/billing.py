@@ -590,15 +590,26 @@ def _lookup_obsidian_note(date_str: str, obsidian_name: str) -> dict | None:
     def _make_link(rel: str) -> str:
         return f"obsidian://open?vault={quote(vault_name)}&file={quote(rel, safe='')}"
 
-    def _parse_duration(content: str) -> float | None:
+    def _parse_note(content: str) -> tuple[float | None, int | None]:
+        """Return (duration_hours, session_number) from note frontmatter."""
         meta, _ = _parse_frontmatter(content)
-        raw = meta.get("duration")
-        if not raw:
-            return None
-        try:
-            return float(str(raw).strip().strip('"').strip("'")) / 60
-        except (ValueError, TypeError):
-            return None
+        # Duration
+        raw_dur = meta.get("duration")
+        duration_hours = None
+        if raw_dur:
+            try:
+                duration_hours = float(str(raw_dur).strip().strip('"').strip("'")) / 60
+            except (ValueError, TypeError):
+                pass
+        # Session number from 'meeting' field
+        raw_sn = meta.get("meeting")
+        session_number = None
+        if raw_sn is not None:
+            try:
+                session_number = int(str(raw_sn).strip())
+            except (ValueError, TypeError):
+                pass
+        return duration_hours, session_number
 
     # 1. Session note in 8 Meetings/
     session_filename = f"{date_str} - {obsidian_name}.md"
@@ -607,11 +618,12 @@ def _lookup_obsidian_note(date_str: str, obsidian_name: str) -> dict | None:
 
     if session_path.exists():
         try:
-            duration_hours = _parse_duration(session_path.read_text(encoding="utf-8", errors="replace"))
+            duration_hours, session_number = _parse_note(session_path.read_text(encoding="utf-8", errors="replace"))
             return {
                 "found": True,
                 "path": session_rel,
                 "duration_hours": round(duration_hours, 4) if duration_hours else None,
+                "session_number": session_number,
                 "obsidian_link": _make_link(session_rel),
                 "duration_source": "obsidian" if duration_hours else "note_found_no_duration",
             }
@@ -624,11 +636,12 @@ def _lookup_obsidian_note(date_str: str, obsidian_name: str) -> dict | None:
 
     if daily_path.exists():
         try:
-            duration_hours = _parse_duration(daily_path.read_text(encoding="utf-8", errors="replace"))
+            duration_hours, session_number = _parse_note(daily_path.read_text(encoding="utf-8", errors="replace"))
             return {
                 "found": True,
                 "path": daily_rel,
                 "duration_hours": round(duration_hours, 4) if duration_hours else None,
+                "session_number": session_number,
                 "obsidian_link": _make_link(daily_rel),
                 "duration_source": "daily_note" if duration_hours else "daily_note_found_no_duration",
             }
@@ -640,6 +653,7 @@ def _lookup_obsidian_note(date_str: str, obsidian_name: str) -> dict | None:
         "found": False,
         "path": session_rel,
         "duration_hours": None,
+        "session_number": None,
         "obsidian_link": _make_link(session_rel),
         "duration_source": None,
     }
@@ -785,6 +799,9 @@ def _promote_banana_sessions(db) -> int:
             update_parts += ["duration_hours = ?", "amount = ?",
                               "obsidian_note_path = ?"]
             params += [dh, amt, note_info["path"]]
+        if note_info and note_info.get("session_number") is not None:
+            update_parts.append("session_number = ?")
+            params.append(note_info["session_number"])
         params.append(row["id"])
         db.execute(
             f"UPDATE billing_sessions SET {', '.join(update_parts)} WHERE id = ?",
@@ -1608,6 +1625,62 @@ def refresh_sessions_from_calendar():
     with get_write_db() as db:
         promoted = _promote_banana_sessions(db)
     return {"promoted": promoted}
+
+
+@router.post("/sessions/sync-session-numbers")
+def sync_session_numbers():
+    """Backfill session_number from the 'meeting' frontmatter field in Obsidian notes.
+
+    For every confirmed session that has an obsidian_note_path but no session_number,
+    reads the note frontmatter and writes the 'meeting' value to session_number.
+    Safe to run repeatedly.
+    """
+    try:
+        from connectors.obsidian import get_vault_path, _parse_frontmatter
+    except ImportError:
+        return {"error": "obsidian connector not available"}
+
+    vault = get_vault_path()
+    if not vault:
+        return {"error": "vault not configured"}
+
+    with get_write_db() as db:
+        rows = db.execute(
+            """
+            SELECT bs.id, bs.obsidian_note_path, bc.obsidian_name, bs.date
+            FROM billing_sessions bs
+            LEFT JOIN billing_clients bc ON bc.id = bs.client_id
+            WHERE bs.is_confirmed = 1
+              AND bs.session_number IS NULL
+              AND bs.obsidian_note_path IS NOT NULL
+            """
+        ).fetchall()
+
+        updated = 0
+        skipped = 0
+        for row in rows:
+            note_path = vault / row["obsidian_note_path"]
+            if not note_path.exists():
+                skipped += 1
+                continue
+            try:
+                content = note_path.read_text(encoding="utf-8", errors="replace")
+                meta, _ = _parse_frontmatter(content)
+                raw_sn = meta.get("meeting")
+                if raw_sn is None:
+                    skipped += 1
+                    continue
+                sn = int(str(raw_sn).strip())
+                db.execute("UPDATE billing_sessions SET session_number = ? WHERE id = ?", (sn, row["id"]))
+                updated += 1
+            except Exception as e:
+                logger.warning("sync_session_numbers: error reading %s: %s", row["obsidian_note_path"], e)
+                skipped += 1
+
+        if updated:
+            db.commit()
+
+    return {"updated": updated, "skipped": skipped}
 
 
 @router.post("/sessions/sync-calendar")

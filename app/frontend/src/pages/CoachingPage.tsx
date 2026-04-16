@@ -7,7 +7,7 @@ import {
   useContext,
   useMemo,
 } from 'react';
-import { NavLink, Routes, Route, Navigate } from 'react-router-dom';
+import { NavLink, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import cloud from 'd3-cloud';
 import { api, openExternal } from '../api/client';
@@ -55,6 +55,38 @@ interface CoachingGroup {
 
 interface CoachingClientsResponse {
   groups: CoachingGroup[];
+}
+
+// By-date view types
+type DateMode = 'past' | 'today' | 'next' | 'week' | 'future';
+
+interface ByDateSession {
+  id: number;
+  date: string;
+  time: string | null;
+  client_id: number;
+  client_name: string;
+  company_name: string;
+  obsidian_name: string | null;
+  gdrive_coaching_docs_url: string | null;
+  is_confirmed: boolean;
+  color_id: string | null;
+  display_session_number: number | null;
+  relative: string | null;
+  has_note: boolean;
+  obsidian_note_path: string | null;
+}
+
+interface ByDateGroup {
+  date: string;
+  header: string;
+  session_count: number;
+  sessions: ByDateSession[];
+}
+
+interface ByDateResponse {
+  mode: string;
+  day_groups: ByDateGroup[];
 }
 
 interface WordSession {
@@ -109,6 +141,19 @@ function useWordCloud(clientIds: number[], projectIds: number[], sessionCount: n
       }),
     enabled: clientIds.length > 0 || projectIds.length > 0,
     staleTime: 120_000,
+  });
+}
+
+function useByDate(mode: DateMode | null, days?: number) {
+  return useQuery({
+    queryKey: ['coaching-by-date', mode, days],
+    queryFn: () => {
+      const params = new URLSearchParams({ mode: mode! });
+      if (days != null) params.set('days', String(days));
+      return api.get<ByDateResponse>(`/coaching/clients/by-date?${params}`);
+    },
+    enabled: mode !== null,
+    staleTime: 30_000,
   });
 }
 
@@ -169,6 +214,13 @@ interface CoachingFilterCtx {
   allProjectIds: number[];
   demo: boolean;
   toggleDemo: () => void;
+  // Date mode
+  dateModeActive: boolean;
+  dateMode: DateMode;
+  dateDays: number | undefined;
+  setDateModeActive: (v: boolean | ((p: boolean) => boolean)) => void;
+  setDateMode: (m: DateMode) => void;
+  setDateDays: (n: number | undefined) => void;
 }
 
 const CoachingFilterContext = createContext<CoachingFilterCtx>({
@@ -182,6 +234,12 @@ const CoachingFilterContext = createContext<CoachingFilterCtx>({
   allProjectIds: [],
   demo: false,
   toggleDemo: () => {},
+  dateModeActive: false,
+  dateMode: 'today',
+  dateDays: undefined,
+  setDateModeActive: () => {},
+  setDateMode: () => {},
+  setDateDays: () => {},
 });
 
 function useCoachingFilter() {
@@ -302,9 +360,11 @@ interface ClientFilterProps {
   selection: FilterSelection[];
   allChip: boolean;
   onSelectionChange: (sel: FilterSelection[], allChip: boolean) => void;
+  hideChips?: boolean;
+  autoFocus?: boolean;
 }
 
-function ClientFilter({ groups, selection, allChip, onSelectionChange }: ClientFilterProps) {
+function ClientFilter({ groups, selection, allChip, onSelectionChange, hideChips, autoFocus }: ClientFilterProps) {
   const { companies, clients, projectItems } = useMemo(() => buildSearchIndex(groups), [groups]);
   const matchFn = useCallback(
     (text: string) => matchItems(text, companies, clients, projectItems),
@@ -317,9 +377,11 @@ function ClientFilter({ groups, selection, allChip, onSelectionChange }: ClientF
       allChip={allChip}
       onSelectionChange={onSelectionChange}
       matchFn={matchFn}
-      placeholder="filter clients… (⌘F · ⌘? help)"
+      placeholder="filter clients… (⌘f)"
       helpTitle="Coaching keyboard shortcuts"
       shortcuts={COACHING_SHORTCUTS}
+      hideChips={hideChips}
+      autoFocus={autoFocus}
     />
   );
 }
@@ -348,6 +410,135 @@ function obsidianClientUrl(obsidianName: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Date mode bar + date view
+// ---------------------------------------------------------------------------
+
+const DATE_BUTTONS: { mode: DateMode; label: string; key: string }[] = [
+  { mode: 'past',   label: 'Past',   key: ';p' },
+  { mode: 'today',  label: 'Today',  key: ';t' },
+  { mode: 'next',   label: 'Next',   key: ';n' },
+  { mode: 'week',   label: 'Week',   key: ';w' },
+  { mode: 'future', label: 'Future', key: ';f' },
+];
+
+function DateModeBar({
+  active,
+  dateMode,
+  onToggle,
+  onModeSelect,
+  onClientsClick,
+}: {
+  active: boolean;
+  dateMode: DateMode;
+  onToggle: () => void;
+  onModeSelect: (m: DateMode) => void;
+  onClientsClick: () => void;
+}) {
+  return (
+    <div className="coaching-date-bar">
+      {/* Clients button — active when date mode is off */}
+      <button
+        className={`coaching-date-btn${!active ? ' coaching-date-btn--active' : ' coaching-date-btn--dim'}`}
+        onClick={onClientsClick}
+        title="clients view"
+      >
+        Clients
+      </button>
+
+      {/* Spacer before date buttons */}
+      <span className="coaching-date-bar-sep" />
+
+      {DATE_BUTTONS.map(btn => {
+        const isActive = active && dateMode === btn.mode;
+        return (
+          <button
+            key={btn.mode}
+            className={`coaching-date-btn${isActive ? ' coaching-date-btn--active' : ''}${!active ? ' coaching-date-btn--dim' : ''}`}
+            onClick={() => {
+              if (isActive) {
+                onToggle();
+              } else {
+                onModeSelect(btn.mode);
+                if (!active) onToggle();
+              }
+            }}
+            title={`${btn.key}`}
+          >
+            {btn.label}
+            <span className="coaching-date-btn-key">{btn.key}</span>
+          </button>
+        );
+      })}
+      <span className="coaching-date-bar-hints">⌘a = all · ; = today</span>
+    </div>
+  );
+}
+
+function ByDateSessionRow({ session }: { session: ByDateSession }) {
+  const noteUrl = session.obsidian_note_path
+    ? `obsidian://open?vault=MyNotes&file=${encodeURIComponent(session.obsidian_note_path)}`
+    : session.obsidian_name && session.date
+      ? obsidianSessionUrl(session.obsidian_name, session.date)
+      : null;
+
+  const clientNoteUrl = session.obsidian_name
+    ? obsidianClientUrl(session.obsidian_name)
+    : null;
+
+  return (
+    <div className="coaching-date-session-row">
+      <span className="coaching-date-session-time">{session.time ?? '—'}</span>
+      <span className="coaching-date-session-client">{session.client_name}</span>
+      <span className="coaching-date-session-company">{session.company_name}</span>
+      <span className="coaching-date-session-num">
+        {session.display_session_number != null ? `#${session.display_session_number}` : ''}
+      </span>
+      <span className="coaching-date-session-rel">{session.relative ?? ''}</span>
+      <span className="coaching-date-session-links">
+        {noteUrl && (
+          <button
+            className={`coaching-link-btn${session.has_note ? ' coaching-date-note-exists' : ''}`}
+            onClick={() => openExternal(noteUrl)}
+            title={session.has_note ? 'Open session note' : 'Open session note (may not exist)'}
+          >◆</button>
+        )}
+        {clientNoteUrl && (
+          <button className="coaching-link-btn" onClick={() => openExternal(clientNoteUrl)} title="Open client page">notes</button>
+        )}
+        {session.gdrive_coaching_docs_url && (
+          <button className="coaching-link-btn" onClick={() => openExternal(session.gdrive_coaching_docs_url!)} title="Open coaching docs">ƒolder</button>
+        )}
+      </span>
+    </div>
+  );
+}
+
+function DateView({ mode, days }: { mode: DateMode; days?: number }) {
+  const { data, isLoading, error } = useByDate(mode, days);
+
+  if (isLoading) return <div className="coaching-loading">Loading…</div>;
+  if (error) return <div className="coaching-error">Failed to load sessions.</div>;
+  if (!data || data.day_groups.length === 0) {
+    return <div className="coaching-empty">No sessions for this view.</div>;
+  }
+
+  return (
+    <div className="coaching-date-view">
+      {data.day_groups.map(group => (
+        <div key={group.date} className="coaching-date-group">
+          <div className="coaching-date-group-header">
+            {group.header} · {group.session_count} session{group.session_count !== 1 ? 's' : ''}
+          </div>
+          {group.sessions.map(s => (
+            <ByDateSessionRow key={s.id} session={s} />
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Clients Page
 // ---------------------------------------------------------------------------
 
@@ -356,9 +547,7 @@ function ClientRow({ client }: { client: CoachingClient }) {
     <div className="coaching-client-row">
       <span className="coaching-client-name">{client.name}</span>
       <span className="coaching-client-sessions">
-        {client.display_session_number != null
-          ? `${client.display_session_number} sessions`
-          : <span className="coaching-client-meta-dim">—</span>}
+        {(client.display_session_number ?? 0)} sessions
       </span>
       <span className="coaching-client-last">
         {client.days_ago != null && client.last_session_date ? (
@@ -401,9 +590,7 @@ function ProjectRow({ project }: { project: CoachingProject }) {
     <div className="coaching-client-row" style={{ borderLeft: '2px solid #7B52AB', paddingLeft: 8 }}>
       <span className="coaching-client-name" style={{ color: '#7B52AB' }}>◆ {project.name}</span>
       <span className="coaching-client-sessions">
-        {project.session_count > 0
-          ? `${project.session_count} session${project.session_count !== 1 ? 's' : ''}`
-          : <span className="coaching-client-meta-dim">—</span>}
+        {project.session_count} session{project.session_count !== 1 ? 's' : ''}
       </span>
       <span className="coaching-client-last">
         {project.days_ago != null && project.last_session_date ? (
@@ -444,7 +631,7 @@ function ProjectRow({ project }: { project: CoachingProject }) {
 }
 
 function ClientsPage() {
-  const { groups, selection, effectiveIds, effectiveProjectIds, demo } = useCoachingFilter();
+  const { groups, selection, effectiveIds, effectiveProjectIds, demo, dateModeActive, dateMode, dateDays } = useCoachingFilter();
 
   if (groups.length === 0) return <div className="coaching-loading">Loading…</div>;
 
@@ -460,34 +647,38 @@ function ClientsPage() {
 
   return (
     <div className="coaching-clients-page">
-      <div className="coaching-client-list">
-        {visibleGroups.map(group => (
-          <div key={group.company_id ?? 'individual'} className="coaching-group">
-            <div className="coaching-group-header">
-              <span className="coaching-group-name">{group.company_name.toUpperCase()}</span>
-              {group.default_rate != null && (
-                <span className="coaching-group-meta">
-                  {demo ? '••/hr' : `$${group.default_rate.toFixed(0)}/hr`} · {group.active_client_count} active client{group.active_client_count !== 1 ? 's' : ''}
-                </span>
+      {dateModeActive ? (
+        <DateView mode={dateMode} days={dateDays} />
+      ) : (
+        <div className="coaching-client-list">
+          {visibleGroups.map(group => (
+            <div key={group.company_id ?? 'individual'} className="coaching-group">
+              <div className="coaching-group-header">
+                <span className="coaching-group-name">{group.company_name.toUpperCase()}</span>
+                {group.default_rate != null && (
+                  <span className="coaching-group-meta">
+                    {demo ? '••/hr' : `$${group.default_rate.toFixed(0)}/hr`} · {group.active_client_count} active client{group.active_client_count !== 1 ? 's' : ''}
+                  </span>
+                )}
+              </div>
+              {group.clients.map(client => (
+                <ClientRow key={client.id} client={client} />
+              ))}
+              {group.projects.length > 0 && (
+                <>
+                  <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)', padding: '4px 0 2px 8px', opacity: 0.6 }}>── Projects ──</div>
+                  {group.projects.map(project => (
+                    <ProjectRow key={project.id} project={project} />
+                  ))}
+                </>
               )}
             </div>
-            {group.clients.map(client => (
-              <ClientRow key={client.id} client={client} />
-            ))}
-            {group.projects.length > 0 && (
-              <>
-                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)', padding: '4px 0 2px 8px', opacity: 0.6 }}>── Projects ──</div>
-                {group.projects.map(project => (
-                  <ProjectRow key={project.id} project={project} />
-                ))}
-              </>
-            )}
-          </div>
-        ))}
-        {visibleGroups.length === 0 && selection.length > 0 && (
-          <div className="coaching-empty">No clients match the current filter.</div>
-        )}
-      </div>
+          ))}
+          {visibleGroups.length === 0 && selection.length > 0 && (
+            <div className="coaching-empty">No clients match the current filter.</div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -1788,6 +1979,88 @@ export function CoachingPage() {
   const [demo, setDemo] = useState(false);
   const toggleDemo = useCallback(() => setDemo(d => !d), []);
 
+  // Date mode state (lifted here so DateModeBar can sit beside the filter)
+  const [dateModeActive, setDateModeActive] = useState(false);
+  const [dateMode, setDateMode] = useState<DateMode>('today');
+  const [dateDays, setDateDays] = useState<number | undefined>(undefined);
+  const lastDateModeRef = useRef<DateMode>('today');
+  const dateModeActiveRef = useRef(false);
+
+  const location = useLocation();
+  const navigate = useNavigate();
+  const isClientsPage = location.pathname.endsWith('/clients') || location.pathname === '/coaching';
+  const isClientsPageRef = useRef(isClientsPage);
+  useEffect(() => { isClientsPageRef.current = isClientsPage; }, [isClientsPage]);
+
+  // Navigate to clients page when activating date mode from another sub-page
+  useEffect(() => {
+    if (dateModeActive && !isClientsPage) navigate('/coaching/clients');
+  }, [dateModeActive, isClientsPage, navigate]);
+
+  // Keyboard handler: ; and ;p/t/n/w/f work on all coaching sub-pages.
+  // Runs in capture phase so ; is intercepted before the filter input receives it.
+  useEffect(() => {
+    let pendingSemi = false;
+    let semiTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const handler = (e: KeyboardEvent) => {
+      // ';' — always intercept regardless of focus
+      if (e.key === ';' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (semiTimer) clearTimeout(semiTimer);
+        pendingSemi = false;
+        if (dateModeActiveRef.current) {
+          // Already in date mode → exit to clients view and clear filter
+          dateModeActiveRef.current = false;
+          setDateModeActive(false);
+          setSelection([]);
+          setAllChip(true);
+        } else {
+          // Not in date mode → activate today; follow-up key within 600ms can override
+          dateModeActiveRef.current = true;
+          lastDateModeRef.current = 'today';
+          setDateMode('today');
+          setDateDays(undefined);
+          setDateModeActive(true);
+          pendingSemi = true;
+          semiTimer = setTimeout(() => { pendingSemi = false; }, 900);
+        }
+        return;
+      }
+
+      // Follow-up key after ';'
+      if (pendingSemi) {
+        if (semiTimer) clearTimeout(semiTimer);
+        pendingSemi = false;
+        const modeMap: Record<string, DateMode> = {
+          p: 'past', t: 'today', n: 'next', w: 'week', f: 'future',
+        };
+        if (modeMap[e.key]) {
+          e.preventDefault();
+          e.stopPropagation();
+          const m = modeMap[e.key];
+          lastDateModeRef.current = m;
+          dateModeActiveRef.current = true;
+          setDateMode(m);
+          setDateDays(undefined);
+          setDateModeActive(true);
+        } else if (/^[1-9]$/.test(e.key)) {
+          e.preventDefault();
+          e.stopPropagation();
+          dateModeActiveRef.current = true;
+          setDateMode('future');
+          setDateDays(parseInt(e.key, 10));
+          setDateModeActive(true);
+        }
+        // unrecognised follow-up: cancel silently, let event through normally
+      }
+    };
+
+    window.addEventListener('keydown', handler, true); // capture phase
+    return () => window.removeEventListener('keydown', handler, true);
+  }, []); // register once; refs keep values current
+
   const groups = data?.groups ?? [];
 
   const allClientIds = useMemo(
@@ -1813,7 +2086,32 @@ export function CoachingPage() {
   const handleSelectionChange = useCallback((sel: FilterSelection[], chip: boolean) => {
     setSelection(sel);
     setAllChip(chip);
+    // Deactivate date mode when selecting a specific client OR reverting to All (⌘a)
+    if (sel.length > 0 || chip) { dateModeActiveRef.current = false; setDateModeActive(false); }
   }, []);
+
+  const handleModeSelect = useCallback((m: DateMode) => {
+    lastDateModeRef.current = m;
+    dateModeActiveRef.current = true;
+    setDateMode(m);
+    setDateDays(undefined);
+  }, []);
+
+  const handleDateToggle = useCallback(() => {
+    setDateModeActive(prev => {
+      dateModeActiveRef.current = !prev;
+      return !prev;
+    });
+  }, []);
+
+  // Clients button: deactivate date mode and navigate to clients
+  const handleClientsClick = useCallback(() => {
+    dateModeActiveRef.current = false;
+    setDateModeActive(false);
+    setSelection([]);
+    setAllChip(true);
+    navigate('/coaching/clients');
+  }, [navigate]);
 
   const ctx: CoachingFilterCtx = useMemo(() => ({
     groups,
@@ -1826,7 +2124,13 @@ export function CoachingPage() {
     allProjectIds,
     demo,
     toggleDemo,
-  }), [groups, selection, allChip, handleSelectionChange, effectiveIds, effectiveProjectIds, allClientIds, allProjectIds, demo, toggleDemo]);
+    dateModeActive,
+    dateMode,
+    dateDays,
+    setDateModeActive,
+    setDateMode,
+    setDateDays,
+  }), [groups, selection, allChip, handleSelectionChange, effectiveIds, effectiveProjectIds, allClientIds, allProjectIds, demo, toggleDemo, dateModeActive, dateMode, dateDays]);
 
   return (
     <CoachingFilterContext.Provider value={ctx}>
@@ -1857,14 +2161,58 @@ export function CoachingPage() {
           </button>
         </div>
 
-        {/* Shared client filter — visible on all Coaching pages */}
+        {/* Topbar: filter + date mode bar (all coaching pages) */}
         {!isLoading && groups.length > 0 && (
-          <ClientFilter
-            groups={groups}
-            selection={selection}
-            allChip={allChip}
-            onSelectionChange={handleSelectionChange}
-          />
+          <>
+            <div className="coaching-topbar">
+              <ClientFilter
+                groups={groups}
+                selection={selection}
+                allChip={allChip}
+                onSelectionChange={handleSelectionChange}
+                hideChips
+                autoFocus
+              />
+              <DateModeBar
+                active={dateModeActive}
+                dateMode={dateMode}
+                onToggle={handleDateToggle}
+                onModeSelect={handleModeSelect}
+                onClientsClick={handleClientsClick}
+              />
+            </div>
+            {/* Row 2: chips (all coaching pages) */}
+            {!dateModeActive && (allChip || selection.length > 0) && (
+              <div className="coaching-filter-chips coaching-topbar-chips">
+                {allChip && selection.length === 0 ? (
+                  <span className="coaching-filter-chip coaching-filter-chip--all">
+                    All
+                    <button className="coaching-filter-chip-remove" onClick={() => handleSelectionChange([], false)}>×</button>
+                  </span>
+                ) : (
+                  selection.map((item, i) => (
+                    <span
+                      key={i}
+                      className={`coaching-filter-chip${item.type === 'company' ? ' coaching-filter-chip--company' : ''}`}
+                      style={item.type === 'project' ? { color: '#7B52AB', borderColor: '#7B52AB' } : undefined}
+                    >
+                      {item.label}
+                      <button
+                        className="coaching-filter-chip-remove"
+                        onClick={() => {
+                          const next = selection.filter(s => !(s.type === item.type && s.id === item.id));
+                          handleSelectionChange(next, allChip && next.length === 0);
+                        }}
+                      >×</button>
+                    </span>
+                  ))
+                )}
+                {selection.length > 0 && (
+                  <button className="coaching-filter-clear" onClick={() => handleSelectionChange([], true)}>clear</button>
+                )}
+              </div>
+            )}
+          </>
         )}
 
         <Routes>

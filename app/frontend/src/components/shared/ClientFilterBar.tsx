@@ -83,6 +83,10 @@ interface ClientFilterBarProps<T extends FilterItem> {
   autocompleteLabel?: (item: T) => React.ReactNode;
   className?: string;
   style?: React.CSSProperties;
+  /** When true, chips are not rendered inside this component (render them externally). */
+  hideChips?: boolean;
+  /** When true, focus the input on mount. */
+  autoFocus?: boolean;
 }
 
 export function ClientFilterBar<T extends FilterItem,>({
@@ -104,11 +108,17 @@ export function ClientFilterBar<T extends FilterItem,>({
   },
   className,
   style,
+  hideChips = false,
+  autoFocus = false,
 }: ClientFilterBarProps<T>) {
   const [text, setText] = useState('');
   const [matchIndex, setMatchIndex] = useState(0);
   const [helpOpen, setHelpOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (autoFocus) inputRef.current?.focus();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const removing = text.startsWith('-');
   const queryText = removing ? text.slice(1) : text;
@@ -165,7 +175,7 @@ export function ClientFilterBar<T extends FilterItem,>({
         <HelpPopover title={helpTitle} shortcuts={shortcuts} isOpen={helpOpen} onClose={() => setHelpOpen(false)} />
       )}
 
-      {(allChip || selection.length > 0) && (
+      {!hideChips && (allChip || selection.length > 0) && (
         <div className="coaching-filter-chips">
           {allChip && showingAll ? (
             <span className="coaching-filter-chip coaching-filter-chip--all">
