@@ -1180,6 +1180,7 @@ export interface BillingUnprocessedEvent {
   end_time: string;
   color_id: string;
   is_grape: boolean;
+  is_active: boolean;
   slot_hours: number;
   duration_hours: number;
   duration_source: string;
@@ -1433,6 +1434,7 @@ export interface BillingPayableInvoice {
   id: number;
   invoice_number: string;
   period_month: string | null;
+  invoice_date: string | null;
   total_amount: number | null;
   paid_amount: number;
   status: string;

@@ -389,10 +389,35 @@ def sync_news():
         _handle_sync_error("news", e, time.monotonic() - t0)
 
 
+def _granola_notes_min_interval() -> int:
+    """Return the minimum seconds between granola_notes syncs.
+
+    During business hours (8:00–18:00 US/Eastern) use a 30-minute window so
+    the sync fires at 5 minutes past every half-hour (8:05, 8:35, …, 18:05).
+    Outside that window fall back to the standard 2-hour cadence.
+    """
+    try:
+        from zoneinfo import ZoneInfo
+        eastern = ZoneInfo("America/New_York")
+    except Exception:
+        try:
+            import pytz
+            eastern = pytz.timezone("America/New_York")
+        except Exception:
+            return 7200  # zoneinfo and pytz both unavailable — stay safe
+
+    from datetime import timezone as _tz
+    now_et = datetime.now(_tz.utc).astimezone(eastern)
+    hour = now_et.hour  # 0–23 in Eastern time
+    if 8 <= hour < 18:
+        return 1800  # 30 minutes during business hours
+    return 7200  # 2 hours outside business hours
+
+
 def sync_granola_notes():
     if not _is_enabled("granola_notes"):
         return
-    # Rate-limit to once every 2 hours
+    # Rate-limit: 30 min during business hours (8–18 ET), 2 hours otherwise
     try:
         with get_db_connection(readonly=True) as db:
             row = db.execute(
@@ -400,7 +425,7 @@ def sync_granola_notes():
             ).fetchone()
             if row and row["last_sync_at"]:
                 last = datetime.fromisoformat(row["last_sync_at"])
-                if (datetime.now() - last).total_seconds() < 7200:
+                if (datetime.now() - last).total_seconds() < _granola_notes_min_interval():
                     return
     except Exception:
         pass
@@ -572,7 +597,7 @@ def _run_full_sync():
         # Note creation — runs on every cycle (daily notes need fresh creation)
         _tracked("note_creation", sync_note_creation)
 
-        # Granola Notes API sync — rate-limited to once every 2 hours inside sync_granola_notes()
+        # Granola Notes API sync — 30 min during business hours (8–18 ET), 2 hours otherwise
         if _is_enabled("granola_notes"):
             _tracked("granola_notes", sync_granola_notes)
 

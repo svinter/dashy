@@ -3,18 +3,232 @@ import logging
 import re
 import threading
 import traceback
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from app_config import load_config
 from database import get_db, get_write_db
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/coaching", tags=["coaching"])
+
+# ---------------------------------------------------------------------------
+# GET /api/coaching/active — detect in-progress grape/banana session
+# ---------------------------------------------------------------------------
+
+@router.get("/active")
+def get_coaching_active():
+    """
+    Returns the currently active coaching client/project if exactly one
+    grape (color_id='3') or banana (color_id='5') calendar event overlaps now.
+    Multiple simultaneous events → {active: false}.
+    """
+    db = get_db()
+    now = datetime.now(timezone.utc)
+    today = now.date().isoformat()
+
+    # Pull today's grape/banana events and filter by overlap in Python
+    # (avoids timezone parsing issues in SQLite)
+    rows = db.execute(
+        """SELECT id, summary, start_time, end_time
+           FROM calendar_events
+           WHERE color_id IN ('3', '5')
+             AND date(start_time) = ?
+             AND (status IS NULL OR status != 'cancelled')""",
+        (today,),
+    ).fetchall()
+
+    active_events = []
+    for row in rows:
+        try:
+            start = datetime.fromisoformat(row["start_time"])
+            end   = datetime.fromisoformat(row["end_time"])
+            if start.tzinfo is None:
+                start = start.replace(tzinfo=timezone.utc)
+            if end.tzinfo is None:
+                end = end.replace(tzinfo=timezone.utc)
+            start_utc = start.astimezone(timezone.utc)
+            end_utc   = end.astimezone(timezone.utc)
+            in_range  = start_utc <= now <= end_utc
+            logger.info(
+                "coaching/active candidate: summary=%r start_utc=%s end_utc=%s now_utc=%s in_range=%s",
+                row["summary"], start_utc.isoformat(), end_utc.isoformat(), now.isoformat(), in_range,
+            )
+            if in_range:
+                active_events.append(row)
+        except (ValueError, TypeError) as exc:
+            logger.warning("coaching/active: could not parse times for event %r: %s", row["id"], exc)
+
+    if len(active_events) != 1:
+        return {"active": False}
+
+    event = active_events[0]
+
+    # Try to match via billing_sessions.calendar_event_id
+    session = db.execute(
+        "SELECT client_id, project_id FROM billing_sessions WHERE calendar_event_id = ? LIMIT 1",
+        (event["id"],),
+    ).fetchone()
+
+    if session and session["client_id"]:
+        client = db.execute(
+            """SELECT bc.id, bc.name, bc.obsidian_name
+               FROM billing_clients bc WHERE bc.id = ?""",
+            (session["client_id"],),
+        ).fetchone()
+        if client:
+            return {
+                "active": True,
+                "type": "client",
+                "client_id": client["id"],
+                "project_id": None,
+                "client_name": client["name"],
+                "obsidian_name": client["obsidian_name"],
+                "company_name": None,
+            }
+
+    if session and session["project_id"]:
+        project = db.execute(
+            """SELECT bp.id, bp.name, bp.obsidian_name, bco.name AS company_name
+               FROM billing_projects bp
+               JOIN billing_companies bco ON bp.company_id = bco.id
+               WHERE bp.id = ?""",
+            (session["project_id"],),
+        ).fetchone()
+        if project:
+            return {
+                "active": True,
+                "type": "project",
+                "client_id": None,
+                "project_id": project["id"],
+                "client_name": project["name"],
+                "obsidian_name": project["obsidian_name"],
+                "company_name": project["company_name"],
+            }
+
+    # Fallback: word-level fuzzy match of event summary against client and project names.
+    # Splits on whitespace/punctuation; strips the coach's own name tokens to avoid
+    # matching clients whose names share words with the coach (e.g. "Steve Renter").
+    summary_raw = (event["summary"] or "")
+    raw_tokens = set(re.split(r'[\s/,;:\-]+', summary_raw.lower()))
+    # Remove coach's name tokens so "Steve/Vinny" won't match a client called "Steve X"
+    try:
+        cfg = load_config()
+        coach_name = (cfg.get("profile", {}) or {}).get("user_name", "") or ""
+    except Exception:
+        coach_name = ""
+    coach_tokens = {t.lower() for t in re.split(r'\s+', coach_name) if t}
+    summary_tokens = raw_tokens - coach_tokens
+    logger.info(
+        "coaching/active fallback: event=%r raw_tokens=%r coach_tokens=%r effective_tokens=%r",
+        summary_raw, raw_tokens, coach_tokens, summary_tokens,
+    )
+
+    def _word_match(name: str) -> bool:
+        for word in re.split(r'[\s/,;:\-]+', name.lower()):
+            if len(word) > 3 and word in summary_tokens:
+                return True
+        return False
+
+    clients = db.execute(
+        "SELECT id, name, obsidian_name FROM billing_clients WHERE active = 1"
+    ).fetchall()
+    matched_clients = [c for c in clients if _word_match(c["name"])]
+    logger.info("coaching/active fallback: matched clients=%r", [c["name"] for c in matched_clients])
+
+    projects = db.execute(
+        """SELECT bp.id, bp.name, bp.obsidian_name, bco.name AS company_name
+           FROM billing_projects bp
+           JOIN billing_companies bco ON bp.company_id = bco.id
+           WHERE bp.active = 1"""
+    ).fetchall()
+    matched_projects = [p for p in projects if _word_match(p["name"])]
+    logger.info("coaching/active fallback: matched projects=%r", [p["name"] for p in matched_projects])
+
+    total_matches = len(matched_clients) + len(matched_projects)
+    logger.info("coaching/active fallback: %d total matches (clients=%r projects=%r)",
+                total_matches, [c["name"] for c in matched_clients], [p["name"] for p in matched_projects])
+
+    def _resolve(candidates_clients, candidates_projects):
+        """Return (type, row) or None."""
+        if len(candidates_clients) + len(candidates_projects) == 1:
+            if candidates_clients:
+                return "client", candidates_clients[0]
+            return "project", candidates_projects[0]
+        return None
+
+    resolved = _resolve(matched_clients, matched_projects)
+
+    # Tiebreaker: when multiple word-matches exist, prefer the candidate that has
+    # a banana (color_id='5') session within the last 14 days.  This disambiguates
+    # cases like "Steve/Vinny" where both "Vinny Insights" and "Vinny Beranek" match
+    # on "vinny" — only the one with recent banana activity is likely in progress.
+    if resolved is None and total_matches > 1:
+        cutoff       = now.date().isoformat()
+        cutoff_start = (now - timedelta(days=14)).date().isoformat()
+
+        matched_client_ids = [c["id"] for c in matched_clients]
+        matched_project_ids = [p["id"] for p in matched_projects]
+
+        recent_banana_clients: set[int] = set()
+        recent_banana_projects: set[int] = set()
+
+        if matched_client_ids:
+            ph = ",".join("?" * len(matched_client_ids))
+            rows = db.execute(
+                f"SELECT client_id FROM billing_sessions WHERE client_id IN ({ph}) "
+                "AND color_id='5' AND date BETWEEN ? AND ? AND is_confirmed=0",
+                matched_client_ids + [cutoff_start, cutoff],
+            ).fetchall()
+            recent_banana_clients = {r["client_id"] for r in rows}
+
+        if matched_project_ids:
+            ph = ",".join("?" * len(matched_project_ids))
+            rows = db.execute(
+                f"SELECT project_id FROM billing_sessions WHERE project_id IN ({ph}) "
+                "AND color_id='5' AND date BETWEEN ? AND ? AND is_confirmed=0",
+                matched_project_ids + [cutoff_start, cutoff],
+            ).fetchall()
+            recent_banana_projects = {r["project_id"] for r in rows}
+
+        filtered_clients  = [c for c in matched_clients  if c["id"] in recent_banana_clients]
+        filtered_projects = [p for p in matched_projects if p["id"] in recent_banana_projects]
+        logger.info("coaching/active tiebreaker: banana-active clients=%r projects=%r",
+                    [c["name"] for c in filtered_clients], [p["name"] for p in filtered_projects])
+        resolved = _resolve(filtered_clients, filtered_projects)
+
+    if resolved is None:
+        logger.info("coaching/active: still ambiguous after tiebreaker, returning inactive")
+        return {"active": False}
+
+    kind, row = resolved
+    if kind == "client":
+        logger.info("coaching/active: resolved to client %r", row["name"])
+        return {
+            "active": True,
+            "type": "client",
+            "client_id": row["id"],
+            "project_id": None,
+            "client_name": row["name"],
+            "obsidian_name": row["obsidian_name"],
+            "company_name": None,
+        }
+    logger.info("coaching/active: resolved to project %r", row["name"])
+    return {
+        "active": True,
+        "type": "project",
+        "client_id": None,
+        "project_id": row["id"],
+        "client_name": row["name"],
+        "obsidian_name": row["obsidian_name"],
+        "company_name": row["company_name"],
+    }
+
 
 # ---------------------------------------------------------------------------
 # GET /api/coaching/clients
@@ -1246,6 +1460,7 @@ def _obsidian_client_page(
     company_name: str,
     coaching_agreement_url: str,
     wheel_of_life_url: str,
+    manifest_gdoc_url: str = "",
 ) -> Path:
     """Write 1 People/{client_name}.md from the client page template (spec §6.1)."""
     page = vault / "1 People" / f"{client_name}.md"
@@ -1262,6 +1477,11 @@ def _obsidian_client_page(
         if wheel_of_life_url
         else "    - Wheel of Life: "
     )
+    manifest_line = (
+        f"    - [Manifest]({manifest_gdoc_url})\n"
+        if manifest_gdoc_url
+        else ""
+    )
     content = (
         f"---\n"
         f"type:\n"
@@ -1272,7 +1492,13 @@ def _obsidian_client_page(
         f"  - client\n"
         f"---\n"
         f"#### History\n"
-        f"[dataview: meetings for this client, sorted by date desc]\n"
+        f"```dataview\n"
+        f"TABLE date AS \"Date\", topic AS \"Topic\", meeting AS \"Meeting\"\n"
+        f"FROM \"8 Meetings\"\n"
+        f"WHERE contains(client, [[{client_name}]])\n"
+        f"SORT date DESC\n"
+        f"LIMIT 10\n"
+        f"```\n"
         f"\n"
         f"#### {client_name} Reference\n"
         f"\n"
@@ -1281,6 +1507,7 @@ def _obsidian_client_page(
         f"    - Billing: \n"
         f"{agreement_line}\n"
         f"{wol_line}\n"
+        f"{manifest_line}"
         f"- Goals\n"
         f"    - Development areas: \n"
         f"    - Long-term Vision: \n"
@@ -1314,7 +1541,13 @@ def _obsidian_project_page(
         f"  - project\n"
         f"---\n"
         f"#### History\n"
-        f"[dataview: meetings for this project, sorted by date desc]\n"
+        f"```dataview\n"
+        f"TABLE date AS \"Date\", topic AS \"Topic\", meeting AS \"Meeting\"\n"
+        f"FROM \"8 Meetings\"\n"
+        f"WHERE contains(client, [[{project_name}]])\n"
+        f"SORT date DESC\n"
+        f"LIMIT 10\n"
+        f"```\n"
         f"\n"
         f"#### {project_name} Reference\n"
         f"\n"
@@ -1404,6 +1637,124 @@ def setup_create_company(body: CompanyCreateRequest):
         "gdrive_folder_url": folder_url,
         "obsidian": obsidian_result,
     }
+
+
+# ---------------------------------------------------------------------------
+# Coaching Agreement editor helper
+# ---------------------------------------------------------------------------
+
+def _find_text_ranges(body_content: list, target: str) -> list[tuple[int, int]]:
+    """Return (startIndex, endIndex) for every occurrence of *target* found
+    within individual textRun elements of a Docs API body content list.
+
+    Works for the common case where a placeholder was replaced into a single
+    run by replaceAllText.  Cross-run occurrences are not matched.
+    """
+    ranges: list[tuple[int, int]] = []
+    for element in body_content:
+        para = element.get("paragraph")
+        if not para:
+            continue
+        for pe in para.get("elements", []):
+            tr = pe.get("textRun")
+            if not tr:
+                continue
+            text = tr.get("content", "")
+            base = pe.get("startIndex", 0)
+            pos = 0
+            while True:
+                found = text.find(target, pos)
+                if found == -1:
+                    break
+                ranges.append((base + found, base + found + len(target)))
+                pos = found + 1
+    return ranges
+
+
+def _edit_coaching_agreement(
+    doc_id: str,
+    client_first_name: str,
+    month_year: str,
+    company_name: str,
+    manifest_url: str,
+    coaching_docs_url: str,
+) -> None:
+    """Fill in template placeholders in the client's Coaching Agreement doc.
+
+    Plain text substitutions via replaceAllText; hyperlinks via a second
+    batchUpdate after fetching the updated document to locate text ranges.
+    """
+    from connectors.google_auth import get_google_credentials
+    from googleapiclient.discovery import build
+
+    creds = get_google_credentials()
+    docs_svc = build("docs", "v1", credentials=creds)
+
+    # Pass 1 — plain text + display-text for hyperlink placeholders
+    requests: list[dict] = [
+        {
+            "replaceAllText": {
+                "containsText": {"text": "%ClientFirstName%", "matchCase": True},
+                "replaceText": client_first_name,
+            }
+        },
+        {
+            "replaceAllText": {
+                "containsText": {"text": "%monthyear%", "matchCase": True},
+                "replaceText": month_year,
+            }
+        },
+        {
+            "replaceAllText": {
+                "containsText": {"text": "%company%", "matchCase": True},
+                "replaceText": company_name,
+            }
+        },
+        {
+            "replaceAllText": {
+                "containsText": {"text": "%manifest%", "matchCase": True},
+                "replaceText": "manifest",
+            }
+        },
+        {
+            "replaceAllText": {
+                "containsText": {"text": "%sharedfolder%", "matchCase": True},
+                "replaceText": "shared folder",
+            }
+        },
+    ]
+    docs_svc.documents().batchUpdate(
+        documentId=doc_id,
+        body={"requests": requests},
+    ).execute()
+
+    # Pass 2 — apply hyperlinks to "manifest" and "shared folder"
+    if not manifest_url and not coaching_docs_url:
+        return
+
+    doc = docs_svc.documents().get(documentId=doc_id).execute()
+    body_content = doc.get("body", {}).get("content", [])
+
+    link_requests: list[dict] = []
+    for target, url in [("manifest", manifest_url), ("shared folder", coaching_docs_url)]:
+        if not url:
+            continue
+        for start, end in _find_text_ranges(body_content, target):
+            link_requests.append(
+                {
+                    "updateTextStyle": {
+                        "range": {"startIndex": start, "endIndex": end},
+                        "textStyle": {"link": {"url": url}},
+                        "fields": "link",
+                    }
+                }
+            )
+
+    if link_requests:
+        docs_svc.documents().batchUpdate(
+            documentId=doc_id,
+            body={"requests": link_requests},
+        ).execute()
 
 
 # ---------------------------------------------------------------------------
@@ -1553,7 +1904,7 @@ def setup_create_client(body: ClientCreateRequest):
     4. Update client_type for all clients at this company (auto-detection)
     5. Create Obsidian client page (failure is a warning)
     """
-    from connectors.drive import copy_drive_file, create_drive_folder, list_drive_files
+    from connectors.drive import copy_drive_file, get_or_create_drive_folder, list_drive_files
     from connectors.obsidian import get_vault_path
 
     name = body.name.strip()
@@ -1581,28 +1932,53 @@ def setup_create_client(body: ClientCreateRequest):
         )
 
     # 1 — Drive folder structure (must succeed before DB write)
+    # Use get_or_create so re-running setup for an existing client doesn't
+    # create duplicate Clients / client-name / Coaching docs folders.
     try:
         # {company}/Clients/{client_name}/
-        clients_folder_id, _ = create_drive_folder("Clients", company_folder_id)
-        client_folder_id, _ = create_drive_folder(name, clients_folder_id)
+        clients_folder_id, _ = get_or_create_drive_folder("Clients", company_folder_id)
+        client_folder_id, _ = get_or_create_drive_folder(name, clients_folder_id)
         # {company}/Clients/{client_name}/Coaching docs/
-        coaching_docs_id, coaching_docs_url = create_drive_folder("Coaching docs", client_folder_id)
+        coaching_docs_id, coaching_docs_url = get_or_create_drive_folder("Coaching docs", client_folder_id)
     except Exception as exc:
         logger.error("Drive folder creation failed for client %r: %s", name, exc)
         raise HTTPException(status_code=400, detail=f"Google Drive error: {exc}")
 
+    # 1.5 — Share Coaching Docs folder with the client (non-fatal)
+    folder_shared_with: str | None = None
+    folder_share_error: str | None = None
+    if body.email:
+        try:
+            from connectors.drive import share_drive_item
+            logger.info("Sharing folder %s with %s", coaching_docs_id, body.email)
+            share_drive_item(coaching_docs_id, body.email)
+            folder_shared_with = body.email
+            logger.info("Shared coaching docs folder %s with %s", coaching_docs_id, body.email)
+        except Exception as exc:
+            # Extract the most useful part of the error (HttpError messages are verbose)
+            raw = str(exc)
+            # googleapiclient HttpError embeds the message inside quotes after "returned "
+            import re as _re
+            m = _re.search(r'returned "(.+?)"', raw)
+            folder_share_error = m.group(1) if m else raw
+            logger.warning("Folder share failed for client %r (%s): %s", name, body.email, exc)
+
     # 2 — Copy template files into Coaching docs
+    # Pass the original template name so copy_drive_file strips the
+    # "Copy of " prefix that the Drive API automatically prepends.
     coaching_agreement_url = ""
+    coaching_agreement_doc_id: str | None = None
     wheel_of_life_url = ""
     copied_files: list[dict] = []
     try:
         template_files = list_drive_files(_DRIVE_TEMPLATE_FOLDER_ID)
         for tf in template_files:
-            copied = copy_drive_file(tf["id"], coaching_docs_id)
+            copied = copy_drive_file(tf["id"], coaching_docs_id, original_name=tf["name"])
             copied_files.append(copied)
             lower = copied["name"].lower()
             if "coaching agreement" in lower or "agreement" in lower:
                 coaching_agreement_url = copied["web_url"]
+                coaching_agreement_doc_id = copied["id"]
             elif "wheel of life" in lower or "wheel" in lower:
                 wheel_of_life_url = copied["web_url"]
     except Exception as exc:
@@ -1643,21 +2019,8 @@ def setup_create_client(body: ClientCreateRequest):
         )
         db.commit()
 
-    # 5 — Obsidian page (non-fatal)
-    obsidian_result: dict = {"action": "skipped", "reason": "vault not configured"}
-    try:
-        vault = get_vault_path()
-        if vault:
-            page = _obsidian_client_page(
-                vault, obsidian_name, company_name,
-                coaching_agreement_url, wheel_of_life_url,
-            )
-            obsidian_result = {"action": "created", "path": str(page)}
-    except Exception as exc:
-        logger.warning("Obsidian client page failed for %r: %s", name, exc)
-        obsidian_result = {"action": "error", "reason": str(exc)}
-
-    # 6 — Manifest Google Doc (non-fatal)
+    # 5 — Manifest Google Doc (non-fatal) — runs before Obsidian so the URL
+    #     can be embedded in the client page
     manifest_gdoc_url: str | None = None
     try:
         doc_title = f"Manifest - {name}"
@@ -1672,6 +2035,65 @@ def setup_create_client(body: ClientCreateRequest):
     except Exception as exc:
         logger.warning("Manifest doc creation failed for client %r: %s", name, exc)
 
+    # 5.5 — Edit Coaching Agreement placeholders (non-fatal)
+    agreement_edited = False
+    if coaching_agreement_doc_id:
+        try:
+            from datetime import date as _date
+            _now = _date.today()
+            month_year = _now.strftime("%B %Y")
+            client_first_name = name.split()[0]
+            _edit_coaching_agreement(
+                doc_id=coaching_agreement_doc_id,
+                client_first_name=client_first_name,
+                month_year=month_year,
+                company_name=company_name,
+                manifest_url=manifest_gdoc_url or "",
+                coaching_docs_url=coaching_docs_url,
+            )
+            agreement_edited = True
+            logger.info("Edited Coaching Agreement for client %r (doc=%s)", name, coaching_agreement_doc_id)
+        except Exception as exc:
+            logger.warning("Coaching Agreement edit failed for client %r: %s", name, exc)
+
+    # 6 — Obsidian page (non-fatal)
+    obsidian_result: dict = {"action": "skipped", "reason": "vault not configured"}
+    try:
+        vault = get_vault_path()
+        if vault:
+            page = _obsidian_client_page(
+                vault, obsidian_name, company_name,
+                coaching_agreement_url, wheel_of_life_url,
+                manifest_gdoc_url=manifest_gdoc_url or "",
+            )
+            obsidian_result = {"action": "created", "path": str(page)}
+    except Exception as exc:
+        logger.warning("Obsidian client page failed for %r: %s", name, exc)
+        obsidian_result = {"action": "error", "reason": str(exc)}
+
+    # 7 — Append to billing_seed.json (non-fatal)
+    try:
+        import json as _json
+        seed_path = Path(__file__).resolve().parent.parent / "dashy_billing_seed.json"
+        if seed_path.exists():
+            seed_data = _json.loads(seed_path.read_text(encoding="utf-8"))
+            seed_data.setdefault("clients", []).append({
+                "name": name,
+                "company": company_name,
+                "obsidian_name": obsidian_name,
+                "email": body.email or None,
+                "rate_override": body.rate_override,
+                "prepaid": body.prepaid,
+                "client_type": new_type,
+                "gdrive_coaching_docs_url": coaching_docs_url,
+                "manifest_gdoc_url": manifest_gdoc_url,
+                "active": True,
+            })
+            seed_path.write_text(_json.dumps(seed_data, indent=2, ensure_ascii=False), encoding="utf-8")
+            logger.info("Appended client %r to billing_seed.json", name)
+    except Exception as exc:
+        logger.warning("billing_seed.json update failed for client %r: %s", name, exc)
+
     logger.info(
         "Created client %r (id=%d) company=%r coaching_docs=%s client_type=%s",
         name, client_id, company_name, coaching_docs_url, new_type,
@@ -1685,6 +2107,9 @@ def setup_create_client(body: ClientCreateRequest):
         "gdrive_coaching_docs_url": coaching_docs_url,
         "copied_files": [f["name"] for f in copied_files],
         "manifest_gdoc_url": manifest_gdoc_url,
+        "agreement_edited": agreement_edited,
+        "folder_shared_with": folder_shared_with,
+        "folder_share_error": folder_share_error,
         "obsidian": obsidian_result,
     }
 
@@ -1712,7 +2137,7 @@ def setup_create_project(body: ProjectCreateRequest):
     3. Insert into billing_projects with gdrive_folder_url
     4. Create Obsidian project page in 1 Company/{company_name}/ (failure is a warning)
     """
-    from connectors.drive import create_drive_folder
+    from connectors.drive import get_or_create_drive_folder
     from connectors.obsidian import get_vault_path
 
     name = body.name.strip()
@@ -1743,8 +2168,8 @@ def setup_create_project(body: ProjectCreateRequest):
 
     # 1 — Drive folder (must succeed before DB write)
     try:
-        projects_folder_id, _ = create_drive_folder("Projects", company_folder_id)
-        project_folder_id, project_folder_url = create_drive_folder(name, projects_folder_id)
+        projects_folder_id, _ = get_or_create_drive_folder("Projects", company_folder_id)
+        project_folder_id, project_folder_url = get_or_create_drive_folder(name, projects_folder_id)
     except Exception as exc:
         logger.error("Drive folder creation failed for project %r: %s", name, exc)
         raise HTTPException(status_code=400, detail=f"Google Drive error: {exc}")
@@ -1779,6 +2204,28 @@ def setup_create_project(body: ProjectCreateRequest):
     except Exception as exc:
         logger.warning("Obsidian project page failed for %r: %s", name, exc)
         obsidian_result = {"action": "error", "reason": str(exc)}
+
+    # 4 — Append to billing_seed.json (non-fatal)
+    try:
+        import json as _json
+        seed_path = Path(__file__).resolve().parent.parent / "dashy_billing_seed.json"
+        if seed_path.exists():
+            seed_data = _json.loads(seed_path.read_text(encoding="utf-8"))
+            seed_data.setdefault("projects", []).append({
+                "name": name,
+                "company": company_name,
+                "billing_type": billing_type,
+                "fixed_amount": body.fixed_amount,
+                "rate_override": body.rate_override,
+                "obsidian_name": obsidian_name,
+                "gdrive_folder_url": project_folder_url,
+                "gdrive_coaching_docs_url": "",
+                "active": True,
+            })
+            seed_path.write_text(_json.dumps(seed_data, indent=2, ensure_ascii=False), encoding="utf-8")
+            logger.info("Appended project %r to billing_seed.json", name)
+    except Exception as exc:
+        logger.warning("billing_seed.json update failed for project %r: %s", name, exc)
 
     logger.info(
         "Created project %r (id=%d) company=%r drive=%s",

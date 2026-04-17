@@ -97,6 +97,11 @@ interface WordSession {
   path: string;
 }
 
+// Active client detection
+type CoachingActiveResult =
+  | { active: false }
+  | { active: true; type: 'client' | 'project'; client_id: number | null; project_id: number | null; client_name: string; obsidian_name: string | null; company_name: string | null };
+
 interface WordData {
   text: string;
   value: number;
@@ -118,6 +123,15 @@ function useCoachingClients() {
     queryKey: ['coaching-clients'],
     queryFn: () => api.get<CoachingClientsResponse>('/coaching/clients'),
     staleTime: 60_000,
+  });
+}
+
+function useCoachingActive() {
+  return useQuery({
+    queryKey: ['coaching-active'],
+    queryFn: () => api.get<CoachingActiveResult>('/coaching/active'),
+    refetchInterval: 60_000,
+    staleTime: 30_000,
   });
 }
 
@@ -179,6 +193,7 @@ const COACHING_SHORTCUTS: HelpShortcut[] = [
   { keys: ', prefix', description: 'Match person first or last name  (e.g. ,berg)' },
   { keys: "' prefix", description: "Match project name  (e.g. 'offsite)" },
   { keys: '- prefix', description: 'Remove from selection  (e.g. -cfs)' },
+  { keys: '.c', description: 'Select active client/project (if session in progress)' },
   { keys: '⌘/ or ⌘?', description: 'Show this help' },
   { keys: ';', description: 'Enter date mode → Future (today or tomorrow). Press ; again to exit.' },
   { keys: ';p / ;t / ;n', description: 'Date mode: Past / Today / Next' },
@@ -223,6 +238,7 @@ interface CoachingFilterCtx {
   allProjectIds: number[];
   demo: boolean;
   toggleDemo: () => void;
+  activeResult: CoachingActiveResult | null;
   // Date mode
   dateModeActive: boolean;
   dateMode: DateMode;
@@ -246,6 +262,7 @@ const CoachingFilterContext = createContext<CoachingFilterCtx>({
   allProjectIds: [],
   demo: false,
   toggleDemo: () => {},
+  activeResult: null,
   dateModeActive: false,
   dateMode: 'future',
   dateDays: undefined,
@@ -369,6 +386,42 @@ function getEffectiveProjectIds(selection: FilterSelection[], groups: CoachingGr
 // Client Filter component — thin wrapper around shared ClientFilterBar
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Active client status bar
+// ---------------------------------------------------------------------------
+
+function activeObsidianUrl(result: Extract<CoachingActiveResult, { active: true }>): string {
+  const name = result.obsidian_name ?? result.client_name;
+  const vaultFile = result.type === 'project' && result.company_name
+    ? `1 Company/${result.company_name}/${name}.md`
+    : `1 People/${name}.md`;
+  return `obsidian://open?vault=MyNotes&file=${encodeURIComponent(vaultFile)}`;
+}
+
+function ActiveClientBar({ result }: { result: CoachingActiveResult }) {
+  if (!result.active) return null;
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 6,
+      padding: '3px 0 4px',
+      fontSize: 'var(--text-xs)',
+      color: 'var(--color-text-light)',
+      borderBottom: '1px solid var(--color-border)',
+      marginBottom: 4,
+    }}>
+      <span style={{ color: '#7B52AB', fontSize: '0.65em' }}>●</span>
+      <span>Active:</span>
+      <span style={{ color: '#444', fontWeight: 500 }}>{result.client_name}</span>
+      <button
+        className="coaching-link-btn"
+        style={{ color: '#7B52AB' }}
+        onClick={() => openExternal(activeObsidianUrl(result))}
+        title="Open in Obsidian"
+      >→</button>
+    </div>
+  );
+}
+
 interface ClientFilterProps {
   groups: CoachingGroup[];
   selection: FilterSelection[];
@@ -376,13 +429,29 @@ interface ClientFilterProps {
   onSelectionChange: (sel: FilterSelection[], allChip: boolean) => void;
   hideChips?: boolean;
   autoFocus?: boolean;
+  activeResult?: CoachingActiveResult | null;
 }
 
-function ClientFilter({ groups, selection, allChip, onSelectionChange, hideChips, autoFocus }: ClientFilterProps) {
+function ClientFilter({ groups, selection, allChip, onSelectionChange, hideChips, autoFocus, activeResult }: ClientFilterProps) {
   const { companies, clients, projectItems } = useMemo(() => buildSearchIndex(groups), [groups]);
+
+  const activeFilterSel: FilterSelection | null = useMemo(() => {
+    if (!activeResult?.active) return null;
+    if (activeResult.type === 'client' && activeResult.client_id != null) {
+      return { type: 'client', id: activeResult.client_id, label: activeResult.client_name };
+    }
+    if (activeResult.type === 'project' && activeResult.project_id != null) {
+      return { type: 'project', id: activeResult.project_id, label: `◆ ${activeResult.client_name}`, company_name: activeResult.company_name ?? undefined };
+    }
+    return null;
+  }, [activeResult]);
+
   const matchFn = useCallback(
-    (text: string) => matchItems(text, companies, clients, projectItems),
-    [companies, clients, projectItems]
+    (text: string) => {
+      if (text === '.c') return activeFilterSel ? [activeFilterSel] : [];
+      return matchItems(text, companies, clients, projectItems);
+    },
+    [companies, clients, projectItems, activeFilterSel]
   );
 
   return (
@@ -567,10 +636,18 @@ function DateView({ mode, days, onFutureSubmode }: { mode: DateMode; days?: numb
 // Clients Page
 // ---------------------------------------------------------------------------
 
+const NOW_BADGE = (
+  <span style={{ fontSize: '0.7em', color: '#7B52AB', marginLeft: 6, verticalAlign: 'middle', letterSpacing: '0.02em' }}>
+    ● now
+  </span>
+);
+
 function ClientRow({ client }: { client: CoachingClient }) {
+  const { activeResult } = useCoachingFilter();
+  const isNow = activeResult?.active && activeResult.type === 'client' && activeResult.client_id === client.id;
   return (
     <div className="coaching-client-row">
-      <span className="coaching-client-name">{client.name}</span>
+      <span className="coaching-client-name">{client.name}{isNow && NOW_BADGE}</span>
       <span className="coaching-client-sessions">
         {(client.display_session_number ?? 0)} sessions
       </span>
@@ -611,9 +688,11 @@ function ClientRow({ client }: { client: CoachingClient }) {
 }
 
 function ProjectRow({ project }: { project: CoachingProject }) {
+  const { activeResult } = useCoachingFilter();
+  const isNow = activeResult?.active && activeResult.type === 'project' && activeResult.project_id === project.id;
   return (
     <div className="coaching-client-row" style={{ borderLeft: '2px solid #7B52AB', paddingLeft: 8 }}>
-      <span className="coaching-client-name" style={{ color: '#7B52AB' }}>◆ {project.name}</span>
+      <span className="coaching-client-name" style={{ color: '#7B52AB' }}>◆ {project.name}{isNow && NOW_BADGE}</span>
       <span className="coaching-client-sessions">
         {project.session_count} session{project.session_count !== 1 ? 's' : ''}
       </span>
@@ -1102,7 +1181,7 @@ function ClientForm({ companies, onSuccess }: { companies: SetupCompany[]; onSuc
     setSubmitting(true);
     setError(null);
     try {
-      const result = await api.post<{ status: string; client_id: number; name: string; company_name: string; client_type: string; gdrive_coaching_docs_url: string; copied_files: string[]; manifest_gdoc_url: string | null; obsidian: { action: string } }>(
+      const result = await api.post<{ status: string; client_id: number; name: string; company_name: string; client_type: string; gdrive_coaching_docs_url: string; copied_files: string[]; manifest_gdoc_url: string | null; agreement_edited: boolean; folder_shared_with: string | null; folder_share_error: string | null; obsidian: { action: string } }>(
         '/coaching/setup/client',
         {
           company_id: parseInt(companyId, 10),
@@ -1118,6 +1197,9 @@ function ClientForm({ companies, onSuccess }: { companies: SetupCompany[]; onSuc
         'Client type': result.client_type,
         'Coaching docs': result.gdrive_coaching_docs_url,
         'Files copied': result.copied_files.length.toString(),
+        ...(result.folder_shared_with ? { 'Folder shared': `with ${result.folder_shared_with}` } : {}),
+        ...(result.folder_share_error ? { 'Folder sharing failed': result.folder_share_error } : {}),
+        'Coaching Agreement': result.agreement_edited ? 'edited' : 'skipped',
         'Obsidian': result.obsidian.action,
       };
       if (result.manifest_gdoc_url) {
@@ -1168,10 +1250,8 @@ function ClientForm({ companies, onSuccess }: { companies: SetupCompany[]; onSuc
         <input className="setup-input setup-input--short" type="number" value={rateOverride} onChange={e => setRateOverride(e.target.value)} placeholder="blank = company rate" min="0" />
       </FieldRow>
       <FieldRow label="Prepaid">
-        <label className="setup-toggle-label">
-          <input type="checkbox" className="setup-toggle" checked={prepaid} onChange={e => setPrepaid(e.target.checked)} />
-          <span>{prepaid ? 'Yes' : 'No'}</span>
-        </label>
+        <input type="checkbox" checked={prepaid} onChange={e => setPrepaid(e.target.checked)} style={{ margin: 0 }} />
+        <span style={{ fontSize: 'var(--text-sm)', cursor: 'pointer' }} onClick={() => setPrepaid(v => !v)}>{prepaid ? 'Yes' : 'No'}</span>
       </FieldRow>
       {error && <div className="setup-error">{error}</div>}
       <div className="setup-actions">
@@ -1345,7 +1425,11 @@ function SetupPage() {
             {Object.entries(confirmation.details).map(([k, v]) => (
               <div key={k} className="setup-confirmation-row">
                 <dt>{k}</dt>
-                <dd>{v}</dd>
+                <dd>
+                  {v.startsWith('https://') || v.startsWith('http://')
+                    ? <a href={v} target="_blank" rel="noreferrer">link</a>
+                    : v}
+                </dd>
               </div>
             ))}
           </dl>
@@ -1425,6 +1509,7 @@ interface NoteLogEntry {
   status: 'created' | 'updated' | 'skipped';
   type: 'daily' | 'meeting';
   filename: string;
+  reason?: string;
 }
 
 interface NotesSyncResult {
@@ -1741,7 +1826,7 @@ function OperationsPage() {
               <span className="ops-dry-run-badge">Dry Run</span>
               <span>{granolaDryResult.fetched} fetched · {granolaDryResult.matched} matched · {(granolaDryResult.log ?? []).filter(e => e.would_action === 'write').length} would write · {(granolaDryResult.log ?? []).filter(e => e.would_action === 'skip').length} would skip</span>
             </div>
-            {(granolaDryResult.log ?? []).length > 0 && (
+            {((granolaDryResult.log ?? []).length > 0 || (granolaDryResult.unmatched ?? []).length > 0) && (
               <table className="ops-dry-run-table">
                 <thead>
                   <tr>
@@ -1769,6 +1854,14 @@ function OperationsPage() {
                       <td className={`ops-dry-run-action--${entry.would_action ?? 'skip'}`}>
                         {entry.would_action ?? '—'}
                       </td>
+                    </tr>
+                  ))}
+                  {(granolaDryResult.unmatched ?? []).map((title, i) => (
+                    <tr key={`unmatched-${i}`} style={{ color: '#a05050' }}>
+                      <td>{title}</td>
+                      <td style={{ color: '#c0b0b0' }}>n/a</td>
+                      <td style={{ color: '#c0b0b0' }}>n/a</td>
+                      <td style={{ color: '#a05050', fontStyle: 'italic' }}>unmatched</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1896,6 +1989,7 @@ function OperationsPage() {
                     <th>File</th>
                     <th>Type</th>
                     <th>Would action</th>
+                    <th>Reason</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1912,6 +2006,9 @@ function OperationsPage() {
                         </td>
                         <td style={{ color: 'var(--color-text-light)' }}>{entry.type}</td>
                         <td className={`ops-dry-run-action--${entry.status}`}>{entry.status}</td>
+                        <td style={{ color: '#888', fontStyle: entry.reason ? 'normal' : 'italic' }}>
+                          {entry.reason ?? '—'}
+                        </td>
                       </tr>
                     );
                   })}
@@ -1999,10 +2096,12 @@ function OperationsPage() {
 
 export function CoachingPage() {
   const { data, isLoading } = useCoachingClients();
+  const { data: activeData } = useCoachingActive();
   const [selection, setSelection] = useState<FilterSelection[]>([]);
   const [allChip, setAllChip] = useState(true);
   const [demo, setDemo] = useState(false);
   const toggleDemo = useCallback(() => setDemo(d => !d), []);
+  const hasAutoSelected = useRef(false);
 
   // Date mode state (lifted here so DateModeBar can sit beside the filter)
   const [dateModeActive, setDateModeActive] = useState(false);
@@ -2094,6 +2193,26 @@ export function CoachingPage() {
     return () => window.removeEventListener('keydown', handler, true);
   }, []); // register once; refs keep values current
 
+  // Auto-select active client/project on initial load (only once, only if still at default All state)
+  useEffect(() => {
+    if (hasAutoSelected.current) return;
+    if (!activeData?.active) return;
+    const groups = data?.groups ?? [];
+    if (groups.length === 0) return;
+    if (selection.length > 0 || !allChip) return; // user already made a selection
+    let sel: FilterSelection | null = null;
+    if (activeData.type === 'client' && activeData.client_id != null) {
+      sel = { type: 'client', id: activeData.client_id, label: activeData.client_name };
+    } else if (activeData.type === 'project' && activeData.project_id != null) {
+      sel = { type: 'project', id: activeData.project_id, label: `◆ ${activeData.client_name}`, company_name: activeData.company_name ?? undefined };
+    }
+    if (sel) {
+      hasAutoSelected.current = true;
+      setSelection([sel]);
+      setAllChip(false);
+    }
+  }, [activeData, data, selection, allChip]);
+
   const groups = data?.groups ?? [];
 
   const allClientIds = useMemo(
@@ -2158,6 +2277,7 @@ export function CoachingPage() {
     allProjectIds,
     demo,
     toggleDemo,
+    activeResult: activeData ?? null,
     dateModeActive,
     dateMode,
     dateDays,
@@ -2200,6 +2320,7 @@ export function CoachingPage() {
         {/* Topbar: filter + date mode bar (all coaching pages) */}
         {!isLoading && groups.length > 0 && (
           <>
+            {activeData && <ActiveClientBar result={activeData} />}
             <div className="coaching-topbar">
               <ClientFilter
                 groups={groups}
@@ -2208,6 +2329,7 @@ export function CoachingPage() {
                 onSelectionChange={handleSelectionChange}
                 hideChips
                 autoFocus
+                activeResult={activeData}
               />
               <DateModeBar
                 active={dateModeActive}

@@ -2052,11 +2052,17 @@ function UnprocessedQueue() {
   const { data: vaultData } = useObsidianVault();
   const vaultName = vaultData?.active_path?.split('/').pop() ?? '';
 
-  // Past banana events: banana color, date < today, matching company filter.
+  // Active session: banana event currently in progress (is_active=true from backend).
+  // Shown above everything else; no company filter applied (always show if in-progress).
+  const activeSessions = events.filter(ev => ev.color_id === '5' && ev.is_active);
+  const activeSessionIds = new Set(activeSessions.map(ev => ev.calendar_event_id));
+
+  // Past banana events: banana color, date < today, not active, matching company filter.
   // Shown in a separate "Unprocessed" section above all month groupings.
   const pastBanana = events
     .filter(ev => {
       if (ev.color_id !== '5') return false;
+      if (activeSessionIds.has(ev.calendar_event_id)) return false; // shown in Active section
       if (ev.start_time.slice(0, 10) >= today) return false;
       if (effectiveCompanyIds) {
         const coId = ev.inferred_company_id;
@@ -2070,7 +2076,8 @@ function UnprocessedQueue() {
 
   const visible = events
     .filter(ev => {
-      if (pastBananaIds.has(ev.calendar_event_id)) return false; // shown in Unprocessed section
+      if (activeSessionIds.has(ev.calendar_event_id)) return false; // shown in Active section
+      if (pastBananaIds.has(ev.calendar_event_id)) return false; // shown in Past section
       if (!showBanana && ev.color_id === '5') return false;
       const dateStr = ev.start_time.slice(0, 10);
       const evYear = Number(dateStr.slice(0, 4));
@@ -2200,6 +2207,55 @@ function UnprocessedQueue() {
             {blockWarnings.map((w, i) => <li key={i}>{w}</li>)}
           </ul>
           <button className="btn-link" style={{ fontSize: 'var(--text-xs)', marginTop: 4 }} onClick={() => setBlockWarnings([])}>Dismiss</button>
+        </div>
+      )}
+
+      {/* ── Active Session section ── */}
+      {activeSessions.length > 0 && (
+        <div style={{ marginBottom: 'var(--space-xl)' }}>
+          <div style={{
+            fontWeight: 700, fontSize: 'var(--text-sm)', padding: '5px 8px',
+            borderBottom: '2px solid var(--color-border)',
+            marginBottom: 'var(--space-xs)',
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+              Active Session
+              <span style={{ fontSize: '0.7em', color: '#7B52AB', fontWeight: 400, letterSpacing: '0.02em' }}>● now</span>
+            </span>
+            <span style={{ fontWeight: 400, fontSize: 'var(--text-xs)', color: 'var(--color-text-light)' }}>
+              Session in progress — confirm after it ends
+            </span>
+          </div>
+          {activeSessions.map(ev => {
+            const abbrev = companyAbbrev(ev);
+            const rev = expectedRevenue(ev);
+            return (
+              <UnprocessedRow
+                key={ev.calendar_event_id}
+                event={ev}
+                companies={companies}
+                companyAbbrev={abbrev}
+                expectedRevenue={rev}
+                vaultName={vaultName || undefined}
+                onConfirm={(ev, clientId, companyId, durationHours, notes, projectId) => {
+                  confirm.mutate(
+                    { calendar_event_id: ev.calendar_event_id, client_id: clientId, company_id: companyId, duration_hours: durationHours, notes, project_id: projectId },
+                    {
+                      onSuccess: (session) => {
+                        if (session.no_active_prepaid_block) {
+                          setBlockWarnings(w => [...w, `${demo ? nameToInitials(session.client_name) || 'Client' : (session.client_name ?? 'Client')} — session confirmed but no active prepaid block found`]);
+                        }
+                      },
+                    }
+                  );
+                }}
+                onDismiss={ev => {
+                  if (window.confirm(`Dismiss "${ev.summary}"?`)) dismiss.mutate(ev.calendar_event_id);
+                }}
+              />
+            );
+          })}
         </div>
       )}
 
@@ -4088,10 +4144,15 @@ function CashReceivedView({ data }: { data: BillingSummaryData }) {
 // ---------------------------------------------------------------------------
 
 function SummaryView() {
-  const { year } = useBillingScope();
+  const { year, effectiveCompanyIds } = useBillingScope();
   const [tab, setTab] = useState<'billing' | 'cash'>('billing');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const { data, isLoading, refetch } = useBillingSummary(year);
+
+  const filteredData = useMemo(() => {
+    if (!data || effectiveCompanyIds === null) return data;
+    return { ...data, companies: data.companies.filter(co => effectiveCompanyIds.has(co.id)) };
+  }, [data, effectiveCompanyIds]);
 
   const tabStyle = (active: boolean): React.CSSProperties => ({
     padding: '3px 12px', fontSize: 'var(--text-sm)', cursor: 'pointer',
@@ -4115,8 +4176,8 @@ function SummaryView() {
         <button style={tabStyle(tab === 'cash')} onClick={() => setTab('cash')}>Cash Received (Tax)</button>
       </div>
 
-      {(isLoading || !data) && <p className="empty-state">Loading…</p>}
-      {data && tab === 'billing' && (
+      {(isLoading || !filteredData) && <p className="empty-state">Loading…</p>}
+      {filteredData && tab === 'billing' && (
         <>
           <div style={{ marginBottom: 'var(--space-sm)', display: 'flex', alignItems: 'center', gap: 'var(--space-lg)', flexWrap: 'wrap' }}>
             <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)' }}>
@@ -4139,10 +4200,10 @@ function SummaryView() {
               ))}
             </span>
           </div>
-          <BillingGrid data={data} statusFilter={statusFilter} />
+          <BillingGrid data={filteredData} statusFilter={statusFilter} />
         </>
       )}
-      {data && tab === 'cash' && <CashReceivedView data={data} />}
+      {filteredData && tab === 'cash' && <CashReceivedView data={filteredData} />}
     </div>
   );
 }
@@ -4580,17 +4641,37 @@ function BillingScopeBar() {
   const yearOptions = Array.from({ length: 5 }, (_, i) => curYear - 2 + i);
   const { data: companies = [] } = useBillingCompanies();
   const { data: projects = [] } = useBillingProjects();
+  const isPayables = useMatch('/billing/payables');
+  const isSummary  = useMatch('/billing/summary');
+  const MIN_YEAR = 2025;
 
   return (
     <div style={{ display: 'flex', gap: 5, alignItems: 'center', marginBottom: 'var(--space-lg)', flexWrap: 'wrap', padding: '28px 0 6px', borderBottom: '1px solid var(--color-border)' }}>
-      <select value={year} onChange={e => setYear(Number(e.target.value))} style={{ fontSize: 'var(--text-sm)' }}>
-        {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
-      </select>
-      {([null, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as (number | null)[]).map(m => (
-        <button key={m ?? 'all'} onClick={() => setMonth(m)} style={scopeBtn(month === m)}>
-          {m === null ? 'All' : MONTH_LABELS[m - 1]}
-        </button>
-      ))}
+      {isSummary && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <button
+            onClick={() => setYear(year - 1)}
+            disabled={year <= MIN_YEAR}
+            style={{ ...scopeBtn(false), padding: '2px 6px', opacity: year <= MIN_YEAR ? 0.35 : 1 }}
+          >←</button>
+          <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600, minWidth: 36, textAlign: 'center' }}>{year}</span>
+          <button
+            onClick={() => setYear(year + 1)}
+            disabled={year >= curYear}
+            style={{ ...scopeBtn(false), padding: '2px 6px', opacity: year >= curYear ? 0.35 : 1 }}
+          >→</button>
+        </div>
+      )}
+      {!isPayables && !isSummary && <>
+        <select value={year} onChange={e => setYear(Number(e.target.value))} style={{ fontSize: 'var(--text-sm)' }}>
+          {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
+        </select>
+        {([null, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as (number | null)[]).map(m => (
+          <button key={m ?? 'all'} onClick={() => setMonth(m)} style={scopeBtn(month === m)}>
+            {m === null ? 'All' : MONTH_LABELS[m - 1]}
+          </button>
+        ))}
+      </>}
       <BillingClientFilter
         companies={companies}
         projects={projects}
@@ -4654,60 +4735,82 @@ function StatusBadge({ status }: { status: string }) {
 
 type PayablesViewTab = 'by-company' | 'by-month';
 
+const LATE_THRESHOLD_DAYS = 45;
+
+function isLate(invoiceDate: string | null, status: string): boolean {
+  if (status === 'paid' || !invoiceDate) return false;
+  if (status !== 'sent' && status !== 'partial') return false;
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - LATE_THRESHOLD_DAYS);
+  return new Date(invoiceDate) < cutoff;
+}
+
+function LateBadge() {
+  return (
+    <span style={{
+      display: 'inline-block', marginLeft: 5,
+      padding: '1px 5px', borderRadius: 3,
+      fontSize: '0.75em', fontWeight: 700,
+      background: '#f8d7da', color: '#721c24', border: '1px solid #f5c6cb',
+    }}>Late</span>
+  );
+}
+
 function PayablesView() {
   const { demo } = useDemoMode();
-  const { data: allCompanies = [] } = useBillingCompanies();
+  const { effectiveCompanyIds } = useBillingScope();
 
-  const [sel, setSel] = useState<BillingFilterSelection[]>([]);
-  const [allChip, setAllChip] = useState(true);
   const [block, setBlock] = useState(0);
   const [viewTab, setViewTab] = useState<PayablesViewTab>('by-company');
+  const [unpaidOnly, setUnpaidOnly] = useState(false);
 
   const { data, isLoading } = useBillingPayables(block);
 
-  const tabStyle = (active: boolean): React.CSSProperties => ({
+  // View toggle: dark gray style (distinct from filter buttons)
+  const viewBtnStyle = (active: boolean): React.CSSProperties => ({
     padding: '2px 10px', fontSize: 'var(--text-sm)', cursor: 'pointer',
-    background: 'none', border: 'none',
-    borderBottom: active ? '2px solid var(--color-fg)' : '2px solid transparent',
-    color: active ? 'var(--color-fg)' : 'var(--color-text-light)',
+    border: active ? '1px solid #666' : '1px solid var(--color-border)', borderRadius: 3,
+    background: active ? '#555' : 'transparent',
+    color: active ? '#fff' : 'var(--color-text-light)',
+    fontWeight: active ? 600 : 400,
   });
-
-  // Resolve selection → set of company IDs to display (null = all)
-  const visibleCompanyIds: Set<number> | null = useMemo(() => {
-    if (allChip || sel.length === 0) return null;
-    const ids = new Set<number>();
-    for (const s of sel) {
-      if (s.type === 'company' && s.id !== null && s.id > 0) {
-        ids.add(s.id);
-      } else if (s.type === 'client') {
-        const co = allCompanies.find(c => c.clients.some(cl => cl.id === s.id));
-        if (co) ids.add(co.id);
-      }
-    }
-    return ids;
-  }, [sel, allChip, allCompanies]);
 
   const visibleCompanies = useMemo(() => {
     if (!data) return [];
-    if (visibleCompanyIds === null) return data.companies;
-    return data.companies.filter(c => visibleCompanyIds.has(c.company_id));
-  }, [data, visibleCompanyIds]);
+    const base = effectiveCompanyIds === null ? data.companies : data.companies.filter(c => effectiveCompanyIds.has(c.company_id));
+    if (!unpaidOnly) return base;
+    // Filter invoices to sent/partial only; keep company if it has any remaining or has unbilled
+    return base.map(co => ({
+      ...co,
+      invoices: co.invoices.filter(inv => inv.status !== 'paid'),
+    })).filter(co => co.invoices.length > 0 || (data.is_current_block && (co.unbilled_amount ?? 0) > 0));
+  }, [data, effectiveCompanyIds, unpaidOnly]);
 
   // By-month grouping: collect all invoices from visible companies, group by period_month
   const monthGroups = useMemo(() => {
     if (!data) return [];
-    const groups = new Map<string, { invoices: Array<{ co_id: number; co_name: string; inv: typeof data.companies[0]['invoices'][0] }>; total: number }>();
+    type InvRow = { co_id: number; co_name: string; inv: typeof data.companies[0]['invoices'][0] };
+    const groups = new Map<string, { invoices: InvRow[]; totalInvoiced: number; totalPaid: number }>();
     for (const co of visibleCompanies) {
       for (const inv of co.invoices) {
         const key = inv.period_month ?? 'unknown';
-        if (!groups.has(key)) groups.set(key, { invoices: [], total: 0 });
+        if (!groups.has(key)) groups.set(key, { invoices: [], totalInvoiced: 0, totalPaid: 0 });
         const g = groups.get(key)!;
         g.invoices.push({ co_id: co.company_id, co_name: co.company_name, inv });
-        g.total += inv.total_amount ?? 0;
+        g.totalInvoiced += inv.total_amount ?? 0;
+        g.totalPaid     += inv.paid_amount;
       }
     }
     // Sort months descending
     return [...groups.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+  }, [visibleCompanies, data]);
+
+  // Total unpaid across the block (excluding current month) = invoiced − paid for sent/partial
+  const blockTotalUnpaid = useMemo(() => {
+    if (!data) return 0;
+    return visibleCompanies.flatMap(co => co.invoices)
+      .filter(inv => inv.status !== 'paid' && inv.period_month !== data.current_month)
+      .reduce((s, inv) => s + (inv.total_amount ?? 0) - inv.paid_amount, 0);
   }, [visibleCompanies, data]);
 
   // Unbilled summary across visible companies (current block only)
@@ -4718,22 +4821,27 @@ function PayablesView() {
     return { total: cos.reduce((s, c) => s + (c.unbilled_amount ?? 0), 0), count: cos.length };
   }, [visibleCompanies, data]);
 
-  function handleSelectionChange(newSel: BillingFilterSelection[], newAllChip: boolean) {
-    setSel(newSel);
-    setAllChip(newAllChip);
-    setBlock(0);
-  }
-
   const tdStyle: React.CSSProperties = { padding: '4px 8px', verticalAlign: 'top' };
   const amtStyle: React.CSSProperties = { ...tdStyle, textAlign: 'right', fontVariantNumeric: 'tabular-nums' };
+  const statusTdStyle: React.CSSProperties = { ...tdStyle, paddingLeft: 20 };
   const sectionHeaderStyle: React.CSSProperties = {
     fontWeight: 600, fontSize: 'var(--text-sm)',
     borderBottom: '2px solid var(--color-border)',
     paddingBottom: 4, marginBottom: 0, color: 'var(--color-fg)',
   };
+  const thBase: React.CSSProperties = { padding: '4px 8px', fontWeight: 600, fontSize: 'var(--text-sm)', borderBottom: '2px solid var(--color-border)', whiteSpace: 'nowrap' };
+  const colGroup = (
+    <colgroup>
+      <col style={{ width: '180px' }} />
+      <col style={{ width: '140px' }} />
+      <col style={{ width: '90px' }} />
+      <col style={{ width: '90px' }} />
+      <col />
+    </colgroup>
+  );
 
   const blockNav = data && (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
       <button className="btn-secondary" onClick={() => setBlock(b => b + 1)} style={{ fontSize: 'var(--text-sm)' }}>
         ← Previous
       </button>
@@ -4748,22 +4856,31 @@ function PayablesView() {
       >
         Next →
       </button>
+      {blockTotalUnpaid > 0 && (
+        <span style={{ marginLeft: 16, fontSize: 'var(--text-sm)', color: 'var(--color-text-light)' }}>
+          total unpaid: <strong style={{ color: '#c0392b' }}>{fmtAmt(blockTotalUnpaid, demo)}</strong>
+        </span>
+      )}
     </div>
   );
 
   return (
     <div>
       {/* Toolbar */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8, flexWrap: 'wrap' }}>
-        <BillingClientFilter
-          companies={allCompanies}
-          selection={sel}
-          allChip={allChip}
-          onSelectionChange={handleSelectionChange}
-        />
-        <div style={{ marginLeft: 'auto', display: 'flex' }}>
-          <button style={tabStyle(viewTab === 'by-company')} onClick={() => setViewTab('by-company')}>By Company</button>
-          <button style={tabStyle(viewTab === 'by-month')} onClick={() => setViewTab('by-month')}>By Month</button>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+        <button
+          style={{
+            ...scopeBtn(unpaidOnly),
+            ...(unpaidOnly ? { background: '#c0392b', borderColor: '#c0392b', color: '#fff' } : {}),
+          }}
+          onClick={() => setUnpaidOnly(v => !v)}
+        >
+          Unpaid only
+        </button>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)' }}>Grouping:</span>
+          <button style={viewBtnStyle(viewTab === 'by-company')} onClick={() => setViewTab('by-company')}>By Company</button>
+          <button style={viewBtnStyle(viewTab === 'by-month')} onClick={() => setViewTab('by-month')}>By Month</button>
         </div>
       </div>
 
@@ -4778,31 +4895,48 @@ function PayablesView() {
           )}
           {visibleCompanies.map(co => {
             const hasRows = co.invoices.length > 0 || (data.is_current_block && (co.unbilled_amount ?? 0) > 0);
+            const coTotalInvoiced = co.invoices.reduce((s, i) => s + (i.total_amount ?? 0), 0);
+            const coTotalPaid     = co.invoices.reduce((s, i) => s + i.paid_amount, 0);
+            const coUnpaid        = coTotalInvoiced - coTotalPaid;
             return (
               <div key={co.company_id} style={{ marginBottom: 28 }}>
-                <div style={sectionHeaderStyle}>{co.company_name}</div>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--text-sm)' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--text-sm)', tableLayout: 'fixed' }}>
+                  {colGroup}
+                  <thead>
+                    <tr>
+                      <th style={{ ...thBase, textAlign: 'left', color: '#111' }}>{co.company_name}</th>
+                      <th style={{ ...thBase, textAlign: 'left', color: 'var(--color-text-light)', fontWeight: 400 }}>{co.invoices.length > 0 ? `${co.invoices.length} ${co.invoices.length === 1 ? 'invoice' : 'invoices'}` : ''}</th>
+                      <th style={{ ...thBase, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--color-text-light)', fontWeight: 400 }}>{coTotalInvoiced > 0 ? fmtAmt(coTotalInvoiced, demo) : '—'}</th>
+                      <th style={{ ...thBase, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: coTotalPaid > 0 ? '#2a7a2a' : 'var(--color-text-light)', fontWeight: 400 }}>{coTotalPaid > 0 ? fmtAmt(coTotalPaid, demo) : '—'}</th>
+                      <th style={{ ...thBase, paddingLeft: 20, fontWeight: 400, color: coUnpaid > 0 ? '#c0392b' : 'var(--color-text-light)', whiteSpace: 'nowrap' }}>
+                        {coUnpaid > 0 ? <>{fmtAmt(coUnpaid, demo)} unpaid</> : ''}
+                      </th>
+                    </tr>
+                  </thead>
                   <tbody>
                     {data.is_current_block && data.current_month !== null && (co.unbilled_amount ?? 0) > 0 && (
                       <tr style={{ color: 'var(--color-text-light)', fontStyle: 'italic' }}>
-                        <td style={tdStyle}>—</td>
                         <td style={tdStyle}>{monthLabel(data.current_month)}</td>
+                        <td style={tdStyle}>—</td>
                         <td style={amtStyle}>{fmtAmt(co.unbilled_amount!, demo)}</td>
                         <td style={amtStyle}>—</td>
-                        <td style={tdStyle}>unbilled</td>
+                        <td style={statusTdStyle}>unbilled</td>
                       </tr>
                     )}
                     {co.invoices.map(inv => (
                       <tr key={inv.id} style={{ borderTop: '1px solid var(--color-border)' }}>
+                        <td style={tdStyle}>{inv.period_month ? monthLabel(inv.period_month) : '—'}</td>
                         <td style={tdStyle}>
                           <Link to={`/billing/invoices/${inv.id}`} style={{ color: 'var(--color-accent)' }}>
                             {inv.invoice_number}
                           </Link>
                         </td>
-                        <td style={tdStyle}>{inv.period_month ? monthLabel(inv.period_month) : '—'}</td>
                         <td style={amtStyle}>{inv.total_amount !== null ? fmtAmt(inv.total_amount, demo) : '—'}</td>
                         <td style={amtStyle}>{fmtAmt(inv.paid_amount, demo)}</td>
-                        <td style={tdStyle}><StatusBadge status={inv.status} /></td>
+                        <td style={statusTdStyle}>
+                          <StatusBadge status={inv.status} />
+                          {isLate(inv.invoice_date, inv.status) && <LateBadge />}
+                        </td>
                       </tr>
                     ))}
                     {!hasRows && (
@@ -4825,15 +4959,23 @@ function PayablesView() {
         <div>
           {blockNav}
 
-          {/* Current month unbilled summary — shown above oldest-first invoice months */}
+          {/* Current month unbilled summary — shown above invoice month groups */}
           {data.is_current_block && data.current_month !== null && unbilledSummary !== null && (
             <div style={{ marginBottom: 28 }}>
-              <div style={sectionHeaderStyle}>
-                {monthShort(data.current_month)}&ensp;·&ensp;
-                <span style={{ color: 'var(--color-text-light)', fontWeight: 400, fontStyle: 'italic' }}>
-                  Unbilled&ensp;·&ensp;{fmtAmt(unbilledSummary.total, demo)} across {unbilledSummary.count} {unbilledSummary.count === 1 ? 'company' : 'companies'}
-                </span>
-              </div>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--text-sm)', tableLayout: 'fixed' }}>
+                {colGroup}
+                <thead>
+                  <tr>
+                    <th style={{ ...thBase, textAlign: 'left', color: '#111' }}>{monthLabel(data.current_month)}</th>
+                    <th style={{ ...thBase, textAlign: 'left', color: 'var(--color-text-light)', fontWeight: 400, fontStyle: 'italic' }}>
+                      unbilled · {unbilledSummary.count} {unbilledSummary.count === 1 ? 'company' : 'companies'}
+                    </th>
+                    <th style={{ ...thBase, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--color-text-light)', fontWeight: 400 }}>{fmtAmt(unbilledSummary.total, demo)}</th>
+                    <th style={{ ...thBase }} />
+                    <th style={{ ...thBase, paddingLeft: 20 }} />
+                  </tr>
+                </thead>
+              </table>
             </div>
           )}
 
@@ -4842,19 +4984,30 @@ function PayablesView() {
           )}
 
           {monthGroups.map(([ym, group]) => {
-            const label = ym !== 'unknown' ? monthShort(ym) : '—';
+            const label = ym !== 'unknown' ? monthLabel(ym) : '—';
             return (
               <div key={ym} style={{ marginBottom: 28 }}>
-                <div style={sectionHeaderStyle}>
-                  {label}&ensp;·&ensp;{group.invoices.length} {group.invoices.length === 1 ? 'invoice' : 'invoices'}&ensp;·&ensp;{fmtAmt(group.total, demo)}
-                </div>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--text-sm)' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--text-sm)', tableLayout: 'fixed' }}>
+                  {colGroup}
+                  <thead>
+                    <tr>
+                      <th style={{ ...thBase, textAlign: 'left', color: '#111' }}>{label}</th>
+                      <th style={{ ...thBase, textAlign: 'left', color: 'var(--color-text-light)', fontWeight: 400 }}>{group.invoices.length} {group.invoices.length === 1 ? 'invoice' : 'invoices'}</th>
+                      <th style={{ ...thBase, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--color-text-light)', fontWeight: 400 }}>{group.totalInvoiced > 0 ? fmtAmt(group.totalInvoiced, demo) : '—'}</th>
+                      <th style={{ ...thBase, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: group.totalPaid > 0 ? '#2a7a2a' : 'var(--color-text-light)', fontWeight: 400 }}>{group.totalPaid > 0 ? fmtAmt(group.totalPaid, demo) : '—'}</th>
+                      {(() => { const u = group.totalInvoiced - group.totalPaid; return (
+                        <th style={{ ...thBase, paddingLeft: 20, fontWeight: 400, color: u > 0 ? '#c0392b' : 'var(--color-text-light)', whiteSpace: 'nowrap' }}>
+                          {u > 0 ? <>{fmtAmt(u, demo)} unpaid</> : ''}
+                        </th>
+                      ); })()}
+                    </tr>
+                  </thead>
                   <tbody>
                     {group.invoices.map(({ co_id, co_name, inv }) => (
                       <tr key={inv.id} style={{ borderTop: '1px solid var(--color-border)' }}>
                         <td style={tdStyle}>
                           <button
-                            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--color-accent)', fontSize: 'inherit' }}
+                            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: '#111', fontSize: 'inherit', textDecoration: 'underline', textDecorationColor: 'var(--color-border)' }}
                             onClick={() => { setViewTab('by-company'); setSel([{ type: 'company', id: co_id, label: co_name }]); setAllChip(false); }}
                           >
                             {co_name}
@@ -4867,7 +5020,10 @@ function PayablesView() {
                         </td>
                         <td style={amtStyle}>{inv.total_amount !== null ? fmtAmt(inv.total_amount, demo) : '—'}</td>
                         <td style={amtStyle}>{fmtAmt(inv.paid_amount, demo)}</td>
-                        <td style={tdStyle}><StatusBadge status={inv.status} /></td>
+                        <td style={statusTdStyle}>
+                          <StatusBadge status={inv.status} />
+                          {isLate(inv.invoice_date, inv.status) && <LateBadge />}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

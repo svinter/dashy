@@ -486,11 +486,11 @@ def create_upcoming_notes(days_ahead: int = 5, dry_run: bool = False) -> dict:
                     if not dry_run:
                         note_path.write_text(_reassemble(fm_lines, body_lines), encoding="utf-8")
                     meeting_updated += 1
-                    log.append({"status": "updated", "type": "meeting", "filename": fname})
+                    log.append({"status": "updated", "type": "meeting", "filename": fname, "reason": "frontmatter updated"})
                     logger.info("%s meeting note frontmatter: %s", "Would update" if dry_run else "Updated", fname)
                 else:
                     skipped += 1
-                    log.append({"status": "skipped", "type": "meeting", "filename": fname})
+                    log.append({"status": "skipped", "type": "meeting", "filename": fname, "reason": "up to date"})
 
         except Exception as e:
             logger.warning("Error processing session row: %s", e)

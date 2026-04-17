@@ -1040,6 +1040,21 @@ def get_unprocessed_sessions():
     if promoted:
         logger.info("Promoted %d banana→grape sessions", promoted)
 
+    now_utc = datetime.now(timezone.utc)
+
+    def _is_active(start_raw: str, end_raw: str) -> bool:
+        """True when start_time <= now(UTC) <= end_time (timezone-aware comparison)."""
+        try:
+            start = datetime.fromisoformat(start_raw)
+            end   = datetime.fromisoformat(end_raw)
+            if start.tzinfo is None:
+                start = start.replace(tzinfo=timezone.utc)
+            if end.tzinfo is None:
+                end   = end.replace(tzinfo=timezone.utc)
+            return start.astimezone(timezone.utc) <= now_utc <= end.astimezone(timezone.utc)
+        except (ValueError, TypeError):
+            return False
+
     result = []
     for ev in events:
         if ev["id"] in existing_ids:
@@ -1083,6 +1098,7 @@ def get_unprocessed_sessions():
             "end_time": ev["end_time"],
             "color_id": ev["color_id"],
             "is_grape": is_grape,
+            "is_active": _is_active(ev["start_time"], ev["end_time"]),
             "slot_hours": slot_hrs,
             "duration_hours": duration_hours,
             "duration_source": duration_source,
@@ -2985,7 +3001,7 @@ def _sync_invoice_payment_status(db, invoice_id: int) -> None:
             (invoice_id,),
         ).fetchone()["s"]
     )
-    if total > 0 and paid >= total - 0.01:
+    if total > 0 and paid >= total - 1.00:
         new_status = "paid"
     elif paid > 0.01:
         new_status = "partial"
@@ -3093,9 +3109,14 @@ def get_payables(block: int = 0, company_id: int | None = None):
                 bc.name          AS company_name,
                 bi.invoice_number,
                 bi.period_month,
+                bi.invoice_date,
                 bi.total_amount,
                 bi.status,
-                COALESCE(SUM(bip.amount_applied), 0) AS paid_amount
+                CASE
+                  WHEN bi.status = 'paid' AND COALESCE(SUM(bip.amount_applied), 0) = 0
+                  THEN COALESCE(bi.total_amount, 0)
+                  ELSE COALESCE(SUM(bip.amount_applied), 0)
+                END AS paid_amount
             FROM billing_invoices bi
             JOIN billing_companies bc ON bc.id = bi.company_id
             LEFT JOIN billing_invoice_payments bip ON bip.invoice_id = bi.id
@@ -3108,7 +3129,8 @@ def get_payables(block: int = 0, company_id: int | None = None):
             [block_start, block_end] + co_param,
         ).fetchall()
 
-        # Unbilled confirmed sessions per company for current month
+        # Unbilled confirmed sessions per company for current month.
+        # "Unbilled" = not yet sent: invoice_line_id IS NULL, or linked to a draft invoice.
         unbilled_by_co: dict[int, float] = {}
         if is_current and cur_month:
             ub_rows = db.execute(
@@ -3118,10 +3140,12 @@ def get_payables(block: int = 0, company_id: int | None = None):
                        COALESCE(SUM(bs.amount), 0) AS total
                 FROM billing_sessions bs
                 JOIN billing_companies bc ON bc.id = bs.company_id
+                LEFT JOIN billing_invoice_lines bil ON bil.id = bs.invoice_line_id
+                LEFT JOIN billing_invoices bi ON bi.id = bil.invoice_id
                 WHERE bs.is_confirmed = 1
-                  AND bs.invoice_line_id IS NULL
                   AND bs.amount > 0
                   AND strftime('%Y-%m', bs.date) = ?
+                  AND (bs.invoice_line_id IS NULL OR bi.status = 'draft')
                   {ub_co_filter}
                 GROUP BY bs.company_id
                 """,
@@ -3143,6 +3167,7 @@ def get_payables(block: int = 0, company_id: int | None = None):
             "id":             r["id"],
             "invoice_number": r["invoice_number"],
             "period_month":   r["period_month"],
+            "invoice_date":   r["invoice_date"],
             "total_amount":   r["total_amount"],
             "paid_amount":    r["paid_amount"],
             "status":         r["status"],

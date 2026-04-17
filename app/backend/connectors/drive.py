@@ -47,6 +47,46 @@ def create_drive_folder(name: str, parent_id: str) -> tuple[str, str]:
     return folder_id, web_url
 
 
+def get_or_create_drive_folder(name: str, parent_id: str) -> tuple[str, str]:
+    """Return (folder_id, web_url) for a named folder under parent_id.
+
+    If a folder with that name already exists under the parent it is reused;
+    otherwise a new folder is created.  This prevents duplicate folder
+    creation when the setup endpoint is re-run for an existing client.
+    """
+    service = _drive_service()
+    q = (
+        f"name='{name}' and '{parent_id}' in parents "
+        f"and mimeType='application/vnd.google-apps.folder' and trashed=false"
+    )
+    results = service.files().list(
+        q=q,
+        fields="files(id, webViewLink)",
+        pageSize=1,
+    ).execute()
+    existing = results.get("files", [])
+    if existing:
+        folder_id = existing[0]["id"]
+        web_url = existing[0].get("webViewLink") or f"https://drive.google.com/drive/folders/{folder_id}"
+        return folder_id, web_url
+    return create_drive_folder(name, parent_id)
+
+
+def share_drive_item(file_id: str, email: str) -> None:
+    """Grant writer access on a Drive file/folder to an individual email address.
+
+    sendNotificationEmail is always False to avoid spamming the client.
+    Raises RuntimeError on API failure.
+    """
+    service = _drive_service()
+    service.permissions().create(
+        fileId=file_id,
+        body={"role": "writer", "type": "user", "emailAddress": email},
+        sendNotificationEmail=False,
+        fields="id",
+    ).execute()
+
+
 def list_drive_files(folder_id: str) -> list[dict]:
     """List non-trashed files directly inside folder_id.
 
@@ -61,8 +101,12 @@ def list_drive_files(folder_id: str) -> list[dict]:
     return results.get("files", [])
 
 
-def copy_drive_file(file_id: str, dest_folder_id: str) -> dict:
-    """Copy file_id into dest_folder_id, preserving its original name.
+def copy_drive_file(file_id: str, dest_folder_id: str, original_name: str | None = None) -> dict:
+    """Copy file_id into dest_folder_id, preserving the original filename.
+
+    The Drive API prepends "Copy of " to the name on copy.  When
+    original_name is provided the copied file is immediately renamed to
+    strip that prefix, so the file keeps the template's exact filename.
 
     Returns {id, name, web_url}.
     """
@@ -72,9 +116,17 @@ def copy_drive_file(file_id: str, dest_folder_id: str) -> dict:
         body={"parents": [dest_folder_id]},
         fields="id, name, webViewLink",
     ).execute()
+    copied_id = result["id"]
+    final_name = original_name or result.get("name", "")
+    if original_name:
+        service.files().update(
+            fileId=copied_id,
+            body={"name": original_name},
+            fields="id, name",
+        ).execute()
     return {
-        "id": result["id"],
-        "name": result.get("name", ""),
+        "id": copied_id,
+        "name": final_name,
         "web_url": result.get("webViewLink", ""),
     }
 
