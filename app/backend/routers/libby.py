@@ -116,6 +116,7 @@ def search_library(q: str = "", client_id: int | None = None):
             e.webpage_url,
             e.gdoc_id,
             e.comments,
+            e.obsidian_link,
             CASE e.type_code
                 WHEN 'b' THEN lb.author
                 WHEN 'a' THEN la.author
@@ -203,6 +204,7 @@ def search_library(q: str = "", client_id: int | None = None):
             "amazon_url": row["amazon_url"],
             "webpage_url": row["webpage_url"],
             "gdoc_id": row["gdoc_id"],
+            "obsidian_link": row["obsidian_link"],
             "author": author,
             "topics": topics_by_entry.get(row["id"], []),
             "_rank": (
@@ -1416,6 +1418,10 @@ def create_book(body: BookCreateRequest, background_tasks: BackgroundTasks):
         amazon_url=body.amazon_url,
         comments=body.comments,
         priority=body.priority,
+        isbn=body.isbn or None,
+        publisher=body.publisher or None,
+        year=body.year or None,
+        status=getattr(body, "status", None) or "unread",
     )
     background_tasks.add_task(_run_tagging_task, entry_id)
     logger.info("Created book entry %d: %r", entry_id, name)
@@ -1742,6 +1748,10 @@ def _create_vault_home_page(
     comments: str | None = None,
     priority: str = "medium",
     topic_codes: list[str] | None = None,
+    isbn: str | None = None,
+    publisher: str | None = None,
+    year: int | str | None = None,
+    status: str | None = None,
 ) -> str | None:
     """Create an Obsidian vault note for a new library entry (synchronous).
 
@@ -1784,18 +1794,28 @@ def _create_vault_home_page(
 
     # Build frontmatter
     type_name = _TYPE_NAMES.get(type_code, type_code)
+    today = _date.today().isoformat()
     fm_lines = ["---"]
     fm_lines.append(f"type: {type_name.lower()}")
     fm_lines.append(f"priority: {priority}")
+    if status:
+        fm_lines.append(f"status: {status}")
     if author:
         fm_lines.append(f"author: \"{author}\"")
+    if isbn:
+        fm_lines.append(f"isbn: {isbn}")
+    if publisher:
+        fm_lines.append(f"publisher: \"{publisher}\"")
+    if year:
+        fm_lines.append(f"publish: {year}")
     if url:
         fm_lines.append(f"url: {url}")
     if amazon_url:
         fm_lines.append(f"amazon_url: {amazon_url}")
     if topic_codes:
         fm_lines.append(f"topics: [{', '.join(topic_codes)}]")
-    fm_lines.append(f"created: {_date.today().isoformat()}")
+    fm_lines.append(f"created: {today}")
+    fm_lines.append(f"updated: {today}")
     fm_lines.append("---")
     fm_lines.append("")
     fm_lines.append(f"# {name}")

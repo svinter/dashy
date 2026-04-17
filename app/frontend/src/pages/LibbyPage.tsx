@@ -27,6 +27,7 @@ interface LibraryEntry {
   amazon_url: string | null;
   webpage_url: string | null;
   gdoc_id: string | null;
+  obsidian_link: string | null;
   author?: string | null;
   topics: LibraryTopic[];
   last_shared_at: string | null;
@@ -111,6 +112,7 @@ function LibbyHelpPopup({ onClose }: { onClose: () => void }) {
                 <tr><td className="libby-help-key">⌥c</td><td>copy URL</td></tr>
                 <tr><td className="libby-help-key">⌥r</td><td>record share</td></tr>
                 <tr><td className="libby-help-key">⌥m</td><td>make webpage</td></tr>
+                <tr><td className="libby-help-key">⌥o</td><td>open in Obsidian</td></tr>
                 <tr><td className="libby-help-key libby-help-key--soon">⌥s</td><td className="libby-help-soon">synopsis <span>(coming soon)</span></td></tr>
                 <tr><td className="libby-help-key libby-help-key--soon">⌥t</td><td className="libby-help-soon">edit tags <span>(coming soon)</span></td></tr>
                 <tr><td className="libby-help-key libby-help-key--soon">⌥d</td><td className="libby-help-soon">copy doc <span>(coming soon)</span></td></tr>
@@ -663,6 +665,12 @@ function CatalogPage() {
         if (e.altKey && e.key === 'c') { e.preventDefault(); handleCopy(); return; }
         if (e.altKey && e.key === 'r') { e.preventDefault(); handleRecord(); return; }
         if (e.altKey && e.key === 'm') { e.preventDefault(); handleMake(); return; }
+        if (e.altKey && e.key === 'o') {
+          e.preventDefault();
+          if (selected?.obsidian_link) { window.open(selected.obsidian_link, '_self'); }
+          else { showToast('No Obsidian page for this entry'); }
+          return;
+        }
         if (e.altKey && e.key === 'd') { e.preventDefault(); showToast('copy doc: not yet implemented'); return; }
         if (e.altKey && e.key === 'f') { e.preventDefault(); showToast('full: not yet implemented'); return; }
       }
@@ -739,7 +747,7 @@ function CatalogPage() {
             : 'type to search · ⌘? for help'
         )}
         {uiState === 'SELECT' && 'press a–t to select · Backspace to search'}
-        {uiState === 'ACTION' && '⌥c copy · ⌥r record · ⌥m make · ⌥d doc · ⌥f full · Escape to reset'}
+        {uiState === 'ACTION' && '⌥c copy · ⌥r record · ⌥m make · ⌥o obsidian · ⌥d doc · ⌥f full · Escape to reset'}
       </div>
 
       {/* Topic filter feedback bar */}
@@ -853,6 +861,15 @@ function CatalogPage() {
             >
               <span className="libby-action-key">⌥m</span> make{selectedWebpageUrl ? ' ✓' : ''}
             </button>
+            {selected.obsidian_link && (
+              <button
+                className="libby-action-btn"
+                onClick={() => window.open(selected.obsidian_link!, '_self')}
+                title={`⌥o — open in Obsidian: ${selected.obsidian_link}`}
+              >
+                <span className="libby-action-key">⌥o</span> obsidian
+              </button>
+            )}
             <button
               className="libby-action-btn libby-action-btn--unimplemented"
               onClick={() => showToast('copy doc: not yet implemented')}

@@ -30,6 +30,9 @@ publisher: {publisher}
 publish: {year}
 isbn: {isbn}
 status: {status}
+url: {url}
+amazon_url: {amazon_url}
+topics: [{topics}]
 created: {created_at}
 updated: {updated_at}
 ---
@@ -130,16 +133,33 @@ def get_books_missing_vault_link(db_path: Path) -> list[dict]:
     conn = sqlite3.connect(db_path)
     cur  = conn.cursor()
     cur.execute("""
-        SELECT e.id, e.name, b.author, b.isbn, b.publisher, b.year, b.status
+        SELECT e.id, e.name, e.url, e.amazon_url, b.author, b.isbn, b.publisher, b.year, b.status
         FROM library_entries e JOIN library_books b ON b.id = e.entity_id
         WHERE e.type_code = 'b'
         AND (e.obsidian_link IS NULL OR e.obsidian_link = '')
     """)
     rows = cur.fetchall()
+
+    # Fetch topics for each entry
+    entry_ids = [r[0] for r in rows]
+    topics_by_entry: dict[int, list[str]] = {}
+    if entry_ids:
+        ph = ",".join("?" * len(entry_ids))
+        for tr in cur.execute(
+            f"""SELECT jet.entry_id, lt.name
+                FROM library_entry_topics jet
+                JOIN library_topics lt ON jet.topic_id = lt.id
+                WHERE jet.entry_id IN ({ph})""",
+            entry_ids,
+        ).fetchall():
+            topics_by_entry.setdefault(tr[0], []).append(tr[1])
+
     conn.close()
     return [
-        {"id": r[0], "name": r[1], "author": r[2] or "", "isbn": r[3] or "",
-         "publisher": r[4] or "", "year": r[5] or "", "status": r[6] or "unread"}
+        {"id": r[0], "name": r[1], "url": r[2] or "", "amazon_url": r[3] or "",
+         "author": r[4] or "", "isbn": r[5] or "",
+         "publisher": r[6] or "", "year": r[7] or "", "status": r[8] or "unread",
+         "topics": topics_by_entry.get(r[0], [])}
         for r in rows
     ]
 
@@ -374,6 +394,9 @@ def create_stubs(config: dict, db_path: Path = None) -> int:
             year       = book["year"] or "",
             isbn       = book["isbn"] or "",
             status     = book["status"],
+            url        = book.get("url") or "",
+            amazon_url = book.get("amazon_url") or "",
+            topics     = ", ".join(book.get("topics") or []),
             created_at = today,
             updated_at = today,
         )
