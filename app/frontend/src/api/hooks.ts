@@ -90,6 +90,7 @@ import type {
   BillingPayment,
   BillingBadgeCounts,
   BillingLunchMoneySyncResult,
+  BillingPayablesResponse,
 } from './types';
 
 export function usePeople(filters?: { is_coworker?: boolean; group?: string }) {
@@ -2741,5 +2742,14 @@ export function useRemoveBillingPaymentAssignment() {
       qc.invalidateQueries({ queryKey: ['billing-summary'] });
       qc.invalidateQueries({ queryKey: ['billing-badge-counts'] });
     },
+  });
+}
+
+export function useBillingPayables(companyId: number | null, block: number) {
+  return useQuery({
+    queryKey: ['billing-payables', companyId, block],
+    queryFn: () => api.get<BillingPayablesResponse>(`/billing/payables?company_id=${companyId}&block=${block}`),
+    enabled: companyId !== null,
+    staleTime: 60_000,
   });
 }

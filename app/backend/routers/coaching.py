@@ -244,8 +244,144 @@ def get_coaching_clients():
 # GET /api/coaching/clients/by-date
 # ---------------------------------------------------------------------------
 
+# Shared calendar_events query fragment for future/days modes
+_CE_SESSION_SELECT = """
+    SELECT
+        ce.id              AS ce_id,
+        date(ce.start_time) AS date,
+        ce.start_time,
+        ce.summary         AS ce_summary,
+        ce.attendees_json  AS ce_attendees,
+        ce.color_id,
+        bs.id              AS bs_id,
+        bs.client_id,
+        bs.project_id,
+        COALESCE(bs.is_confirmed, 0) AS is_confirmed,
+        bs.obsidian_note_path,
+        bc.name            AS client_name,
+        bc.obsidian_name,
+        bc.gdrive_coaching_docs_url,
+        bc.company_id      AS bc_company_id,
+        bp.name            AS project_name,
+        bp.obsidian_name   AS project_obsidian_name,
+        bp.gdrive_coaching_docs_url AS project_gdrive_url,
+        bp.company_id      AS bp_company_id,
+        bco.name           AS company_name
+    FROM calendar_events ce
+    LEFT JOIN billing_sessions bs  ON bs.calendar_event_id = ce.id
+    LEFT JOIN billing_clients  bc  ON bc.id = bs.client_id
+    LEFT JOIN billing_projects bp  ON bp.id = bs.project_id
+    LEFT JOIN billing_companies bco ON bco.id = COALESCE(bc.company_id, bp.company_id)
+"""
+
+
+def _enrich_event_rows(raw_rows: list, db, vault_meetings=None) -> list[dict]:
+    """Enrich calendar_event rows with client data and disk-based note existence.
+
+    For rows already linked via billing_sessions, uses the JOIN data directly.
+    For unlinked rows, falls back to email-primary / title-fallback matching
+    (same logic as note_creator).  Sets obsidian_note_path only when the note
+    actually exists on disk — so has_note = bool(obsidian_note_path) is accurate.
+    """
+    import json as _json
+    from connectors.note_creator import (
+        _build_client_lookups, _match_client_by_title,
+        _MY_EMAILS, _RESOURCE_RE,
+    )
+
+    all_clients = db.execute(
+        "SELECT id, name, obsidian_name, gdrive_coaching_docs_url, email, company_id "
+        "FROM billing_clients WHERE active = 1"
+    ).fetchall()
+    all_companies = {
+        r["id"]: r["name"]
+        for r in db.execute("SELECT id, name FROM billing_companies").fetchall()
+    }
+
+    by_full, by_first = _build_client_lookups([dict(c) for c in all_clients])
+    by_email = {
+        c["email"].strip().lower(): dict(c)
+        for c in all_clients if c["email"]
+    }
+
+    enriched: list[dict] = []
+    for r in raw_rows:
+        r = dict(r)
+
+        # --- resolve client / project identity ---
+        if r.get("client_id"):
+            obs_name     = r.get("obsidian_name")
+            gdrive_url   = r.get("gdrive_coaching_docs_url")
+            client_name  = r.get("client_name") or r.get("ce_summary") or ""
+            client_id    = r["client_id"]
+            company_id   = r.get("bc_company_id")
+            company_name = r.get("company_name") or all_companies.get(company_id, "")
+        elif r.get("project_id"):
+            obs_name     = r.get("project_obsidian_name")
+            gdrive_url   = r.get("project_gdrive_url")
+            client_name  = r.get("project_name") or r.get("ce_summary") or ""
+            client_id    = None
+            company_id   = r.get("bp_company_id")
+            company_name = r.get("company_name") or all_companies.get(company_id, "")
+        else:
+            # email-primary, title-fallback
+            matched = None
+            ce_attendees = r.get("ce_attendees")
+            if ce_attendees:
+                try:
+                    for a in _json.loads(ce_attendees):
+                        email = (a.get("email") or "").strip().lower()
+                        if not email or email in _MY_EMAILS or _RESOURCE_RE.search(email):
+                            continue
+                        if email in by_email:
+                            matched = by_email[email]
+                            break
+                except Exception:
+                    pass
+            if not matched:
+                matched = _match_client_by_title(r.get("ce_summary") or "", by_full, by_first)
+
+            if matched:
+                obs_name     = matched.get("obsidian_name") or matched.get("name")
+                gdrive_url   = matched.get("gdrive_coaching_docs_url")
+                client_id    = matched["id"]
+                company_id   = matched.get("company_id")
+                company_name = all_companies.get(company_id, "") if company_id else ""
+                client_name  = matched["name"]
+            else:
+                obs_name = gdrive_url = client_id = company_id = None
+                company_name = ""
+                client_name  = r.get("ce_summary") or ""
+
+        # --- disk-based note existence check ---
+        note_path = None
+        if obs_name and vault_meetings:
+            try:
+                fname = f"{r['date']} - {obs_name}.md"
+                if (vault_meetings / fname).exists():
+                    note_path = f"8 Meetings/{fname}"
+            except Exception:
+                pass
+
+        enriched.append({
+            "id":                       r.get("bs_id") or r.get("ce_id"),
+            "date":                     r["date"],
+            "start_time":               r["start_time"],
+            "client_id":                client_id,
+            "client_name":              client_name,
+            "company_name":             company_name,
+            "obsidian_name":            obs_name,
+            "gdrive_coaching_docs_url": gdrive_url,
+            "is_confirmed":             int(r.get("is_confirmed") or 0),
+            "color_id":                 r.get("color_id"),
+            "obsidian_note_path":       note_path,
+        })
+
+    return enriched
+
+
 @router.get("/clients/by-date")
-def get_clients_by_date(mode: str = "today", days: int = 7):
+def get_clients_by_date(mode: str = "today", days: int = 1):
     """
     Return billing sessions grouped by day for the by-date view.
 
@@ -254,12 +390,22 @@ def get_clients_by_date(mode: str = "today", days: int = 7):
       today   — all sessions today (grape color_id=11 or banana color_id=5)
       next    — next 10 upcoming banana sessions (date >= today), soonest first
       week    — all sessions Mon–Sun of current week (grape + banana)
-      future  — all banana sessions in next `days` rolling days
-      days    — next N rolling days banana sessions (used for ;1–;9 shortcuts)
+      future  — rest-of-today banana sessions if any exist after now, else tomorrow only
+      (days param) — next N rolling days banana sessions (used for ;1–;9 / ;A–;Z)
     """
     db = get_db()
     today = date.today()
     today_str = today.isoformat()
+
+    # Vault path for disk-based note existence checks (future/days modes)
+    vault_meetings = None
+    try:
+        from connectors.obsidian import get_vault_path
+        _vault = get_vault_path()
+        if _vault:
+            vault_meetings = _vault / "8 Meetings"
+    except Exception:
+        pass
 
     # Monday of current week
     week_start = today - __import__('datetime').timedelta(days=today.weekday())
@@ -362,32 +508,48 @@ def get_clients_by_date(mode: str = "today", days: int = 7):
             [week_start.isoformat(), week_end.isoformat()],
         ).fetchall()
 
-    else:
-        # future or ;N days mode
-        end_date = today + __import__('datetime').timedelta(days=days)
-        rows = db.execute(
+    elif mode == "future":
+        # Show grape/banana events remaining today if any exist after now; else tomorrow only.
+        now_str = datetime.now().isoformat()
+        today_remaining = db.execute(
             """
-            SELECT
-                bs.id, bs.date, bs.client_id, bs.company_id,
-                bs.is_confirmed, bs.color_id, bs.obsidian_note_path,
-                bs.session_number, bs.project_id,
-                bc.name   AS client_name,
-                bc.obsidian_name,
-                bc.gdrive_coaching_docs_url,
-                bco.name  AS company_name,
-                ce.start_time
-            FROM billing_sessions bs
-            JOIN billing_clients bc ON bc.id = bs.client_id
-            JOIN billing_companies bco ON bco.id = bs.company_id
-            LEFT JOIN calendar_events ce ON ce.id = bs.calendar_event_id
-            WHERE bs.date BETWEEN ? AND ?
-              AND bs.client_id IS NOT NULL
-              AND bs.color_id = '5'
-              AND bs.is_confirmed = 0
-            ORDER BY bs.date ASC, ce.start_time ASC
+            SELECT COUNT(*) AS cnt
+            FROM calendar_events ce
+            WHERE date(ce.start_time) = ?
+              AND ce.color_id IN ('3', '5')
+              AND ce.start_time > ?
             """,
+            [today_str, now_str],
+        ).fetchone()["cnt"]
+
+        if today_remaining > 0:
+            future_submode = "today"
+            target_date = today_str
+        else:
+            from datetime import timedelta
+            future_submode = "tomorrow"
+            target_date = (today + timedelta(days=1)).isoformat()
+
+        raw_rows = db.execute(
+            _CE_SESSION_SELECT +
+            "WHERE ce.color_id IN ('3', '5') AND date(ce.start_time) = ? "
+            "ORDER BY ce.start_time ASC",
+            [target_date],
+        ).fetchall()
+        rows = _enrich_event_rows(raw_rows, db, vault_meetings)
+
+    else:
+        # ;N days mode (days param)
+        from datetime import timedelta
+        end_date = today + timedelta(days=days)
+        raw_rows = db.execute(
+            _CE_SESSION_SELECT +
+            "WHERE ce.color_id IN ('3', '5') "
+            "AND date(ce.start_time) BETWEEN ? AND ? "
+            "ORDER BY ce.start_time ASC",
             [today_str, end_date.isoformat()],
         ).fetchall()
+        rows = _enrich_event_rows(raw_rows, db, vault_meetings)
 
     # Build per-session display_session_number from confirmed counts
     client_ids = list({r["client_id"] for r in rows if r["client_id"]})
@@ -487,7 +649,10 @@ def get_clients_by_date(mode: str = "today", days: int = 7):
             "sessions": sessions,
         })
 
-    return {"mode": mode, "day_groups": day_groups}
+    result: dict = {"mode": mode, "day_groups": day_groups}
+    if mode == "future":
+        result["future_submode"] = future_submode
+    return result
 
 
 # ---------------------------------------------------------------------------

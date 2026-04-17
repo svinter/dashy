@@ -3033,3 +3033,103 @@ def remove_invoice_payment(assignment_id: int):
             _sync_invoice_payment_status(db, row["invoice_id"])
         db.commit()
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# GET /api/billing/payables
+# ---------------------------------------------------------------------------
+
+def _add_months(year: int, month: int, delta: int) -> tuple[int, int]:
+    """Return (year, month) shifted by delta months."""
+    month += delta
+    year += (month - 1) // 12
+    month = (month - 1) % 12 + 1
+    return year, month
+
+
+@router.get("/payables")
+def get_payables(company_id: int, block: int = 0):
+    """
+    Return payables for a company within a 6-month block.
+
+    block=0: current month + 5 prior months (most recent block)
+    block=1: prior 6 months, etc.
+
+    Returns:
+      block_start, block_end  — "YYYY-MM" strings
+      is_current_block        — True when block=0
+      current_month           — "YYYY-MM" of today (only when is_current_block)
+      unbilled_amount         — SUM of unlinked confirmed session amounts in current month
+      invoices                — sent/partial/paid invoices in the block, newest first
+    """
+    from datetime import date
+    today = date.today()
+
+    # Compute block end (most recent month shown) and block start
+    end_year, end_month = _add_months(today.year, today.month, -block * 6)
+    start_year, start_month = _add_months(end_year, end_month, -5)
+
+    block_start = f"{start_year}-{start_month:02d}"
+    block_end   = f"{end_year}-{end_month:02d}"
+    is_current  = (block == 0)
+    cur_month   = f"{today.year}-{today.month:02d}" if is_current else None
+
+    with get_db_connection(readonly=True) as db:
+        # Unbilled confirmed sessions for current month (block=0 only)
+        unbilled_amount: float | None = None
+        if is_current and cur_month:
+            row = db.execute(
+                """
+                SELECT COALESCE(SUM(amount), 0) AS total
+                FROM billing_sessions
+                WHERE company_id = ?
+                  AND is_confirmed = 1
+                  AND invoice_line_id IS NULL
+                  AND amount > 0
+                  AND strftime('%Y-%m', date) = ?
+                """,
+                (company_id, cur_month),
+            ).fetchone()
+            unbilled_amount = row["total"] if row else 0.0
+
+        # Sent/partial/paid invoices within the block
+        inv_rows = db.execute(
+            """
+            SELECT
+                bi.id,
+                bi.invoice_number,
+                bi.period_month,
+                bi.total_amount,
+                bi.status,
+                COALESCE(SUM(bip.amount_applied), 0) AS paid_amount
+            FROM billing_invoices bi
+            LEFT JOIN billing_invoice_payments bip ON bip.invoice_id = bi.id
+            WHERE bi.company_id = ?
+              AND bi.status IN ('sent', 'partial', 'paid')
+              AND bi.period_month BETWEEN ? AND ?
+            GROUP BY bi.id
+            ORDER BY bi.period_month DESC, bi.invoice_date DESC, bi.id DESC
+            """,
+            (company_id, block_start, block_end),
+        ).fetchall()
+
+    invoices = [
+        {
+            "id":             r["id"],
+            "invoice_number": r["invoice_number"],
+            "period_month":   r["period_month"],
+            "total_amount":   r["total_amount"],
+            "paid_amount":    r["paid_amount"],
+            "status":         r["status"],
+        }
+        for r in inv_rows
+    ]
+
+    return {
+        "block_start":      block_start,
+        "block_end":        block_end,
+        "is_current_block": is_current,
+        "current_month":    cur_month,
+        "unbilled_amount":  unbilled_amount,
+        "invoices":         invoices,
+    }

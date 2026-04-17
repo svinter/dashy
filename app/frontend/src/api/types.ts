@@ -1428,3 +1428,21 @@ export interface BillingLunchMoneySyncResult {
   auto_matched: number;
   total: number;
 }
+
+export interface BillingPayableInvoice {
+  id: number;
+  invoice_number: string;
+  period_month: string | null;
+  total_amount: number | null;
+  paid_amount: number;
+  status: string;
+}
+
+export interface BillingPayablesResponse {
+  block_start: string;
+  block_end: string;
+  is_current_block: boolean;
+  current_month: string | null;
+  unbilled_amount: number | null;
+  invoices: BillingPayableInvoice[];
+}

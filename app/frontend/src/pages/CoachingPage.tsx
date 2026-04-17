@@ -87,6 +87,7 @@ interface ByDateGroup {
 interface ByDateResponse {
   mode: string;
   day_groups: ByDateGroup[];
+  future_submode?: 'today' | 'tomorrow';
 }
 
 interface WordSession {
@@ -148,7 +149,10 @@ function useByDate(mode: DateMode | null, days?: number) {
   return useQuery({
     queryKey: ['coaching-by-date', mode, days],
     queryFn: () => {
-      const params = new URLSearchParams({ mode: mode! });
+      // When days is set (;1-;9, ;A-;Z), send mode=days to hit the rolling-window backend branch.
+      // mode=future is reserved for the smart today/tomorrow logic.
+      const backendMode = (days != null) ? 'days' : mode!;
+      const params = new URLSearchParams({ mode: backendMode });
       if (days != null) params.set('days', String(days));
       return api.get<ByDateResponse>(`/coaching/clients/by-date?${params}`);
     },
@@ -176,6 +180,11 @@ const COACHING_SHORTCUTS: HelpShortcut[] = [
   { keys: "' prefix", description: "Match project name  (e.g. 'offsite)" },
   { keys: '- prefix', description: 'Remove from selection  (e.g. -cfs)' },
   { keys: '⌘/ or ⌘?', description: 'Show this help' },
+  { keys: ';', description: 'Enter date mode → Future (today or tomorrow). Press ; again to exit.' },
+  { keys: ';p / ;t / ;n', description: 'Date mode: Past / Today / Next' },
+  { keys: ';w / ;f', description: 'Date mode: Week / Future (today or tomorrow)' },
+  { keys: ';1 – ;9', description: 'Date mode: Future N days ahead (1–9)' },
+  { keys: ';A – ;Z', description: 'Date mode: Future N days ahead (A=10, B=11 … Z=35)' },
 ];
 
 // ---------------------------------------------------------------------------
@@ -218,9 +227,12 @@ interface CoachingFilterCtx {
   dateModeActive: boolean;
   dateMode: DateMode;
   dateDays: number | undefined;
+  /** 'today' | 'tomorrow' — the submode of Future, updated when future data loads */
+  futureLabel: string;
   setDateModeActive: (v: boolean | ((p: boolean) => boolean)) => void;
   setDateMode: (m: DateMode) => void;
   setDateDays: (n: number | undefined) => void;
+  setFutureLabel: (s: string) => void;
 }
 
 const CoachingFilterContext = createContext<CoachingFilterCtx>({
@@ -235,11 +247,13 @@ const CoachingFilterContext = createContext<CoachingFilterCtx>({
   demo: false,
   toggleDemo: () => {},
   dateModeActive: false,
-  dateMode: 'today',
+  dateMode: 'future',
   dateDays: undefined,
+  futureLabel: '',
   setDateModeActive: () => {},
   setDateMode: () => {},
   setDateDays: () => {},
+  setFutureLabel: () => {},
 });
 
 function useCoachingFilter() {
@@ -424,12 +438,16 @@ const DATE_BUTTONS: { mode: DateMode; label: string; key: string }[] = [
 function DateModeBar({
   active,
   dateMode,
+  dateDays,
+  futureLabelSuffix,
   onToggle,
   onModeSelect,
   onClientsClick,
 }: {
   active: boolean;
   dateMode: DateMode;
+  dateDays?: number;
+  futureLabelSuffix?: string;
   onToggle: () => void;
   onModeSelect: (m: DateMode) => void;
   onClientsClick: () => void;
@@ -450,38 +468,45 @@ function DateModeBar({
 
       {DATE_BUTTONS.map(btn => {
         const isActive = active && dateMode === btn.mode;
+        // Dynamic label for Future button
+        let label = btn.label;
+        if (btn.mode === 'future' && active) {
+          if (dateDays != null) {
+            label = `Future: ${dateDays}d`;
+          } else if (futureLabelSuffix) {
+            label = `Future: ${futureLabelSuffix}`;
+          }
+        }
         return (
           <button
             key={btn.mode}
             className={`coaching-date-btn${isActive ? ' coaching-date-btn--active' : ''}${!active ? ' coaching-date-btn--dim' : ''}`}
             onClick={() => {
-              if (isActive) {
-                onToggle();
-              } else {
-                onModeSelect(btn.mode);
-                if (!active) onToggle();
-              }
+              if (!active) onToggle();
+              onModeSelect(btn.mode);
             }}
             title={`${btn.key}`}
           >
-            {btn.label}
+            {label}
             <span className="coaching-date-btn-key">{btn.key}</span>
           </button>
         );
       })}
-      <span className="coaching-date-bar-hints">⌘a = all · ; = today</span>
+      <span className="coaching-date-bar-hints">⌘a = all · ; = future</span>
     </div>
   );
 }
 
 function ByDateSessionRow({ session }: { session: ByDateSession }) {
-  const noteUrl = session.obsidian_note_path
-    ? `obsidian://open?vault=MyNotes&file=${encodeURIComponent(session.obsidian_note_path)}`
-    : session.obsidian_name && session.date
-      ? obsidianSessionUrl(session.obsidian_name, session.date)
-      : null;
+  const meetingUrl = session.has_note
+    ? (session.obsidian_note_path
+        ? `obsidian://open?vault=MyNotes&file=${encodeURIComponent(session.obsidian_note_path)}`
+        : session.obsidian_name && session.date
+          ? obsidianSessionUrl(session.obsidian_name, session.date)
+          : null)
+    : null;
 
-  const clientNoteUrl = session.obsidian_name
+  const clientUrl = session.obsidian_name
     ? obsidianClientUrl(session.obsidian_name)
     : null;
 
@@ -495,15 +520,11 @@ function ByDateSessionRow({ session }: { session: ByDateSession }) {
       </span>
       <span className="coaching-date-session-rel">{session.relative ?? ''}</span>
       <span className="coaching-date-session-links">
-        {noteUrl && (
-          <button
-            className={`coaching-link-btn${session.has_note ? ' coaching-date-note-exists' : ''}`}
-            onClick={() => openExternal(noteUrl)}
-            title={session.has_note ? 'Open session note' : 'Open session note (may not exist)'}
-          >◆</button>
+        {meetingUrl && (
+          <button className="coaching-link-btn" onClick={() => openExternal(meetingUrl)} title="Open session note">meeting</button>
         )}
-        {clientNoteUrl && (
-          <button className="coaching-link-btn" onClick={() => openExternal(clientNoteUrl)} title="Open client page">notes</button>
+        {clientUrl && (
+          <button className="coaching-link-btn" onClick={() => openExternal(clientUrl)} title="Open client page">client</button>
         )}
         {session.gdrive_coaching_docs_url && (
           <button className="coaching-link-btn" onClick={() => openExternal(session.gdrive_coaching_docs_url!)} title="Open coaching docs">ƒolder</button>
@@ -513,8 +534,12 @@ function ByDateSessionRow({ session }: { session: ByDateSession }) {
   );
 }
 
-function DateView({ mode, days }: { mode: DateMode; days?: number }) {
+function DateView({ mode, days, onFutureSubmode }: { mode: DateMode; days?: number; onFutureSubmode?: (s: string) => void }) {
   const { data, isLoading, error } = useByDate(mode, days);
+
+  useEffect(() => {
+    if (data?.future_submode && onFutureSubmode) onFutureSubmode(data.future_submode);
+  }, [data?.future_submode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (isLoading) return <div className="coaching-loading">Loading…</div>;
   if (error) return <div className="coaching-error">Failed to load sessions.</div>;
@@ -631,7 +656,7 @@ function ProjectRow({ project }: { project: CoachingProject }) {
 }
 
 function ClientsPage() {
-  const { groups, selection, effectiveIds, effectiveProjectIds, demo, dateModeActive, dateMode, dateDays } = useCoachingFilter();
+  const { groups, selection, effectiveIds, effectiveProjectIds, demo, dateModeActive, dateMode, dateDays, setFutureLabel } = useCoachingFilter();
 
   if (groups.length === 0) return <div className="coaching-loading">Loading…</div>;
 
@@ -648,7 +673,7 @@ function ClientsPage() {
   return (
     <div className="coaching-clients-page">
       {dateModeActive ? (
-        <DateView mode={dateMode} days={dateDays} />
+        <DateView mode={dateMode} days={dateDays} onFutureSubmode={setFutureLabel} />
       ) : (
         <div className="coaching-client-list">
           {visibleGroups.map(group => (
@@ -1981,9 +2006,10 @@ export function CoachingPage() {
 
   // Date mode state (lifted here so DateModeBar can sit beside the filter)
   const [dateModeActive, setDateModeActive] = useState(false);
-  const [dateMode, setDateMode] = useState<DateMode>('today');
+  const [dateMode, setDateMode] = useState<DateMode>('future');
   const [dateDays, setDateDays] = useState<number | undefined>(undefined);
-  const lastDateModeRef = useRef<DateMode>('today');
+  const [futureLabel, setFutureLabel] = useState('');
+  const lastDateModeRef = useRef<DateMode>('future');
   const dateModeActiveRef = useRef(false);
 
   const location = useLocation();
@@ -1997,42 +2023,43 @@ export function CoachingPage() {
     if (dateModeActive && !isClientsPage) navigate('/coaching/clients');
   }, [dateModeActive, isClientsPage, navigate]);
 
-  // Keyboard handler: ; and ;p/t/n/w/f work on all coaching sub-pages.
-  // Runs in capture phase so ; is intercepted before the filter input receives it.
+  // Keyboard handler — capture phase so keys are intercepted before the filter input.
+  //
+  // ; toggles date mode:
+  //   • Not in date mode → enter date mode, activate Future.
+  //   • In date mode     → exit date mode, restore All chip.
+  //
+  // While in date mode, valid keys change the date view (never exit):
+  //   p/t/n/w/f → Past/Today/Next/Week/Future
+  //   1–9       → Future N days
+  //   A–Z       → Future 10–35 days (A=10 … Z=35)
   useEffect(() => {
-    let pendingSemi = false;
-    let semiTimer: ReturnType<typeof setTimeout> | null = null;
-
     const handler = (e: KeyboardEvent) => {
-      // ';' — always intercept regardless of focus
-      if (e.key === ';' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+      // ';' always intercepts
+      if (e.key === ';') {
         e.preventDefault();
         e.stopPropagation();
-        if (semiTimer) clearTimeout(semiTimer);
-        pendingSemi = false;
         if (dateModeActiveRef.current) {
-          // Already in date mode → exit to clients view and clear filter
+          // Exit date mode
           dateModeActiveRef.current = false;
           setDateModeActive(false);
           setSelection([]);
           setAllChip(true);
         } else {
-          // Not in date mode → activate today; follow-up key within 600ms can override
+          // Enter date mode with Future
           dateModeActiveRef.current = true;
-          lastDateModeRef.current = 'today';
-          setDateMode('today');
+          lastDateModeRef.current = 'future';
+          setDateMode('future');
           setDateDays(undefined);
           setDateModeActive(true);
-          pendingSemi = true;
-          semiTimer = setTimeout(() => { pendingSemi = false; }, 900);
         }
         return;
       }
 
-      // Follow-up key after ';'
-      if (pendingSemi) {
-        if (semiTimer) clearTimeout(semiTimer);
-        pendingSemi = false;
+      // While in date mode, intercept all valid date keys
+      if (dateModeActiveRef.current) {
         const modeMap: Record<string, DateMode> = {
           p: 'past', t: 'today', n: 'next', w: 'week', f: 'future',
         };
@@ -2041,19 +2068,25 @@ export function CoachingPage() {
           e.stopPropagation();
           const m = modeMap[e.key];
           lastDateModeRef.current = m;
-          dateModeActiveRef.current = true;
           setDateMode(m);
           setDateDays(undefined);
-          setDateModeActive(true);
-        } else if (/^[1-9]$/.test(e.key)) {
+          return;
+        }
+        if (/^[1-9]$/.test(e.key)) {
           e.preventDefault();
           e.stopPropagation();
-          dateModeActiveRef.current = true;
           setDateMode('future');
           setDateDays(parseInt(e.key, 10));
-          setDateModeActive(true);
+          return;
         }
-        // unrecognised follow-up: cancel silently, let event through normally
+        if (/^[A-Z]$/.test(e.key)) {
+          e.preventDefault();
+          e.stopPropagation();
+          const days = e.key.charCodeAt(0) - 'A'.charCodeAt(0) + 10; // A=10 … Z=35
+          setDateMode('future');
+          setDateDays(days);
+          return;
+        }
       }
     };
 
@@ -2095,6 +2128,7 @@ export function CoachingPage() {
     dateModeActiveRef.current = true;
     setDateMode(m);
     setDateDays(undefined);
+    if (m !== 'future') setFutureLabel('');
   }, []);
 
   const handleDateToggle = useCallback(() => {
@@ -2127,10 +2161,12 @@ export function CoachingPage() {
     dateModeActive,
     dateMode,
     dateDays,
+    futureLabel,
     setDateModeActive,
     setDateMode,
     setDateDays,
-  }), [groups, selection, allChip, handleSelectionChange, effectiveIds, effectiveProjectIds, allClientIds, allProjectIds, demo, toggleDemo, dateModeActive, dateMode, dateDays]);
+    setFutureLabel,
+  }), [groups, selection, allChip, handleSelectionChange, effectiveIds, effectiveProjectIds, allClientIds, allProjectIds, demo, toggleDemo, dateModeActive, dateMode, dateDays, futureLabel]);
 
   return (
     <CoachingFilterContext.Provider value={ctx}>
@@ -2176,6 +2212,8 @@ export function CoachingPage() {
               <DateModeBar
                 active={dateModeActive}
                 dateMode={dateMode}
+                dateDays={dateDays}
+                futureLabelSuffix={dateDays != null ? undefined : futureLabel}
                 onToggle={handleDateToggle}
                 onModeSelect={handleModeSelect}
                 onClientsClick={handleClientsClick}
