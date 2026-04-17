@@ -23,7 +23,7 @@ def resolve_urls(db_path: Path):
     For each book with a tinyurl/shortened url and no amazon_url,
     follow redirects to get the final URL. Store in amazon_url field.
     """
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=30)
     cur  = conn.cursor()
 
     cur.execute("""
@@ -77,13 +77,27 @@ def asin_from_url(url: str) -> str:
 GBOOKS_API = "https://www.googleapis.com/books/v1/volumes"
 
 
+def _load_google_books_api_key() -> str:
+    config_path = Path.home() / ".personal-dashboard" / "config.json"
+    try:
+        import json
+        with open(config_path) as f:
+            config = json.load(f)
+        return config.get("secrets", {}).get("GOOGLE_BOOKS_API_KEY", "")
+    except Exception:
+        return ""
+
+
+GOOGLE_BOOKS_API_KEY = _load_google_books_api_key()
+
+
 def enrich_google_books(db_path: Path):
     """
     For each book with needs_enrichment=1, query Google Books API
     by title + author. Populate isbn, publisher, year, google_books_id.
     Vault-sourced metadata (if isbn already present) is not overwritten.
     """
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=30)
     cur  = conn.cursor()
 
     cur.execute("""
@@ -169,9 +183,12 @@ def _query_gbooks(title: str, author: str) -> dict | None:
         query += f'+inauthor:"{first_author}"'
 
     try:
+        params: dict = {"q": query, "maxResults": 1, "printType": "books"}
+        if GOOGLE_BOOKS_API_KEY:
+            params["key"] = GOOGLE_BOOKS_API_KEY
         resp = requests.get(
             GBOOKS_API,
-            params={"q": query, "maxResults": 1, "printType": "books"},
+            params=params,
             timeout=10
         )
         data = resp.json()

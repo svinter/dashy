@@ -54,7 +54,12 @@
       "Bash(cp '/Users/stevevinter/Dropbox/Downloads/Book files/ground truth.txt' /Users/stevevinter/dashy/app/backend/pipeline/sources/ground_truth.txt)",
       "Bash(cp '/Users/stevevinter/Dropbox/Downloads/Book files/Your library.pdf' /Users/stevevinter/dashy/app/backend/pipeline/sources/Your_library.pdf)",
       "Bash(python run.py --dry-run)",
-      "Bash(pip3 install:*)"
+      "Bash(pip3 install:*)",
+      "Bash(echo \"Started PID $!\")",
+      "Bash(echo \"EXIT: $?\")",
+      "Bash(ls:*)",
+      "Bash(pkill -f \"run.py --enrich\")",
+      "Bash(pkill -f \"run.py\")"
     ]
   }
 }

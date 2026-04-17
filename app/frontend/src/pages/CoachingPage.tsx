@@ -1251,7 +1251,7 @@ function ClientForm({ companies, onSuccess }: { companies: SetupCompany[]; onSuc
       </FieldRow>
       <FieldRow label="Prepaid">
         <input type="checkbox" checked={prepaid} onChange={e => setPrepaid(e.target.checked)} style={{ margin: 0 }} />
-        <span style={{ fontSize: 'var(--text-sm)', cursor: 'pointer' }} onClick={() => setPrepaid(v => !v)}>{prepaid ? 'Yes' : 'No'}</span>
+        <span style={{ fontSize: 'var(--text-sm)', cursor: 'pointer', position: 'relative', top: '1px' }} onClick={() => setPrepaid(v => !v)}>{prepaid ? 'Yes' : 'No'}</span>
       </FieldRow>
       {error && <div className="setup-error">{error}</div>}
       <div className="setup-actions">
