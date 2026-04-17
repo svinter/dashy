@@ -1438,11 +1438,17 @@ export interface BillingPayableInvoice {
   status: string;
 }
 
+export interface BillingPayableCompany {
+  company_id: number;
+  company_name: string;
+  unbilled_amount: number | null;
+  invoices: BillingPayableInvoice[];
+}
+
 export interface BillingPayablesResponse {
   block_start: string;
   block_end: string;
   is_current_block: boolean;
   current_month: string | null;
-  unbilled_amount: number | null;
-  invoices: BillingPayableInvoice[];
+  companies: BillingPayableCompany[];
 }

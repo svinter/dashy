@@ -3048,24 +3048,29 @@ def _add_months(year: int, month: int, delta: int) -> tuple[int, int]:
 
 
 @router.get("/payables")
-def get_payables(company_id: int, block: int = 0):
+def get_payables(block: int = 0, company_id: int | None = None):
     """
-    Return payables for a company within a 6-month block.
+    Return payables within a 6-month block for all eligible companies (or one).
 
     block=0: current month + 5 prior months (most recent block)
     block=1: prior 6 months, etc.
+    company_id: if provided, restrict to that company only.
+
+    Eligible = has sent/partial/paid invoices in block OR unbilled confirmed
+    sessions in the current month.
 
     Returns:
       block_start, block_end  — "YYYY-MM" strings
       is_current_block        — True when block=0
       current_month           — "YYYY-MM" of today (only when is_current_block)
-      unbilled_amount         — SUM of unlinked confirmed session amounts in current month
-      invoices                — sent/partial/paid invoices in the block, newest first
+      companies               — array sorted alphabetically by company name, each with:
+                                  company_id, company_name, unbilled_amount, invoices[]
     """
+    from collections import defaultdict
     from datetime import date
     today = date.today()
 
-    # Compute block end (most recent month shown) and block start
+    # Compute block bounds
     end_year, end_month = _add_months(today.year, today.month, -block * 6)
     start_year, start_month = _add_months(end_year, end_month, -5)
 
@@ -3074,62 +3079,96 @@ def get_payables(company_id: int, block: int = 0):
     is_current  = (block == 0)
     cur_month   = f"{today.year}-{today.month:02d}" if is_current else None
 
-    with get_db_connection(readonly=True) as db:
-        # Unbilled confirmed sessions for current month (block=0 only)
-        unbilled_amount: float | None = None
-        if is_current and cur_month:
-            row = db.execute(
-                """
-                SELECT COALESCE(SUM(amount), 0) AS total
-                FROM billing_sessions
-                WHERE company_id = ?
-                  AND is_confirmed = 1
-                  AND invoice_line_id IS NULL
-                  AND amount > 0
-                  AND strftime('%Y-%m', date) = ?
-                """,
-                (company_id, cur_month),
-            ).fetchone()
-            unbilled_amount = row["total"] if row else 0.0
+    co_filter     = "AND bi.company_id = ?" if company_id else ""
+    ub_co_filter  = "AND bs.company_id = ?" if company_id else ""
+    co_param      = [company_id] if company_id else []
 
-        # Sent/partial/paid invoices within the block
+    with get_db_connection(readonly=True) as db:
+        # All sent/partial/paid invoices in block (one query for all companies)
         inv_rows = db.execute(
-            """
+            f"""
             SELECT
                 bi.id,
+                bi.company_id,
+                bc.name          AS company_name,
                 bi.invoice_number,
                 bi.period_month,
                 bi.total_amount,
                 bi.status,
                 COALESCE(SUM(bip.amount_applied), 0) AS paid_amount
             FROM billing_invoices bi
+            JOIN billing_companies bc ON bc.id = bi.company_id
             LEFT JOIN billing_invoice_payments bip ON bip.invoice_id = bi.id
-            WHERE bi.company_id = ?
-              AND bi.status IN ('sent', 'partial', 'paid')
+            WHERE bi.status IN ('sent', 'partial', 'paid')
               AND bi.period_month BETWEEN ? AND ?
+              {co_filter}
             GROUP BY bi.id
-            ORDER BY bi.period_month DESC, bi.invoice_date DESC, bi.id DESC
+            ORDER BY bc.name, bi.period_month DESC, bi.id DESC
             """,
-            (company_id, block_start, block_end),
+            [block_start, block_end] + co_param,
         ).fetchall()
 
-    invoices = [
-        {
+        # Unbilled confirmed sessions per company for current month
+        unbilled_by_co: dict[int, float] = {}
+        if is_current and cur_month:
+            ub_rows = db.execute(
+                f"""
+                SELECT bs.company_id,
+                       bc.name AS company_name,
+                       COALESCE(SUM(bs.amount), 0) AS total
+                FROM billing_sessions bs
+                JOIN billing_companies bc ON bc.id = bs.company_id
+                WHERE bs.is_confirmed = 1
+                  AND bs.invoice_line_id IS NULL
+                  AND bs.amount > 0
+                  AND strftime('%Y-%m', bs.date) = ?
+                  {ub_co_filter}
+                GROUP BY bs.company_id
+                """,
+                [cur_month] + co_param,
+            ).fetchall()
+            for r in ub_rows:
+                unbilled_by_co[r["company_id"]] = r["total"]
+            # Capture company names from unbilled rows too
+            ub_names = {r["company_id"]: r["company_name"] for r in ub_rows}
+        else:
+            ub_names: dict[int, str] = {}
+
+    # Group invoices by company
+    inv_by_co: dict[int, list[dict]] = defaultdict(list)
+    co_names: dict[int, str] = {}
+    for r in inv_rows:
+        co_names[r["company_id"]] = r["company_name"]
+        inv_by_co[r["company_id"]].append({
             "id":             r["id"],
             "invoice_number": r["invoice_number"],
             "period_month":   r["period_month"],
             "total_amount":   r["total_amount"],
             "paid_amount":    r["paid_amount"],
             "status":         r["status"],
-        }
-        for r in inv_rows
-    ]
+        })
+    co_names.update(ub_names)
+
+    # Union of companies that have invoices or unbilled sessions
+    all_co_ids = set(inv_by_co.keys()) | set(unbilled_by_co.keys())
+
+    companies = sorted(
+        [
+            {
+                "company_id":      cid,
+                "company_name":    co_names.get(cid, ""),
+                "unbilled_amount": unbilled_by_co.get(cid, 0.0) if is_current else None,
+                "invoices":        inv_by_co.get(cid, []),
+            }
+            for cid in all_co_ids
+        ],
+        key=lambda x: x["company_name"],
+    )
 
     return {
         "block_start":      block_start,
         "block_end":        block_end,
         "is_current_block": is_current,
         "current_month":    cur_month,
-        "unbilled_amount":  unbilled_amount,
-        "invoices":         invoices,
+        "companies":        companies,
     }

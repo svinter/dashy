@@ -2745,11 +2745,10 @@ export function useRemoveBillingPaymentAssignment() {
   });
 }
 
-export function useBillingPayables(companyId: number | null, block: number) {
+export function useBillingPayables(block: number) {
   return useQuery({
-    queryKey: ['billing-payables', companyId, block],
-    queryFn: () => api.get<BillingPayablesResponse>(`/billing/payables?company_id=${companyId}&block=${block}`),
-    enabled: companyId !== null,
+    queryKey: ['billing-payables', block],
+    queryFn: () => api.get<BillingPayablesResponse>(`/billing/payables?block=${block}`),
     staleTime: 60_000,
   });
 }
