@@ -1,0 +1,25 @@
+{
+  "_comment": "Operational settings. Safe to modify and reload.",
+  "note_creation": {
+    "days_ahead": 5
+  },
+  "granola_sync": {
+    "business_hours_start": 8,
+    "business_hours_end": 18,
+    "business_hours_timezone": "US/Eastern",
+    "business_hours_interval_minutes": 30,
+    "business_hours_offset_minutes": 5,
+    "after_hours_interval_hours": 2,
+    "default_days_back": 7
+  },
+  "sessions": {
+    "past_count": 10,
+    "next_count": 10,
+    "active_poll_interval_seconds": 60
+  },
+  "invoice": {
+    "output_dir": "~/.personal-dashboard/invoices/",
+    "late_threshold_days": 45,
+    "payment_tolerance_dollars": 1.00
+  }
+}

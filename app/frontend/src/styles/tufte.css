@@ -9631,6 +9631,12 @@ span.news-item-title {
   border-color: var(--color-success, #27ae60);
 }
 
+.libby-action-btn--disabled,
+.libby-action-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
 /* Expanded entry detail (description + categories) */
 .libby-selected-expanded {
   display: flex;
@@ -9754,6 +9760,99 @@ span.news-item-title {
 
 .libby-status-msg {
   font-size: var(--text-sm);
+  color: var(--color-success, #27ae60);
+  font-weight: 500;
+}
+
+/* ── Libby repeat indicator ── */
+
+.libby-repeat-indicator {
+  margin-top: 6px;
+  font-size: 0.68rem;
+  color: var(--color-text-light);
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+/* ── Libby label popup ── */
+
+.libby-label-popup {
+  margin-top: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-bg);
+  max-width: 360px;
+  font-size: var(--text-sm);
+}
+
+.libby-label-popup-header {
+  padding: 6px 10px;
+  font-size: 0.68rem;
+  color: var(--color-text-light);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.libby-label-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 10px;
+  border: none;
+  border-bottom: 1px solid var(--color-border);
+  background: transparent;
+  font-size: var(--text-sm);
+  font-family: inherit;
+  outline: none;
+}
+
+.libby-label-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.libby-label-item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: var(--text-sm);
+}
+
+.libby-label-item--active {
+  background: var(--color-row-hover, #f5f5f5);
+}
+
+.libby-label-check {
+  width: 12px;
+  font-size: 0.65rem;
+  color: var(--color-success, #27ae60);
+  flex-shrink: 0;
+}
+
+.libby-label-topic-code {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.65rem;
+  color: var(--color-text-light);
+  flex-shrink: 0;
+}
+
+.libby-label-topic-name {
+  color: var(--color-text);
+}
+
+.libby-label-empty {
+  padding: 6px 10px;
+  color: var(--color-text-light);
+  font-style: italic;
+}
+
+.libby-label-msg {
+  padding: 8px 10px;
   color: var(--color-success, #27ae60);
   font-weight: 500;
 }

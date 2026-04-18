@@ -4,7 +4,7 @@ import { useLibbyContext } from '../contexts/LibbyContext';
 import type { LibbyFilterSelection, LibbyGroup } from '../contexts/LibbyContext';
 import { ClientFilterBar } from '../components/shared/ClientFilterBar';
 import type { HelpShortcut } from '../components/shared/ClientFilterBar';
-import { LibbyTagsPage } from './LibbyTagsPage';
+import { LibbyTopicsPage } from './LibbyTopicsPage';
 import { LibbyTypesPage } from './LibbyTypesPage';
 import { LibbyNewPage } from './LibbyNewPage';
 
@@ -13,6 +13,7 @@ import { LibbyNewPage } from './LibbyNewPage';
 // ---------------------------------------------------------------------------
 
 interface LibraryTopic {
+  id: number;
   code: string;
   name: string;
 }
@@ -50,7 +51,7 @@ const TYPE_LABELS: Record<string, string> = {
 
 const RESULT_LABELS = 'abcdefghijklmn';
 
-type UiState = 'SEARCH' | 'PICK' | 'ACTION';
+type UiState = 'SEARCH' | 'PICK' | 'ACTION' | 'LABEL';
 
 // ---------------------------------------------------------------------------
 // Help popup content
@@ -105,6 +106,7 @@ function LibbyHelpPopup({ onClose }: { onClose: () => void }) {
               <tbody>
                 <tr><td className="libby-help-key">Return</td><td>select (1 result) or pick mode</td></tr>
                 <tr><td className="libby-help-key">a–n</td><td>pick from results</td></tr>
+                <tr><td className="libby-help-key">b</td><td>back to previous state</td></tr>
                 <tr><td className="libby-help-key">Esc</td><td>return to search</td></tr>
               </tbody>
             </table>
@@ -113,9 +115,11 @@ function LibbyHelpPopup({ onClose }: { onClose: () => void }) {
             <table className="libby-help-keys">
               <tbody>
                 <tr><td className="libby-help-key">c</td><td>copy URL</td></tr>
-                <tr><td className="libby-help-key">r</td><td>record share</td></tr>
+                <tr><td className="libby-help-key">l</td><td>label (add/remove topic)</td></tr>
+                <tr><td className="libby-help-key">r</td><td>repeat last label</td></tr>
                 <tr><td className="libby-help-key">m</td><td>make webpage</td></tr>
                 <tr><td className="libby-help-key">o</td><td>open in Obsidian</td></tr>
+                <tr><td className="libby-help-key">b</td><td>back to pick</td></tr>
                 <tr><td className="libby-help-key libby-help-key--soon">s</td><td className="libby-help-soon">synopsis <span>(coming soon)</span></td></tr>
                 <tr><td className="libby-help-key libby-help-key--soon">d</td><td className="libby-help-soon">copy doc <span>(coming soon)</span></td></tr>
                 <tr><td className="libby-help-key libby-help-key--soon">f</td><td className="libby-help-soon">full copy <span>(coming soon)</span></td></tr>
@@ -277,8 +281,8 @@ function LibbyLayout({ children }: { children: React.ReactNode }) {
         <NavLink to="/libby/catalog" className={({ isActive }) => `tab${isActive ? ' active' : ''}`}>
           Catalog
         </NavLink>
-        <NavLink to="/libby/tags" className={({ isActive }) => `tab${isActive ? ' active' : ''}`}>
-          Tags
+        <NavLink to="/libby/topics" className={({ isActive }) => `tab${isActive ? ' active' : ''}`}>
+          Topics
         </NavLink>
         <NavLink to="/libby/types" className={({ isActive }) => `tab${isActive ? ' active' : ''}`}>
           Types
@@ -297,8 +301,15 @@ function LibbyLayout({ children }: { children: React.ReactNode }) {
 // Topic prefix helpers
 // ---------------------------------------------------------------------------
 
+function normalizeQuery(query: string): string {
+  // Mirror backend: insert space before '.' when preceded by a non-space char
+  // so "b.leader" → "b .leader" before tokenizing.
+  return query.replace(/(\S)\./g, '$1 .');
+}
+
 function parseTopicPrefix(query: string): string | null {
-  for (const token of query.trim().split(/\s+/)) {
+  const normalized = normalizeQuery(query);
+  for (const token of normalized.trim().split(/\s+/)) {
     if (token.startsWith('.') && token.length > 1) {
       return token.slice(1).toLowerCase();
     }
@@ -476,6 +487,8 @@ function CatalogPage() {
 
   const searchInputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const labelInputRef = useRef<HTMLInputElement>(null);
+  const repeatRef = useRef<{ action: 'add' | 'remove'; topic: LibraryTopic } | null>(null);
 
   const [query, setQuery] = useState('');
   const [uiState, setUiState] = useState<UiState>('SEARCH');
@@ -488,13 +501,23 @@ function CatalogPage() {
   const [loading, setLoading] = useState(false);
   const [allTopics, setAllTopics] = useState<LibraryTopic[]>([]);
 
+  // Label popup state
+  const [labelQuery, setLabelQuery] = useState('');
+  const [labelHighlight, setLabelHighlight] = useState(0);
+  const [labelMsg, setLabelMsg] = useState<string | null>(null);
+
+  // Repeat indicator (display only — actual state in repeatRef)
+  const [repeatDisplay, setRepeatDisplay] = useState<string | null>(null);
+
   // Manifest overlay
   const [manifestOpen, setManifestOpen] = useState(false);
   const [manifestFlashName, setManifestFlashName] = useState<string | null>(null);
 
-  // Focus management: PICK/ACTION → container; SEARCH → input
+  // Focus management: LABEL → label input; PICK/ACTION → container; SEARCH → input
   useEffect(() => {
-    if (uiState === 'PICK' || uiState === 'ACTION') {
+    if (uiState === 'LABEL') {
+      labelInputRef.current?.focus();
+    } else if (uiState === 'PICK' || uiState === 'ACTION') {
       containerRef.current?.focus();
     } else {
       searchInputRef.current?.focus();
@@ -528,7 +551,7 @@ function CatalogPage() {
     if (!q.trim()) { setResults([]); return; }
     setLoading(true);
     try {
-      const params = new URLSearchParams({ q });
+      const params = new URLSearchParams({ q: normalizeQuery(q) });
       if (clientId != null) params.set('client_id', String(clientId));
       const resp = await fetch(`/api/libby/search?${params}`);
       if (resp.ok) setResults(await resp.json());
@@ -643,6 +666,78 @@ function CatalogPage() {
     setTimeout(() => setStatusMsg(null), 3000);
   };
 
+  // --- Label action ---
+  const executeLabelAction = async () => {
+    if (!selected) return;
+    const filtered = labelQuery
+      ? allTopics.filter(t => t.name.toLowerCase().includes(labelQuery.toLowerCase()))
+      : allTopics;
+    const topic = filtered[labelHighlight];
+    if (!topic) return;
+
+    const isAssigned = selected.topics.some(t => t.id === topic.id);
+    const action = isAssigned ? 'remove' : 'add';
+
+    try {
+      if (action === 'add') {
+        await fetch(`/api/libby/entries/${selected.id}/topics/${topic.id}`, { method: 'POST' });
+        setSelected(s => s ? { ...s, topics: [...s.topics, topic] } : s);
+      } else {
+        await fetch(`/api/libby/entries/${selected.id}/topics/${topic.id}`, { method: 'DELETE' });
+        setSelected(s => s ? { ...s, topics: s.topics.filter(t => t.id !== topic.id) } : s);
+      }
+      repeatRef.current = { action, topic };
+      setRepeatDisplay((action === 'add' ? '+ ' : '− ') + topic.name);
+      setLabelMsg((action === 'add' ? 'added ' : 'removed ') + topic.name);
+      setLabelQuery('');
+      setLabelHighlight(0);
+      setTimeout(() => {
+        setLabelMsg(null);
+        setUiState('ACTION');
+      }, 1000);
+    } catch {
+      setLabelMsg('error');
+      setTimeout(() => setLabelMsg(null), 2000);
+    }
+  };
+
+  // --- Obsidian action ---
+  const handleObsidian = () => {
+    if (!selected?.obsidian_link) {
+      showToast('No Obsidian page for this entry');
+      return;
+    }
+    const a = document.createElement('a');
+    a.href = selected.obsidian_link;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    showToast('Opening in Obsidian…');
+  };
+
+  // --- Repeat action ---
+  const handleRepeat = async () => {
+    if (!selected || !repeatRef.current) {
+      showToast('no repeat set');
+      return;
+    }
+    const { action, topic } = repeatRef.current;
+    try {
+      if (action === 'add') {
+        await fetch(`/api/libby/entries/${selected.id}/topics/${topic.id}`, { method: 'POST' });
+        setSelected(s => s && !s.topics.some(t => t.id === topic.id)
+          ? { ...s, topics: [...s.topics, topic] }
+          : s);
+      } else {
+        await fetch(`/api/libby/entries/${selected.id}/topics/${topic.id}`, { method: 'DELETE' });
+        setSelected(s => s ? { ...s, topics: s.topics.filter(t => t.id !== topic.id) } : s);
+      }
+      showToast((action === 'add' ? 'added ' : 'removed ') + topic.name);
+    } catch {
+      showToast('repeat failed');
+    }
+  };
+
   // --- Container keydown handler (PICK and ACTION states) ---
   // Fires for keydown on the container div and events bubbling up from its children.
   // In SEARCH state the input has focus so we return early — input handles its own keys.
@@ -652,7 +747,7 @@ function CatalogPage() {
 
     if (uiState === 'PICK') {
       e.preventDefault();
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' || e.key === 'b') {
         setUiState('SEARCH');
         return;
       }
@@ -667,8 +762,13 @@ function CatalogPage() {
     }
 
     if (uiState === 'ACTION') {
+      // Stop propagation immediately so global app-level keyboard shortcuts
+      // (e.g. sidebar navigation) don't also fire on single-letter keys.
+      e.stopPropagation();
       if (e.key === 'Escape') {
         e.preventDefault();
+        repeatRef.current = null;
+        setRepeatDisplay(null);
         setQuery('');
         setResults([]);
         setSelected(null);
@@ -677,15 +777,12 @@ function CatalogPage() {
         setUiState('SEARCH');
         return;
       }
+      if (e.key === 'b') { e.preventDefault(); setUiState('PICK'); return; }
       if (e.key === 'c') { e.preventDefault(); handleCopy(); return; }
-      if (e.key === 'r') { e.preventDefault(); handleRecord(); return; }
+      if (e.key === 'l') { e.preventDefault(); setLabelQuery(''); setLabelHighlight(0); setLabelMsg(null); setUiState('LABEL'); return; }
+      if (e.key === 'r') { e.preventDefault(); handleRepeat(); return; }
       if (e.key === 'm') { e.preventDefault(); handleMake(); return; }
-      if (e.key === 'o') {
-        e.preventDefault();
-        if (selected?.obsidian_link) { window.open(selected.obsidian_link, '_self'); }
-        else { showToast('No Obsidian page for this entry'); }
-        return;
-      }
+      if (e.key === 'o') { e.preventDefault(); handleObsidian(); return; }
       if (e.key === 's') { e.preventDefault(); showToast('synopsis: coming soon'); return; }
       if (e.key === 'd') { e.preventDefault(); showToast('copy doc: coming soon'); return; }
       if (e.key === 'f') { e.preventDefault(); showToast('full: coming soon'); return; }
@@ -778,7 +875,7 @@ function CatalogPage() {
       )}
 
       {/* Column headers + Results list — SEARCH and PICK */}
-      {uiState !== 'ACTION' && results.length > 0 && (
+      {uiState !== 'ACTION' && uiState !== 'LABEL' && results.length > 0 && (
         <>
           <div className="libby-results-header">
             <span className="libby-result-label">key</span>
@@ -881,8 +978,16 @@ function CatalogPage() {
             <button className="libby-action-btn" onClick={handleCopy} title="c — copy URL">
               <span className="libby-action-key">c</span> copy
             </button>
-            <button className="libby-action-btn" onClick={handleRecord} title="r — record share">
-              <span className="libby-action-key">r</span> record
+            <button className="libby-action-btn" onClick={() => { setLabelQuery(''); setLabelHighlight(0); setLabelMsg(null); setUiState('LABEL'); }} title="l — label (add/remove topic)">
+              <span className="libby-action-key">l</span> label
+            </button>
+            <button
+              className={`libby-action-btn${!repeatDisplay ? ' libby-action-btn--disabled' : ''}`}
+              onClick={handleRepeat}
+              disabled={!repeatDisplay}
+              title={repeatDisplay ? `r — repeat: ${repeatDisplay}` : 'r — no repeat set (use l first)'}
+            >
+              <span className="libby-action-key">r</span> repeat
             </button>
             <button
               className={`libby-action-btn${selectedWebpageUrl ? ' libby-action-btn--has-page' : ''}`}
@@ -894,7 +999,7 @@ function CatalogPage() {
             {selected.obsidian_link && (
               <button
                 className="libby-action-btn"
-                onClick={() => window.open(selected.obsidian_link!, '_self')}
+                onClick={handleObsidian}
                 title="o — open in Obsidian"
               >
                 <span className="libby-action-key">o</span> obsidian
@@ -911,9 +1016,14 @@ function CatalogPage() {
                   <td className="libby-legend-desc">copies URL to clipboard</td>
                 </tr>
                 <tr>
+                  <td className="libby-legend-key">l</td>
+                  <td className="libby-legend-name">label</td>
+                  <td className="libby-legend-desc">add or remove a topic</td>
+                </tr>
+                <tr>
                   <td className="libby-legend-key">r</td>
-                  <td className="libby-legend-name">record</td>
-                  <td className="libby-legend-desc">logs share to client + Obsidian</td>
+                  <td className="libby-legend-name">repeat</td>
+                  <td className="libby-legend-desc">repeat last label action</td>
                 </tr>
                 <tr>
                   <td className="libby-legend-key">m</td>
@@ -924,6 +1034,11 @@ function CatalogPage() {
                   <td className="libby-legend-key">o</td>
                   <td className="libby-legend-name">obsidian</td>
                   <td className="libby-legend-desc">opens book page in Obsidian</td>
+                </tr>
+                <tr>
+                  <td className="libby-legend-key">b</td>
+                  <td className="libby-legend-name">back</td>
+                  <td className="libby-legend-desc">return to pick</td>
                 </tr>
                 <tr className="libby-legend-row--soon">
                   <td className="libby-legend-key">s</td>
@@ -947,11 +1062,76 @@ function CatalogPage() {
                 </tr>
               </tbody>
             </table>
+            {repeatDisplay && (
+              <div className="libby-repeat-indicator">
+                <span className="libby-legend-key">r</span> repeats: {repeatDisplay}
+              </div>
+            )}
           </div>
 
           {statusMsg && <div className="libby-status-msg">{statusMsg}</div>}
         </div>
       )}
+
+      {/* LABEL popup */}
+      {uiState === 'LABEL' && selected && (() => {
+        const filtered = labelQuery
+          ? allTopics.filter(t => t.name.toLowerCase().includes(labelQuery.toLowerCase()))
+          : allTopics;
+        const clampedHighlight = Math.min(labelHighlight, filtered.length - 1);
+        return (
+          <div className="libby-label-popup">
+            <div className="libby-label-popup-header">
+              label: <em>{selected.name}</em>
+            </div>
+            <input
+              ref={labelInputRef}
+              className="libby-label-input"
+              placeholder="filter topics…"
+              value={labelQuery}
+              onChange={e => { setLabelQuery(e.target.value); setLabelHighlight(0); }}
+              onKeyDown={e => {
+                if (e.key === 'Escape' || e.key === 'b') {
+                  e.preventDefault(); e.stopPropagation();
+                  setUiState('ACTION'); setLabelQuery(''); setLabelHighlight(0); setLabelMsg(null);
+                } else if (e.key === 'ArrowDown') {
+                  e.preventDefault(); e.stopPropagation();
+                  setLabelHighlight(h => Math.min(h + 1, filtered.length - 1));
+                } else if (e.key === 'ArrowUp') {
+                  e.preventDefault(); e.stopPropagation();
+                  setLabelHighlight(h => Math.max(h - 1, 0));
+                } else if (e.key === 'Enter') {
+                  e.preventDefault(); e.stopPropagation();
+                  executeLabelAction();
+                }
+              }}
+            />
+            {labelMsg ? (
+              <div className="libby-label-msg">{labelMsg}</div>
+            ) : (
+              <ul className="libby-label-list">
+                {filtered.map((t, i) => {
+                  const isAssigned = selected.topics.some(st => st.id === t.id);
+                  return (
+                    <li
+                      key={t.id}
+                      className={`libby-label-item${i === clampedHighlight ? ' libby-label-item--active' : ''}`}
+                      onClick={() => { setLabelHighlight(i); executeLabelAction(); }}
+                    >
+                      <span className="libby-label-check">{isAssigned ? '✓' : ' '}</span>
+                      <span className="libby-label-topic-code">{t.code}</span>
+                      <span className="libby-label-topic-name">{t.name}</span>
+                    </li>
+                  );
+                })}
+                {filtered.length === 0 && (
+                  <li className="libby-label-empty">no matching topics</li>
+                )}
+              </ul>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Toast */}
       {toastMsg && (
@@ -988,7 +1168,8 @@ export function LibbyPage() {
           <Route index element={<Navigate to="catalog" replace />} />
           <Route path="find" element={<Navigate to="/libby/catalog" replace />} />
           <Route path="catalog" element={<CatalogPage />} />
-          <Route path="tags" element={<LibbyTagsPage />} />
+          <Route path="tags" element={<Navigate to="/libby/topics" replace />} />
+          <Route path="topics" element={<LibbyTopicsPage />} />
           <Route path="types" element={<LibbyTypesPage />} />
           <Route path="new" element={<LibbyNewPage />} />
         </Routes>

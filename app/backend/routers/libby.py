@@ -61,11 +61,25 @@ def _parse_query(q: str) -> tuple[str | None, list[str], list[str]]:
     topic_prefixes: list[str] = []
     name_tokens: list[str] = []
 
-    for token in q.strip().split():
-        if re.fullmatch(r"[a-zA-Z]", token) and token.lower() in _VALID_TYPE_CODES:
-            type_code = token.lower()
-        elif token.startswith(".") and len(token) > 1:
+    # Normalize dots that are attached to a preceding word (e.g. "book.le" → "book .le")
+    q = re.sub(r'(?<=\S)\.', ' .', q)
+
+    tokens = q.strip().split()
+
+    for i, token in enumerate(tokens):
+        if token.startswith(".") and len(token) > 1:
             topic_prefixes.append(token[1:].lower())
+        elif i == 0 and len(token) == 1 and token.lower() in _VALID_TYPE_CODES:
+            # Only the first token can be a type code.
+            # Exception: "a" doubles as the English indefinite article and is
+            # extremely common in titles ("A Civil Action", "A Team", …).
+            # Treat it as a type code only when no name tokens follow — i.e.
+            # the query is just "a" or "a .topic".
+            remaining_name = [t for t in tokens[i + 1:] if not (t.startswith(".") and len(t) > 1)]
+            if token.lower() == 'a' and remaining_name:
+                name_tokens.append(token.lower())
+            else:
+                type_code = token.lower()
         else:
             name_tokens.append(token.lower())
 
@@ -173,7 +187,7 @@ def search_library(q: str = "", client_id: int | None = None):
         ph = ",".join("?" * len(entry_ids))
         for tr in db.execute(
             f"""
-            SELECT jet.entry_id, lt.code, lt.name
+            SELECT jet.entry_id, lt.id AS topic_id, lt.code, lt.name
             FROM library_entry_topics jet
             JOIN library_topics lt ON jet.topic_id = lt.id
             WHERE jet.entry_id IN ({ph})
@@ -181,7 +195,7 @@ def search_library(q: str = "", client_id: int | None = None):
             entry_ids,
         ).fetchall():
             topics_by_entry.setdefault(tr["entry_id"], []).append(
-                {"code": tr["code"], "name": tr["name"]}
+                {"id": tr["topic_id"], "code": tr["code"], "name": tr["name"]}
             )
 
     def _quote_author(comments: str | None) -> str | None:
@@ -1118,6 +1132,47 @@ def merge_topics(body: TopicMergeRequest):
         "SELECT COUNT(*) AS cnt FROM library_entry_topics WHERE topic_id = ?", (body.target_id,)
     ).fetchone()["cnt"]
     return {"status": "ok", "source": source["code"], "target": target["code"], "entries_in_target": moved}
+
+
+# ---------------------------------------------------------------------------
+# Entry–topic assignment
+# POST   /api/libby/entries/{entry_id}/topics/{topic_id}
+# DELETE /api/libby/entries/{entry_id}/topics/{topic_id}
+# ---------------------------------------------------------------------------
+
+@router.post("/entries/{entry_id}/topics/{topic_id}")
+def add_entry_topic(entry_id: int, topic_id: int):
+    """Assign a topic to an entry (idempotent)."""
+    db = get_db()
+    entry = db.execute("SELECT id FROM library_entries WHERE id = ?", (entry_id,)).fetchone()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    topic = db.execute("SELECT id, name FROM library_topics WHERE id = ?", (topic_id,)).fetchone()
+    if not topic:
+        raise HTTPException(status_code=404, detail="Topic not found")
+    with get_write_db() as dbw:
+        dbw.execute(
+            "INSERT OR IGNORE INTO library_entry_topics (entry_id, topic_id) VALUES (?, ?)",
+            (entry_id, topic_id),
+        )
+        dbw.commit()
+    return {"action": "added", "topic_name": topic["name"]}
+
+
+@router.delete("/entries/{entry_id}/topics/{topic_id}")
+def remove_entry_topic(entry_id: int, topic_id: int):
+    """Remove a topic from an entry."""
+    db = get_db()
+    topic = db.execute("SELECT id, name FROM library_topics WHERE id = ?", (topic_id,)).fetchone()
+    if not topic:
+        raise HTTPException(status_code=404, detail="Topic not found")
+    with get_write_db() as dbw:
+        dbw.execute(
+            "DELETE FROM library_entry_topics WHERE entry_id = ? AND topic_id = ?",
+            (entry_id, topic_id),
+        )
+        dbw.commit()
+    return {"action": "removed", "topic_name": topic["name"]}
 
 
 # ---------------------------------------------------------------------------

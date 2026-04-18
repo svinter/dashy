@@ -1,0 +1,35 @@
+{
+  "_comment": "Set once at install. Changing these after initial setup may break backward compatibility.",
+  "user": {
+    "name": "Steve Vinter",
+    "email": "steve.vinter@gmail.com",
+    "coach_email": "steve.vinter@gmail.com"
+  },
+  "obsidian": {
+    "vault_path": "/Users/stevevinter/Obsidian/MyNotes",
+    "folders": {
+      "clients": "1 People",
+      "companies": "1 Company",
+      "meetings": "8 Meetings",
+      "daily": "9 Daily",
+      "library": "4 Library"
+    }
+  },
+  "google_drive": {
+    "root_coaching_folder_id": "1Y6zVoKjaCOSs2PJTPSwAELUUBOv7PBy3",
+    "template_folder_id": "1ejHI_5Y6lghWVL22ztV1O3YMRxxQeiHo",
+    "subfolder_names": {
+      "clients": "Clients",
+      "projects": "Projects",
+      "coaching_docs": "Coaching docs"
+    }
+  },
+  "calendar": {
+    "confirmed_color_id": "3",
+    "upcoming_color_id": "5"
+  },
+  "billing": {
+    "seed_path": "app/backend/billing_seed.json",
+    "seed_path_note": "Relative to repo root. Never committed to git."
+  }
+}
