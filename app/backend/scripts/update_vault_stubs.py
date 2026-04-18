@@ -14,6 +14,7 @@ Usage:
   python scripts/update_vault_stubs.py
 """
 
+import json
 import re
 import sqlite3
 import sys
@@ -67,7 +68,11 @@ def load_books(db_path: Path) -> list[dict]:
             b.isbn,
             b.publisher,
             b.year,
-            b.status AS book_status
+            b.status AS book_status,
+            b.subtitle,
+            b.categories,
+            b.preview_link,
+            b.authors
         FROM library_entries e
         JOIN library_books b ON b.id = e.entity_id
         WHERE e.type_code = 'b'
@@ -92,6 +97,9 @@ def load_books(db_path: Path) -> list[dict]:
             topics_by_entry.setdefault(tr[0], []).append(tr[1])
         for b in books:
             b["topics"] = topics_by_entry.get(b["id"], [])
+            # Decode JSON arrays
+            b["categories_list"] = json.loads(b["categories"]) if b.get("categories") else []
+            b["authors_list"] = json.loads(b["authors"]) if b.get("authors") else []
 
     conn.close()
     return books
@@ -183,6 +191,22 @@ def main():
         topics: list[str] = book.get("topics", [])
         if topics and "topics" not in existing_keys_lower:
             missing["topics"] = "[" + ", ".join(topics) + "]"
+
+        subtitle = (book.get("subtitle") or "").strip()
+        if subtitle and "subtitle" not in existing_keys_lower:
+            missing["subtitle"] = f'"{subtitle}"'
+
+        categories: list[str] = book.get("categories_list", [])
+        if categories and "categories" not in existing_keys_lower:
+            missing["categories"] = "[" + ", ".join(categories) + "]"
+
+        preview_link = (book.get("preview_link") or "").strip()
+        if preview_link and "preview_link" not in existing_keys_lower:
+            missing["preview_link"] = preview_link
+
+        authors: list[str] = book.get("authors_list", [])
+        if authors and "authors" not in existing_keys_lower:
+            missing["authors"] = "[" + ", ".join(f'"{a}"' for a in authors) + "]"
 
         if not missing:
             skipped_complete += 1

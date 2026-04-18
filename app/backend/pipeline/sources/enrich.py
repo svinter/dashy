@@ -3,6 +3,7 @@ libby_pipeline/enrich.py — URL resolution and Google Books API enrichment
 Version 1.0
 """
 
+import json
 import re
 import time
 import sqlite3
@@ -102,7 +103,8 @@ def enrich_google_books(db_path: Path):
 
     cur.execute("""
         SELECT e.id, e.name, b.id as book_id, b.author, b.isbn,
-               b.publisher, b.year, b.google_books_id
+               b.publisher, b.year, b.google_books_id,
+               b.subtitle, b.categories, b.preview_link, b.authors
         FROM library_entries e
         JOIN library_books b ON b.id = e.entity_id
         WHERE e.type_code = 'b'
@@ -115,10 +117,12 @@ def enrich_google_books(db_path: Path):
     not_found = 0
 
     for row in rows:
-        entry_id, name, book_id, author, isbn, publisher, year, gb_id = row
+        entry_id, name, book_id, author, isbn, publisher, year, gb_id, \
+            subtitle, categories, preview_link, authors = row
 
-        # Vault wins: if ISBN already set, skip API but still clear flag
-        if isbn:
+        # Skip API only if isbn AND all new fields are already populated
+        new_fields_populated = all([subtitle, categories, preview_link, authors])
+        if isbn and new_fields_populated:
             cur.execute(
                 "UPDATE library_entries SET needs_enrichment = 0 WHERE id = ?",
                 (entry_id,)
@@ -140,11 +144,15 @@ def enrich_google_books(db_path: Path):
             id_["type"]: id_["identifier"]
             for id_ in vol_info.get("industryIdentifiers", [])
         }
-        new_isbn      = isbn_list.get("ISBN_13") or isbn_list.get("ISBN_10") or ""
-        new_publisher = vol_info.get("publisher", "")
-        new_year      = _extract_year(vol_info.get("publishedDate", ""))
-        new_gb_id     = data.get("id", "")
-        new_cover     = (vol_info.get("imageLinks") or {}).get("thumbnail", "")
+        new_isbn         = isbn_list.get("ISBN_13") or isbn_list.get("ISBN_10") or ""
+        new_publisher    = vol_info.get("publisher", "")
+        new_year         = _extract_year(vol_info.get("publishedDate", ""))
+        new_gb_id        = data.get("id", "")
+        new_cover        = (vol_info.get("imageLinks") or {}).get("thumbnail", "")
+        new_subtitle     = vol_info.get("subtitle", "")
+        new_categories   = json.dumps(vol_info.get("categories", []))
+        new_preview_link = vol_info.get("previewLink", "")
+        new_authors      = json.dumps(vol_info.get("authors", []))
 
         cur.execute("""
             UPDATE library_books
@@ -152,9 +160,14 @@ def enrich_google_books(db_path: Path):
                 publisher       = COALESCE(NULLIF(publisher, ''), ?),
                 year            = COALESCE(NULLIF(year, ''), ?),
                 google_books_id = COALESCE(NULLIF(google_books_id, ''), ?),
-                cover_url       = COALESCE(NULLIF(cover_url, ''), ?)
+                cover_url       = COALESCE(NULLIF(cover_url, ''), ?),
+                subtitle        = COALESCE(NULLIF(subtitle, ''), ?),
+                categories      = COALESCE(NULLIF(categories, ''), ?),
+                preview_link    = COALESCE(NULLIF(preview_link, ''), ?),
+                authors         = COALESCE(NULLIF(authors, ''), ?)
             WHERE id = ?
-        """, (new_isbn, new_publisher, new_year, new_gb_id, new_cover, book_id))
+        """, (new_isbn, new_publisher, new_year, new_gb_id, new_cover,
+              new_subtitle, new_categories, new_preview_link, new_authors, book_id))
 
         cur.execute(
             "UPDATE library_entries SET needs_enrichment = 0, updated_at = datetime('now') WHERE id = ?",

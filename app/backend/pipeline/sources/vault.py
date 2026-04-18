@@ -26,12 +26,16 @@ STUB_TEMPLATE = """\
 tag: book
 title: "{title}"
 author: [{author}]
+subtitle: {subtitle}
+authors: [{authors}]
 publisher: {publisher}
 publish: {year}
 isbn: {isbn}
+categories: [{categories}]
 status: {status}
 url: {url}
 amazon_url: {amazon_url}
+preview_link: {preview_link}
 topics: [{topics}]
 created: {created_at}
 updated: {updated_at}
@@ -133,7 +137,9 @@ def get_books_missing_vault_link(db_path: Path) -> list[dict]:
     conn = sqlite3.connect(db_path)
     cur  = conn.cursor()
     cur.execute("""
-        SELECT e.id, e.name, e.url, e.amazon_url, b.author, b.isbn, b.publisher, b.year, b.status
+        SELECT e.id, e.name, e.url, e.amazon_url,
+               b.author, b.isbn, b.publisher, b.year, b.status,
+               b.subtitle, b.categories, b.preview_link, b.authors
         FROM library_entries e JOIN library_books b ON b.id = e.entity_id
         WHERE e.type_code = 'b'
         AND (e.obsidian_link IS NULL OR e.obsidian_link = '')
@@ -154,11 +160,16 @@ def get_books_missing_vault_link(db_path: Path) -> list[dict]:
         ).fetchall():
             topics_by_entry.setdefault(tr[0], []).append(tr[1])
 
+    import json as _json
     conn.close()
     return [
         {"id": r[0], "name": r[1], "url": r[2] or "", "amazon_url": r[3] or "",
          "author": r[4] or "", "isbn": r[5] or "",
          "publisher": r[6] or "", "year": r[7] or "", "status": r[8] or "unread",
+         "subtitle": r[9] or "",
+         "categories": _json.loads(r[10]) if r[10] else [],
+         "preview_link": r[11] or "",
+         "authors": _json.loads(r[12]) if r[12] else [],
          "topics": topics_by_entry.get(r[0], [])}
         for r in rows
     ]
@@ -388,17 +399,21 @@ def create_stubs(config: dict, db_path: Path = None) -> int:
             continue
 
         content = STUB_TEMPLATE.format(
-            title      = book["name"],
-            author     = book["author"],
-            publisher  = book["publisher"] or "",
-            year       = book["year"] or "",
-            isbn       = book["isbn"] or "",
-            status     = book["status"],
-            url        = book.get("url") or "",
-            amazon_url = book.get("amazon_url") or "",
-            topics     = ", ".join(book.get("topics") or []),
-            created_at = today,
-            updated_at = today,
+            title        = book["name"],
+            author       = book["author"],
+            subtitle     = book.get("subtitle") or "",
+            authors      = ", ".join(book.get("authors") or []),
+            publisher    = book["publisher"] or "",
+            year         = book["year"] or "",
+            isbn         = book["isbn"] or "",
+            categories   = ", ".join(book.get("categories") or []),
+            status       = book["status"],
+            url          = book.get("url") or "",
+            amazon_url   = book.get("amazon_url") or "",
+            preview_link = book.get("preview_link") or "",
+            topics       = ", ".join(book.get("topics") or []),
+            created_at   = today,
+            updated_at   = today,
         )
         dest.write_text(content, encoding="utf-8")
         link = f"obsidian://open?vault=MyNotes&file={dest.relative_to(vault_root)}"

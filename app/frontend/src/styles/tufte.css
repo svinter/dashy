@@ -9629,6 +9629,82 @@ span.news-item-title {
   border-color: var(--color-success, #27ae60);
 }
 
+/* Expanded entry detail (description + categories) */
+.libby-selected-expanded {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 0 4px;
+}
+
+.libby-selected-description {
+  font-size: var(--text-sm);
+  color: var(--color-text-light);
+  line-height: 1.4;
+  margin: 0;
+}
+
+.libby-selected-categories {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.libby-category-pill {
+  font-size: 0.62rem;
+  background: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-light);
+  border-radius: 3px;
+  padding: 1px 5px;
+}
+
+/* Action legend */
+.libby-action-legend {
+  border-top: 1px solid var(--color-border);
+  padding-top: 8px;
+  margin-top: 2px;
+}
+
+.libby-legend-table {
+  border-collapse: collapse;
+  font-size: 0.68rem;
+  font-family: var(--font-mono, monospace);
+  color: var(--color-text-light);
+}
+
+.libby-legend-table td {
+  padding: 1px 10px 1px 0;
+  vertical-align: top;
+}
+
+.libby-legend-key {
+  color: var(--color-text);
+  font-weight: 600;
+  width: 1.5em;
+}
+
+.libby-legend-name {
+  width: 7em;
+}
+
+.libby-legend-desc {
+  color: var(--color-text-light);
+}
+
+.libby-legend-row--soon td {
+  opacity: 0.45;
+}
+
+.libby-legend-row--future td {
+  opacity: 0.28;
+}
+
+.libby-legend-tag {
+  font-style: italic;
+  font-size: 0.62rem;
+}
+
 /* Client selector in action bar header */
 .libby-client-selector {
   display: flex;

@@ -97,10 +97,12 @@ def _name_match_score(name: str, name_tokens: list[str]) -> int:
 def search_library(q: str = "", client_id: int | None = None):
     """Search library entries using Libby query syntax.
 
-    Returns up to 20 results ranked by: priority → name-match quality → frequency.
+    Returns up to 14 results ranked by: priority → name-match quality → frequency.
     When client_id is provided, each result includes last_shared_at (most recent
     share date for that entry + client), or null if never shared.
+    Books also match on author; title matches rank higher than author-only matches.
     """
+    import json as _json
     type_code, topic_prefixes, name_tokens = _parse_query(q)
     db = get_db()
 
@@ -117,6 +119,7 @@ def search_library(q: str = "", client_id: int | None = None):
             e.gdoc_id,
             e.comments,
             e.obsidian_link,
+            lb.categories,
             CASE e.type_code
                 WHEN 'b' THEN lb.author
                 WHEN 'a' THEN la.author
@@ -139,8 +142,14 @@ def search_library(q: str = "", client_id: int | None = None):
         params.append(type_code)
 
     for tok in name_tokens:
-        sql += " AND (lower(e.name) LIKE ? OR (e.type_code = 'q' AND lower(e.comments) LIKE ?))"
-        params.extend([f"%{tok}%", f"%{tok}%"])
+        sql += """
+            AND (
+                lower(e.name) LIKE ?
+                OR (e.type_code = 'q' AND lower(e.comments) LIKE ?)
+                OR (e.type_code = 'b' AND lower(lb.author) LIKE ?)
+            )
+        """
+        params.extend([f"%{tok}%", f"%{tok}%", f"%{tok}%"])
 
     for pfx in topic_prefixes:
         sql += """
@@ -185,15 +194,29 @@ def search_library(q: str = "", client_id: int | None = None):
     results = []
     for row in rows:
         name_score = _name_match_score(row["name"], name_tokens) if name_tokens else 1
+        author_match = False
         if name_tokens and name_score == 0:
             # For quotes, also accept a match in comments
             if row["type_code"] == "q":
                 name_score = _name_match_score(row["comments"] or "", name_tokens)
+            # For books, accept a match in author (lower score than title)
+            if name_score == 0 and row["type_code"] == "b" and row["author"]:
+                author_score = _name_match_score(row["author"], name_tokens)
+                if author_score > 0:
+                    name_score = 1  # author match ranks below title match
+                    author_match = True
             if name_score == 0:
                 continue
+
         author = row["author"] or (
             _quote_author(row["comments"]) if row["type_code"] == "q" else None
         )
+        categories: list[str] = []
+        if row["categories"]:
+            try:
+                categories = _json.loads(row["categories"])
+            except Exception:
+                pass
         results.append({
             "id": row["id"],
             "name": row["name"],
@@ -206,6 +229,9 @@ def search_library(q: str = "", client_id: int | None = None):
             "gdoc_id": row["gdoc_id"],
             "obsidian_link": row["obsidian_link"],
             "author": author,
+            "author_match": author_match,
+            "description": row["comments"] or None,
+            "categories": categories,
             "topics": topics_by_entry.get(row["id"], []),
             "_rank": (
                 _PRIORITY_RANK.get(row["priority"], 0),
@@ -215,7 +241,7 @@ def search_library(q: str = "", client_id: int | None = None):
         })
 
     results.sort(key=lambda r: r["_rank"], reverse=True)
-    results = results[:20]
+    results = results[:14]
     for r in results:
         del r["_rank"]
 
@@ -1346,9 +1372,14 @@ class BookCreateRequest(BaseModel):
     amazon_url: str | None = None
     cover_url: str | None = None
     google_books_id: str | None = None
+    subtitle: str | None = None
+    categories: list[str] = []
+    preview_link: str | None = None
+    authors: list[str] = []
     comments: str | None = None
     priority: str = "medium"
     topic_ids: list[int] = []
+    status: str = "unread"
 
 
 @router.post("/books")
@@ -1373,14 +1404,21 @@ def create_book(body: BookCreateRequest, background_tasks: BackgroundTasks):
 
     db = get_db()
 
+    import json as _json
     with get_write_db() as dbw:
         # Book entity row
         book_cursor = dbw.execute(
             """INSERT INTO library_books
-               (author, isbn, publisher, year, cover_url, google_books_id)
-               VALUES (?, ?, ?, ?, ?, ?)""",
+               (author, isbn, publisher, year, cover_url, google_books_id,
+                subtitle, categories, preview_link, authors, status)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (body.author, body.isbn, body.publisher, year_int,
-             body.cover_url, body.google_books_id),
+             body.cover_url, body.google_books_id,
+             body.subtitle or None,
+             _json.dumps(body.categories) if body.categories else None,
+             body.preview_link or None,
+             _json.dumps(body.authors) if body.authors else None,
+             body.status or "unread"),
         )
         book_id = book_cursor.lastrowid
 
@@ -1421,7 +1459,10 @@ def create_book(body: BookCreateRequest, background_tasks: BackgroundTasks):
         isbn=body.isbn or None,
         publisher=body.publisher or None,
         year=body.year or None,
-        status=getattr(body, "status", None) or "unread",
+        status=body.status or "unread",
+        subtitle=body.subtitle or None,
+        categories=body.categories or None,
+        authors=body.authors or None,
     )
     background_tasks.add_task(_run_tagging_task, entry_id)
     logger.info("Created book entry %d: %r", entry_id, name)
@@ -1752,6 +1793,9 @@ def _create_vault_home_page(
     publisher: str | None = None,
     year: int | str | None = None,
     status: str | None = None,
+    subtitle: str | None = None,
+    categories: list[str] | None = None,
+    authors: list[str] | None = None,
 ) -> str | None:
     """Create an Obsidian vault note for a new library entry (synchronous).
 
@@ -1802,6 +1846,12 @@ def _create_vault_home_page(
         fm_lines.append(f"status: {status}")
     if author:
         fm_lines.append(f"author: \"{author}\"")
+    if subtitle:
+        fm_lines.append(f"subtitle: \"{subtitle}\"")
+    if authors:
+        fm_lines.append(f"authors: [{', '.join(repr(a) for a in authors)}]")
+    if categories:
+        fm_lines.append(f"categories: [{', '.join(repr(c) for c in categories)}]")
     if isbn:
         fm_lines.append(f"isbn: {isbn}")
     if publisher:
