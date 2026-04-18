@@ -890,7 +890,7 @@ function CatalogPage() {
       if (e.key === 'c') { e.preventDefault(); handleCopy(); return; }
       if (e.key === 'p') { e.preventDefault(); handlePrint(); return; }
       if (e.key === 'd') { e.preventDefault(); handleCopyDoc(); return; }
-      if (e.key === 'r') { e.preventDefault(); handleRecord(); return; }
+      if (e.key === 'r') { e.preventDefault(); if (!sessionCopied || sessionRecorded) return; handleRecord(); return; }
       if (e.key === 'a') { e.preventDefault(); handleApply(); return; }
       if (e.key === 'l') { e.preventDefault(); setLabelQuery(''); setLabelHighlight(0); setLabelMsg(null); setUiState('LABEL'); return; }
       if (e.key === 'm') { e.preventDefault(); handleMake(); return; }
