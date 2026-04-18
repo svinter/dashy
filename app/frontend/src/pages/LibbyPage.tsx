@@ -49,9 +49,26 @@ const TYPE_LABELS: Record<string, string> = {
   w: 'webpage',
 };
 
+const ALL_TYPE_LABELS: Record<string, string> = {
+  b: 'book',      a: 'article',
+  e: 'essay',     p: 'podcast',
+  v: 'video',     m: 'movie',
+  t: 'tool',      w: 'webpage',
+  s: 'worksheet', z: 'assessment',
+  n: 'note',      d: 'document',
+  f: 'framework', c: 'course',
+  r: 'research',  q: 'quote',
+};
+
+// Pairs for 2-column type reference grid (left, right)
+const TYPE_GRID_ROWS: [string, string][] = [
+  ['b', 'a'], ['e', 'p'], ['v', 'm'], ['t', 'w'],
+  ['s', 'z'], ['n', 'd'], ['f', 'c'], ['r', 'q'],
+];
+
 const RESULT_LABELS = 'abcdefghijklmn';
 
-type UiState = 'SEARCH' | 'PICK' | 'ACTION' | 'LABEL';
+type UiState = 'SEARCH' | 'PICK' | 'ACTION' | 'LABEL' | 'RETYPE';
 
 // ---------------------------------------------------------------------------
 // Help popup content
@@ -115,13 +132,16 @@ function LibbyHelpPopup({ onClose }: { onClose: () => void }) {
             <table className="libby-help-keys">
               <tbody>
                 <tr><td className="libby-help-key">c</td><td>copy URL</td></tr>
+                <tr><td className="libby-help-key">p</td><td>print (copy title + link)</td></tr>
+                <tr><td className="libby-help-key">d</td><td>copy doc to client folder</td></tr>
+                <tr><td className="libby-help-key">r</td><td>record share with client</td></tr>
+                <tr><td className="libby-help-key">a</td><td>apply last label</td></tr>
                 <tr><td className="libby-help-key">l</td><td>label (add/remove topic)</td></tr>
-                <tr><td className="libby-help-key">r</td><td>repeat last label</td></tr>
                 <tr><td className="libby-help-key">m</td><td>make webpage</td></tr>
                 <tr><td className="libby-help-key">o</td><td>open in Obsidian</td></tr>
+                <tr><td className="libby-help-key">y</td><td>retype (change type)</td></tr>
                 <tr><td className="libby-help-key">b</td><td>back to pick</td></tr>
                 <tr><td className="libby-help-key libby-help-key--soon">s</td><td className="libby-help-soon">synopsis <span>(coming soon)</span></td></tr>
-                <tr><td className="libby-help-key libby-help-key--soon">d</td><td className="libby-help-soon">copy doc <span>(coming soon)</span></td></tr>
                 <tr><td className="libby-help-key libby-help-key--soon">f</td><td className="libby-help-soon">full copy <span>(coming soon)</span></td></tr>
                 <tr><td className="libby-help-key libby-help-key--soon">x</td><td className="libby-help-soon">find related <span>(future)</span></td></tr>
               </tbody>
@@ -493,6 +513,7 @@ function CatalogPage() {
   const [query, setQuery] = useState('');
   const [uiState, setUiState] = useState<UiState>('SEARCH');
   const [results, setResults] = useState<LibraryEntry[]>([]);
+  const [searchTotal, setSearchTotal] = useState(0);
   const [selected, setSelected] = useState<LibraryEntry | null>(null);
   const [selectedWebpageUrl, setSelectedWebpageUrl] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
@@ -509,15 +530,28 @@ function CatalogPage() {
   // Repeat indicator (display only — actual state in repeatRef)
   const [repeatDisplay, setRepeatDisplay] = useState<string | null>(null);
 
+  // Retype state
+  const [retypeSelected, setRetypeSelected] = useState<string | null>(null);
+
+  // Per-entry session copy / record tracking (reset when selected entry changes)
+  const [sessionCopied, setSessionCopied] = useState(false);
+  const [sessionRecorded, setSessionRecorded] = useState(false);
+
   // Manifest overlay
   const [manifestOpen, setManifestOpen] = useState(false);
   const [manifestFlashName, setManifestFlashName] = useState<string | null>(null);
 
-  // Focus management: LABEL → label input; PICK/ACTION → container; SEARCH → input
+  // Reset session copy/record state when a new entry is selected
+  useEffect(() => {
+    setSessionCopied(false);
+    setSessionRecorded(false);
+  }, [selected?.id]);
+
+  // Focus management: LABEL → label input; PICK/ACTION/RETYPE → container; SEARCH → input
   useEffect(() => {
     if (uiState === 'LABEL') {
       labelInputRef.current?.focus();
-    } else if (uiState === 'PICK' || uiState === 'ACTION') {
+    } else if (uiState === 'PICK' || uiState === 'ACTION' || uiState === 'RETYPE') {
       containerRef.current?.focus();
     } else {
       searchInputRef.current?.focus();
@@ -548,13 +582,17 @@ function CatalogPage() {
 
   // --- Search ---
   const runSearch = async (q: string, clientId: number | null) => {
-    if (!q.trim()) { setResults([]); return; }
+    if (!q.trim()) { setResults([]); setSearchTotal(0); return; }
     setLoading(true);
     try {
       const params = new URLSearchParams({ q: normalizeQuery(q) });
       if (clientId != null) params.set('client_id', String(clientId));
       const resp = await fetch(`/api/libby/search?${params}`);
-      if (resp.ok) setResults(await resp.json());
+      if (resp.ok) {
+        const data = await resp.json();
+        setResults(data.results);
+        setSearchTotal(data.total);
+      }
     } catch { /* ignore */ }
     finally { setLoading(false); }
   };
@@ -578,6 +616,7 @@ function CatalogPage() {
     if (e.key === 'Escape') {
       setQuery('');
       setResults([]);
+      setSearchTotal(0);
       return;
     }
     if (e.metaKey && e.key === 'a') {
@@ -605,7 +644,7 @@ function CatalogPage() {
       const resp = await fetch(`/api/libby/entries/${selected.id}/action/copy`, { method: 'POST' });
       if (resp.ok) {
         const data = await resp.json();
-        if (data.url) { await navigator.clipboard.writeText(data.url); setStatusMsg('URL copied'); }
+        if (data.url) { await navigator.clipboard.writeText(data.url); setStatusMsg('URL copied'); setSessionCopied(true); }
         else setStatusMsg('No URL available');
       } else setStatusMsg('Copy failed');
     } catch { setStatusMsg('Copy failed'); }
@@ -650,9 +689,10 @@ function CatalogPage() {
       });
       if (resp.ok) {
         const data = await resp.json();
-        setStatusMsg(data.message ?? 'Recorded');
+        setSessionRecorded(true);
+        showToast(`Recorded — ${selected.name} shared with ${activeClientName ?? 'client'}`);
         if (data.manifest_updated === false && data.manifest_skipped !== true) {
-          showToast('Note: Manifest not updated', 'warning');
+          setTimeout(() => showToast('Note: Manifest not updated', 'warning'), 2600);
         }
         if (activeClientManifestUrl && data.entry_name) {
           setManifestFlashName(data.entry_name);
@@ -660,10 +700,9 @@ function CatalogPage() {
         }
       } else {
         const err = await resp.json().catch(() => ({}));
-        setStatusMsg(err.detail ?? 'Record failed');
+        showToast(err.detail ?? 'Record failed');
       }
-    } catch { setStatusMsg('Record failed'); }
-    setTimeout(() => setStatusMsg(null), 3000);
+    } catch { showToast('Record failed'); }
   };
 
   // --- Label action ---
@@ -701,6 +740,48 @@ function CatalogPage() {
     }
   };
 
+  // --- Print action ---
+  const handlePrint = async () => {
+    if (!selected) return;
+    try {
+      const resp = await fetch(`/api/libby/entries/${selected.id}/action/print`, { method: 'POST' });
+      if (resp.ok) {
+        const data = await resp.json();
+        await navigator.clipboard.writeText(data.text);
+        showToast(`Copied: ${selected.name}`);
+        setSessionCopied(true);
+      } else {
+        showToast('Print failed');
+      }
+    } catch {
+      showToast('Print failed');
+    }
+  };
+
+  // --- Retype action ---
+  const handleRetypeConfirm = async () => {
+    if (!selected || !retypeSelected) return;
+    try {
+      const resp = await fetch(`/api/libby/entries/${selected.id}/retype`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ new_type_code: retypeSelected }),
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        setSelected(s => s ? { ...s, type_code: data.new_type } : s);
+        showToast(`Changed to ${ALL_TYPE_LABELS[data.new_type] ?? data.new_type}`);
+      } else {
+        const err = await resp.json().catch(() => ({}));
+        showToast(err.detail ?? 'Retype failed');
+      }
+    } catch {
+      showToast('Retype failed');
+    }
+    setRetypeSelected(null);
+    setUiState('ACTION');
+  };
+
   // --- Obsidian action ---
   const handleObsidian = () => {
     if (!selected?.obsidian_link) {
@@ -715,10 +796,37 @@ function CatalogPage() {
     showToast('Opening in Obsidian…');
   };
 
-  // --- Repeat action ---
-  const handleRepeat = async () => {
+  // --- Copy Doc action ---
+  const handleCopyDoc = async () => {
+    if (!selected || !activeClientId) return;
+    if (!selected.gdoc_id) {
+      showToast('No Google Doc for this entry');
+      return;
+    }
+    try {
+      const resp = await fetch(`/api/libby/entries/${selected.id}/action/copy_doc`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ client_id: activeClientId }),
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        await navigator.clipboard.writeText(data.print_text);
+        showToast(`Copied doc + link: ${data.filename}`);
+        setSessionCopied(true);
+      } else {
+        const err = await resp.json().catch(() => ({}));
+        showToast(err.detail ?? 'Copy doc failed');
+      }
+    } catch {
+      showToast('Copy doc failed');
+    }
+  };
+
+  // --- Apply action (was: repeat) ---
+  const handleApply = async () => {
     if (!selected || !repeatRef.current) {
-      showToast('no repeat set');
+      showToast('no label set');
       return;
     }
     const { action, topic } = repeatRef.current;
@@ -771,6 +879,7 @@ function CatalogPage() {
         setRepeatDisplay(null);
         setQuery('');
         setResults([]);
+        setSearchTotal(0);
         setSelected(null);
         setSelectedWebpageUrl(null);
         setStatusMsg(null);
@@ -779,14 +888,46 @@ function CatalogPage() {
       }
       if (e.key === 'b') { e.preventDefault(); setUiState('PICK'); return; }
       if (e.key === 'c') { e.preventDefault(); handleCopy(); return; }
+      if (e.key === 'p') { e.preventDefault(); handlePrint(); return; }
+      if (e.key === 'd') { e.preventDefault(); handleCopyDoc(); return; }
+      if (e.key === 'r') { e.preventDefault(); handleRecord(); return; }
+      if (e.key === 'a') { e.preventDefault(); handleApply(); return; }
       if (e.key === 'l') { e.preventDefault(); setLabelQuery(''); setLabelHighlight(0); setLabelMsg(null); setUiState('LABEL'); return; }
-      if (e.key === 'r') { e.preventDefault(); handleRepeat(); return; }
       if (e.key === 'm') { e.preventDefault(); handleMake(); return; }
       if (e.key === 'o') { e.preventDefault(); handleObsidian(); return; }
+      if (e.key === 'y') { e.preventDefault(); setRetypeSelected(null); setUiState('RETYPE'); return; }
       if (e.key === 's') { e.preventDefault(); showToast('synopsis: coming soon'); return; }
-      if (e.key === 'd') { e.preventDefault(); showToast('copy doc: coming soon'); return; }
       if (e.key === 'f') { e.preventDefault(); showToast('full: coming soon'); return; }
       if (e.key === 'x') { e.preventDefault(); showToast('find related: future'); return; }
+    }
+
+    if (uiState === 'RETYPE') {
+      e.stopPropagation();
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        if (retypeSelected) {
+          setRetypeSelected(null);
+        } else {
+          setUiState('ACTION');
+        }
+        return;
+      }
+      if (retypeSelected && e.key === 'Enter') {
+        e.preventDefault();
+        handleRetypeConfirm();
+        return;
+      }
+      // Type letter selection in grid mode
+      const letter = e.key.toLowerCase();
+      if (!retypeSelected && letter in ALL_TYPE_LABELS) {
+        e.preventDefault();
+        if (letter === selected?.type_code) {
+          showToast(`Already type: ${ALL_TYPE_LABELS[letter]}`);
+          setUiState('ACTION');
+        } else {
+          setRetypeSelected(letter);
+        }
+      }
     }
   };
 
@@ -874,8 +1015,25 @@ function CatalogPage() {
         </div>
       )}
 
+      {/* Type reference grid — empty SEARCH only */}
+      {uiState === 'SEARCH' && !query && (
+        <div className="libby-type-ref">
+          <div className="libby-type-ref-header">types</div>
+          <div className="libby-type-ref-grid">
+            {TYPE_GRID_ROWS.map(([left, right]) => (
+              <span key={left} className="libby-type-ref-row">
+                <span className="libby-type-ref-code">{left}</span>
+                <span className="libby-type-ref-name">{ALL_TYPE_LABELS[left]}</span>
+                <span className="libby-type-ref-code">{right}</span>
+                <span className="libby-type-ref-name">{ALL_TYPE_LABELS[right]}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Column headers + Results list — SEARCH and PICK */}
-      {uiState !== 'ACTION' && uiState !== 'LABEL' && results.length > 0 && (
+      {uiState !== 'ACTION' && uiState !== 'LABEL' && uiState !== 'RETYPE' && results.length > 0 && (
         <>
           <div className="libby-results-header">
             <span className="libby-result-label">key</span>
@@ -936,6 +1094,16 @@ function CatalogPage() {
               );
             })}
           </ul>
+          {results.length === 14 && searchTotal > 14 && (
+            <div className="libby-result-count libby-result-count--capped">
+              showing 14 of {searchTotal.toLocaleString()} — refine your search
+            </div>
+          )}
+          {results.length > 0 && results.length < 14 && (
+            <div className="libby-result-count">
+              {results.length} {results.length === 1 ? 'result' : 'results'}
+            </div>
+          )}
         </>
       )}
 
@@ -978,16 +1146,35 @@ function CatalogPage() {
             <button className="libby-action-btn" onClick={handleCopy} title="c — copy URL">
               <span className="libby-action-key">c</span> copy
             </button>
-            <button className="libby-action-btn" onClick={() => { setLabelQuery(''); setLabelHighlight(0); setLabelMsg(null); setUiState('LABEL'); }} title="l — label (add/remove topic)">
-              <span className="libby-action-key">l</span> label
+            <button className="libby-action-btn" onClick={handlePrint} title="p — print (copy title + link)">
+              <span className="libby-action-key">p</span> print
+            </button>
+            <button
+              className={`libby-action-btn${(!selected.gdoc_id || !activeClientId) ? ' libby-action-btn--disabled' : ''}`}
+              onClick={handleCopyDoc}
+              disabled={!selected.gdoc_id || !activeClientId}
+              title={!selected.gdoc_id ? 'd — no doc attached' : !activeClientId ? 'd — select a client first' : 'd — copy doc to client folder'}
+            >
+              <span className="libby-action-key">d</span> copy doc
+            </button>
+            <button
+              className={`libby-action-btn${(!sessionCopied || sessionRecorded) ? ' libby-action-btn--disabled' : ''}`}
+              onClick={handleRecord}
+              disabled={!sessionCopied || sessionRecorded}
+              title={sessionRecorded ? 'r — already recorded this session' : !sessionCopied ? 'r — copy first (c/p/d), then record' : 'r — record share with client'}
+            >
+              <span className="libby-action-key">r</span> record{sessionRecorded ? ' ✓' : ''}
             </button>
             <button
               className={`libby-action-btn${!repeatDisplay ? ' libby-action-btn--disabled' : ''}`}
-              onClick={handleRepeat}
+              onClick={handleApply}
               disabled={!repeatDisplay}
-              title={repeatDisplay ? `r — repeat: ${repeatDisplay}` : 'r — no repeat set (use l first)'}
+              title={repeatDisplay ? `a — apply: ${repeatDisplay}` : 'a — no label set (use l first)'}
             >
-              <span className="libby-action-key">r</span> repeat
+              <span className="libby-action-key">a</span> apply
+            </button>
+            <button className="libby-action-btn" onClick={() => { setLabelQuery(''); setLabelHighlight(0); setLabelMsg(null); setUiState('LABEL'); }} title="l — label (add/remove topic)">
+              <span className="libby-action-key">l</span> label
             </button>
             <button
               className={`libby-action-btn${selectedWebpageUrl ? ' libby-action-btn--has-page' : ''}`}
@@ -996,80 +1183,88 @@ function CatalogPage() {
             >
               <span className="libby-action-key">m</span> make{selectedWebpageUrl ? ' ✓' : ''}
             </button>
-            {selected.obsidian_link && (
-              <button
-                className="libby-action-btn"
-                onClick={handleObsidian}
-                title="o — open in Obsidian"
-              >
-                <span className="libby-action-key">o</span> obsidian
-              </button>
-            )}
+            <button
+              className={`libby-action-btn${!selected.obsidian_link ? ' libby-action-btn--disabled' : ''}`}
+              onClick={handleObsidian}
+              disabled={!selected.obsidian_link}
+              title={selected.obsidian_link ? 'o — open in Obsidian' : 'o — no Obsidian page'}
+            >
+              <span className="libby-action-key">o</span> obsidian
+            </button>
+            <button
+              className="libby-action-btn"
+              onClick={() => { setRetypeSelected(null); setUiState('RETYPE'); }}
+              title="y — retype (change type)"
+            >
+              <span className="libby-action-key">y</span> retype
+            </button>
           </div>
 
           <div className="libby-action-legend">
             <table className="libby-legend-table">
               <tbody>
-                <tr>
-                  <td className="libby-legend-key">c</td>
-                  <td className="libby-legend-name">copy</td>
-                  <td className="libby-legend-desc">copies URL to clipboard</td>
-                </tr>
-                <tr>
-                  <td className="libby-legend-key">l</td>
-                  <td className="libby-legend-name">label</td>
-                  <td className="libby-legend-desc">add or remove a topic</td>
-                </tr>
-                <tr>
-                  <td className="libby-legend-key">r</td>
-                  <td className="libby-legend-name">repeat</td>
-                  <td className="libby-legend-desc">repeat last label action</td>
-                </tr>
-                <tr>
-                  <td className="libby-legend-key">m</td>
-                  <td className="libby-legend-name">make</td>
-                  <td className="libby-legend-desc">publishes webpage, copies URL</td>
-                </tr>
-                <tr>
-                  <td className="libby-legend-key">o</td>
-                  <td className="libby-legend-name">obsidian</td>
-                  <td className="libby-legend-desc">opens book page in Obsidian</td>
-                </tr>
-                <tr>
-                  <td className="libby-legend-key">b</td>
-                  <td className="libby-legend-name">back</td>
-                  <td className="libby-legend-desc">return to pick</td>
-                </tr>
-                <tr className="libby-legend-row--soon">
-                  <td className="libby-legend-key">s</td>
-                  <td className="libby-legend-name">synopsis</td>
-                  <td className="libby-legend-desc">generates synopsis <span className="libby-legend-tag">coming soon</span></td>
-                </tr>
-                <tr className="libby-legend-row--soon">
-                  <td className="libby-legend-key">d</td>
-                  <td className="libby-legend-name">copy doc</td>
-                  <td className="libby-legend-desc">copies doc to client <span className="libby-legend-tag">coming soon</span></td>
-                </tr>
-                <tr className="libby-legend-row--soon">
-                  <td className="libby-legend-key">f</td>
-                  <td className="libby-legend-name">full</td>
-                  <td className="libby-legend-desc">full clipboard payload <span className="libby-legend-tag">coming soon</span></td>
-                </tr>
-                <tr className="libby-legend-row--future">
-                  <td className="libby-legend-key">x</td>
-                  <td className="libby-legend-name">find related</td>
-                  <td className="libby-legend-desc"><span className="libby-legend-tag">future</span></td>
-                </tr>
+                <tr><td className="libby-legend-key">c</td><td className="libby-legend-name">copy</td><td className="libby-legend-desc">copies URL to clipboard</td></tr>
+                <tr><td className="libby-legend-key">p</td><td className="libby-legend-name">print</td><td className="libby-legend-desc">copy title + link to clipboard</td></tr>
+                <tr><td className="libby-legend-key">d</td><td className="libby-legend-name">copy doc</td><td className="libby-legend-desc">copy doc to client coaching folder</td></tr>
+                <tr><td className="libby-legend-key">r</td><td className="libby-legend-name">record</td><td className="libby-legend-desc">log share in Obsidian + Manifest</td></tr>
+                <tr><td className="libby-legend-key">a</td><td className="libby-legend-name">apply</td><td className="libby-legend-desc">repeat last label action</td></tr>
+                <tr><td className="libby-legend-key">l</td><td className="libby-legend-name">label</td><td className="libby-legend-desc">add or remove a topic</td></tr>
+                <tr><td className="libby-legend-key">m</td><td className="libby-legend-name">make</td><td className="libby-legend-desc">publishes webpage, copies URL</td></tr>
+                <tr><td className="libby-legend-key">o</td><td className="libby-legend-name">obsidian</td><td className="libby-legend-desc">opens entry page in Obsidian</td></tr>
+                <tr><td className="libby-legend-key">y</td><td className="libby-legend-name">retype</td><td className="libby-legend-desc">change the type of this entry</td></tr>
+                <tr><td className="libby-legend-key">b</td><td className="libby-legend-name">back</td><td className="libby-legend-desc">return to pick</td></tr>
+                <tr className="libby-legend-row--soon"><td className="libby-legend-key">s</td><td className="libby-legend-name">synopsis</td><td className="libby-legend-desc">generates synopsis <span className="libby-legend-tag">coming soon</span></td></tr>
+                <tr className="libby-legend-row--soon"><td className="libby-legend-key">f</td><td className="libby-legend-name">full</td><td className="libby-legend-desc">full clipboard payload <span className="libby-legend-tag">coming soon</span></td></tr>
+                <tr className="libby-legend-row--future"><td className="libby-legend-key">x</td><td className="libby-legend-name">find related</td><td className="libby-legend-desc"><span className="libby-legend-tag">future</span></td></tr>
               </tbody>
             </table>
             {repeatDisplay && (
               <div className="libby-repeat-indicator">
-                <span className="libby-legend-key">r</span> repeats: {repeatDisplay}
+                <span className="libby-legend-key">a</span> applies: {repeatDisplay}
               </div>
             )}
           </div>
 
           {statusMsg && <div className="libby-status-msg">{statusMsg}</div>}
+        </div>
+      )}
+
+      {/* RETYPE type selector */}
+      {uiState === 'RETYPE' && selected && (
+        <div className="libby-retype-section">
+          {retypeSelected ? (
+            <div className="libby-retype-confirm">
+              Change from <strong>{ALL_TYPE_LABELS[selected.type_code] ?? selected.type_code}</strong> to{' '}
+              <strong>{ALL_TYPE_LABELS[retypeSelected] ?? retypeSelected}</strong>?{' '}
+              <span className="libby-retype-hint">Return to confirm · Esc to cancel</span>
+            </div>
+          ) : (
+            <>
+              <div className="libby-type-ref-header">retype: pick new type · <span style={{ fontStyle: 'normal' }}>Esc to cancel</span></div>
+              <div className="libby-type-ref-grid">
+                {TYPE_GRID_ROWS.map(([left, right]) => (
+                  <span key={left} className="libby-type-ref-row">
+                    <span
+                      className={`libby-type-ref-code libby-type-ref-code--btn${left === selected.type_code ? ' libby-type-ref-code--current' : ''}`}
+                      onClick={() => {
+                        if (left === selected.type_code) { showToast(`Already type: ${ALL_TYPE_LABELS[left]}`); setUiState('ACTION'); }
+                        else setRetypeSelected(left);
+                      }}
+                    >{left}</span>
+                    <span className="libby-type-ref-name">{ALL_TYPE_LABELS[left]}</span>
+                    <span
+                      className={`libby-type-ref-code libby-type-ref-code--btn${right === selected.type_code ? ' libby-type-ref-code--current' : ''}`}
+                      onClick={() => {
+                        if (right === selected.type_code) { showToast(`Already type: ${ALL_TYPE_LABELS[right]}`); setUiState('ACTION'); }
+                        else setRetypeSelected(right);
+                      }}
+                    >{right}</span>
+                    <span className="libby-type-ref-name">{ALL_TYPE_LABELS[right]}</span>
+                  </span>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       )}
 

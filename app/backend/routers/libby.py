@@ -258,6 +258,7 @@ def search_library(q: str = "", client_id: int | None = None):
         })
 
     results.sort(key=lambda r: r["_rank"], reverse=True)
+    total = len(results)
     results = results[:14]
     for r in results:
         del r["_rank"]
@@ -280,7 +281,7 @@ def search_library(q: str = "", client_id: int | None = None):
         for r in results:
             r["last_shared_at"] = None
 
-    return results
+    return {"results": results, "total": total}
 
 
 # ---------------------------------------------------------------------------
@@ -483,6 +484,117 @@ def action_copy(entry_id: int):
         return {"url": row["amazon_url"]}
 
     return {"url": row["url"] or None}
+
+
+# ---------------------------------------------------------------------------
+# POST /api/libby/entries/{id}/action/print
+# ---------------------------------------------------------------------------
+
+@router.post("/entries/{entry_id}/action/print")
+def action_print(entry_id: int):
+    """Return a Markdown-formatted title + link string for clipboard.
+
+    Books:  [{title}]({amazon_short_url|amazon_url|url}) by {author}
+    Others: [{title}]({webpage_url|url})
+    """
+    db = get_db()
+    row = db.execute(
+        """SELECT e.name, e.type_code, e.url, e.amazon_url, e.amazon_short_url,
+                  e.webpage_url, lb.author
+           FROM library_entries e
+           LEFT JOIN library_books lb ON e.type_code = 'b' AND e.entity_id = lb.id
+           WHERE e.id = ?""",
+        (entry_id,),
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Entry not found")
+
+    title = row["name"]
+
+    if row["type_code"] == "b":
+        link_url = row["amazon_short_url"] or row["amazon_url"] or row["url"] or ""
+        author = row["author"]
+        if author:
+            text = f"[{title}]({link_url}) by {author}"
+        else:
+            text = f"[{title}]({link_url})"
+    else:
+        link_url = row["webpage_url"] or row["url"] or ""
+        text = f"[{title}]({link_url})"
+
+    return {"text": text, "format": "markdown"}
+
+
+# ---------------------------------------------------------------------------
+# POST /api/libby/entries/{id}/action/copy_doc
+# ---------------------------------------------------------------------------
+
+def _folder_id_from_drive_url(url: str) -> str | None:
+    """Extract Google Drive folder ID from a folders URL."""
+    if not url:
+        return None
+    try:
+        part = url.split("/folders/")[-1]
+        return part.split("?")[0].strip() or None
+    except Exception:
+        return None
+
+
+class CopyDocRequest(BaseModel):
+    client_id: int
+
+
+@router.post("/entries/{entry_id}/action/copy_doc")
+def action_copy_doc(entry_id: int, body: CopyDocRequest):
+    """Copy the entry's Google Doc to the client's coaching docs folder.
+
+    Strips the "Copy of " prefix Drive adds, returns the copy URL and a
+    Markdown-formatted reference line for clipboard.
+    """
+    db = get_db()
+
+    entry_row = db.execute(
+        "SELECT id, name, gdoc_id FROM library_entries WHERE id = ?",
+        (entry_id,),
+    ).fetchone()
+    if not entry_row:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    if not entry_row["gdoc_id"]:
+        raise HTTPException(status_code=422, detail="Entry has no Google Doc")
+
+    client_row = db.execute(
+        "SELECT id, name, gdrive_coaching_docs_url FROM billing_clients WHERE id = ?",
+        (body.client_id,),
+    ).fetchone()
+    if not client_row:
+        raise HTTPException(status_code=404, detail="Client not found")
+    if not client_row["gdrive_coaching_docs_url"]:
+        raise HTTPException(status_code=422, detail="Client has no coaching docs folder configured")
+
+    folder_id = _folder_id_from_drive_url(client_row["gdrive_coaching_docs_url"])
+    if not folder_id:
+        raise HTTPException(status_code=422, detail="Could not parse coaching docs folder URL")
+
+    try:
+        from connectors.drive import copy_drive_file
+        result = copy_drive_file(
+            file_id=entry_row["gdoc_id"],
+            dest_folder_id=folder_id,
+            original_name=entry_row["name"],
+        )
+    except Exception as exc:
+        logger.error("copy_doc failed for entry %d: %s", entry_id, exc)
+        raise HTTPException(status_code=502, detail=f"Drive API error: {exc}")
+
+    copy_url = result["web_url"]
+    filename = result["name"]
+    print_text = f"[{filename}]({copy_url})"
+
+    logger.info(
+        "copy_doc: entry %d (%s) → client %d (%s), file: %s",
+        entry_id, entry_row["name"], body.client_id, client_row["name"], filename,
+    )
+    return {"copy_url": copy_url, "print_text": print_text, "filename": filename}
 
 
 # ---------------------------------------------------------------------------
@@ -1039,6 +1151,35 @@ def get_topics():
     return {"topics": [dict(r) for r in rows]}
 
 
+class TopicCreateRequest(BaseModel):
+    code: str
+    name: str
+
+
+@router.post("/topics")
+def create_topic(body: TopicCreateRequest):
+    """Create a new topic."""
+    code = body.code.strip().lower()
+    name = body.name.strip()
+    if not code or len(code) > 4:
+        raise HTTPException(status_code=400, detail="Code must be 1–4 characters")
+    if not name:
+        raise HTTPException(status_code=400, detail="Name is required")
+
+    db = get_db()
+    existing = db.execute("SELECT id FROM library_topics WHERE code = ?", (code,)).fetchone()
+    if existing:
+        raise HTTPException(status_code=409, detail=f"Code '{code}' already in use")
+
+    with get_write_db() as dbw:
+        cur = dbw.execute(
+            "INSERT INTO library_topics (code, name) VALUES (?, ?)", (code, name)
+        )
+        dbw.commit()
+        new_id = cur.lastrowid
+    return {"id": new_id, "code": code, "name": name, "entry_count": 0}
+
+
 class TopicUpdateRequest(BaseModel):
     code: str | None = None
     name: str | None = None
@@ -1173,6 +1314,77 @@ def remove_entry_topic(entry_id: int, topic_id: int):
         )
         dbw.commit()
     return {"action": "removed", "topic_name": topic["name"]}
+
+
+# ---------------------------------------------------------------------------
+# Retype — change entry's type
+# POST /api/libby/entries/{id}/retype
+# ---------------------------------------------------------------------------
+
+class RetypeRequest(BaseModel):
+    new_type_code: str
+
+
+@router.post("/entries/{entry_id}/retype")
+def retype_entry(entry_id: int, body: RetypeRequest):
+    """Change an entry's type code. Creates a fresh row in the new type table,
+    updates library_entries, and removes the old type-specific row.
+    Master fields (name, url, topics, priority) are preserved.
+    Type-specific fields are not migrated (schemas differ).
+    """
+    new_code = body.new_type_code.strip().lower()
+    db = get_db()
+
+    # Validate new type exists
+    new_type = db.execute(
+        "SELECT code, name, table_name FROM library_types WHERE code = ?", (new_code,)
+    ).fetchone()
+    if not new_type:
+        raise HTTPException(status_code=400, detail=f"Unknown type code: '{new_code}'")
+
+    # Get current entry
+    entry = db.execute(
+        "SELECT id, name, type_code, entity_id FROM library_entries WHERE id = ?", (entry_id,)
+    ).fetchone()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Entry not found")
+
+    old_code = entry["type_code"]
+    old_entity_id = entry["entity_id"]
+
+    if old_code == new_code:
+        raise HTTPException(status_code=400, detail=f"Entry is already type '{new_code}'")
+
+    # Get old type's table_name for cleanup
+    old_type = db.execute(
+        "SELECT table_name FROM library_types WHERE code = ?", (old_code,)
+    ).fetchone()
+
+    new_table = new_type["table_name"]
+
+    with get_write_db() as dbw:
+        # Insert minimal row in new type table
+        cur = dbw.execute(f"INSERT INTO {new_table} DEFAULT VALUES")  # noqa: S608
+        new_entity_id = cur.lastrowid
+
+        # Point entry at new type row
+        dbw.execute(
+            "UPDATE library_entries SET type_code = ?, entity_id = ? WHERE id = ?",
+            (new_code, new_entity_id, entry_id),
+        )
+
+        # Delete old type-specific row if we know the table
+        if old_type and old_entity_id is not None:
+            old_table = old_type["table_name"]
+            dbw.execute(f"DELETE FROM {old_table} WHERE id = ?", (old_entity_id,))  # noqa: S608
+
+        dbw.commit()
+
+    return {
+        "old_type": old_code,
+        "new_type": new_code,
+        "entry_name": entry["name"],
+    }
 
 
 # ---------------------------------------------------------------------------
