@@ -19,6 +19,7 @@ import subprocess
 from datetime import date as _date, datetime
 from pathlib import Path
 
+import httpx
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 
@@ -115,6 +116,7 @@ def search_library(q: str = "", client_id: int | None = None):
             e.frequency,
             e.url,
             e.amazon_url,
+            e.amazon_short_url,
             e.webpage_url,
             e.gdoc_id,
             e.comments,
@@ -225,6 +227,7 @@ def search_library(q: str = "", client_id: int | None = None):
             "frequency": row["frequency"],
             "url": row["url"],
             "amazon_url": row["amazon_url"],
+            "amazon_short_url": row["amazon_short_url"],
             "webpage_url": row["webpage_url"],
             "gdoc_id": row["gdoc_id"],
             "obsidian_link": row["obsidian_link"],
@@ -402,6 +405,29 @@ def _append_resource_to_client_page(path: Path, ref_line: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Amazon clean URL helper
+# ---------------------------------------------------------------------------
+
+_AMAZON_ASIN_RE = re.compile(r'/dp/([A-Z0-9]{10})')
+
+
+def _get_amazon_short_url(amazon_url: str) -> str | None:
+    """Extract ASIN from amazon_url and return a clean, tracking-free URL.
+
+    Converts e.g. https://www.amazon.com/Some-Title/dp/B000ABCDEF/ref=sr_1_1?crid=...
+    to           https://www.amazon.com/dp/B000ABCDEF
+
+    Returns None if no ASIN found.
+    """
+    if not amazon_url:
+        return None
+    match = _AMAZON_ASIN_RE.search(amazon_url)
+    if not match:
+        return None
+    return f"https://www.amazon.com/dp/{match.group(1)}"
+
+
+# ---------------------------------------------------------------------------
 # POST /api/libby/entries/{id}/action/copy
 # ---------------------------------------------------------------------------
 
@@ -409,17 +435,40 @@ def _append_resource_to_client_page(path: Path, ref_line: str) -> bool:
 def action_copy(entry_id: int):
     """Return the canonical URL for an entry (for clipboard copy).
 
-    Preference order: url → webpage_url → amazon_url.
+    Priority chain: webpage_url → amazon_short_url (cached) → derive+cache → amazon_url → url.
     The frontend handles the actual clipboard write.
     """
     db = get_db()
     row = db.execute(
-        "SELECT url, webpage_url, amazon_url FROM library_entries WHERE id = ?",
+        "SELECT url, webpage_url, amazon_url, amazon_short_url FROM library_entries WHERE id = ?",
         (entry_id,),
     ).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Entry not found")
-    return {"url": row["url"] or row["webpage_url"] or row["amazon_url"] or None}
+
+    # 1. webpage_url wins first
+    if row["webpage_url"]:
+        return {"url": row["webpage_url"]}
+
+    # 2. Cached clean URL (already derived + stored)
+    if row["amazon_short_url"]:
+        return {"url": row["amazon_short_url"]}
+
+    # 3. Derive + cache clean URL from full amazon_url
+    if row["amazon_url"]:
+        clean_url = _get_amazon_short_url(row["amazon_url"])
+        if clean_url:
+            db_w = get_write_db()
+            db_w.execute(
+                "UPDATE library_entries SET amazon_short_url = ? WHERE id = ?",
+                (clean_url, entry_id),
+            )
+            db_w.commit()
+            return {"url": clean_url}
+        # No ASIN in URL — fall through to full amazon_url
+        return {"url": row["amazon_url"]}
+
+    return {"url": row["url"] or None}
 
 
 # ---------------------------------------------------------------------------

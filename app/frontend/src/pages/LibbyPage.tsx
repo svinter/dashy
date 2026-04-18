@@ -50,7 +50,7 @@ const TYPE_LABELS: Record<string, string> = {
 
 const RESULT_LABELS = 'abcdefghijklmn';
 
-type UiState = 'SEARCH' | 'SELECT' | 'ACTION';
+type UiState = 'SEARCH' | 'PICK' | 'ACTION';
 
 // ---------------------------------------------------------------------------
 // Help popup content
@@ -103,9 +103,9 @@ function LibbyHelpPopup({ onClose }: { onClose: () => void }) {
             <div className="libby-help-col-title" style={{ marginTop: '16px' }}>Selection</div>
             <table className="libby-help-keys">
               <tbody>
-                <tr><td className="libby-help-key">,</td><td>enter select mode</td></tr>
-                <tr><td className="libby-help-key">a–n</td><td>select entry</td></tr>
-                <tr><td className="libby-help-key">Esc</td><td>reset</td></tr>
+                <tr><td className="libby-help-key">Return</td><td>select (1 result) or pick mode</td></tr>
+                <tr><td className="libby-help-key">a–n</td><td>pick from results</td></tr>
+                <tr><td className="libby-help-key">Esc</td><td>return to search</td></tr>
               </tbody>
             </table>
 
@@ -475,11 +475,11 @@ function CatalogPage() {
   const { activeClientId, activeClientName, activeCompanyId, activeClientManifestUrl, isHelpOpen, onSelectionChange } = useLibbyContext();
 
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const [query, setQuery] = useState('');
   const [uiState, setUiState] = useState<UiState>('SEARCH');
   const [results, setResults] = useState<LibraryEntry[]>([]);
-  const [frozenResults, setFrozenResults] = useState<LibraryEntry[]>([]);
   const [selected, setSelected] = useState<LibraryEntry | null>(null);
   const [selectedWebpageUrl, setSelectedWebpageUrl] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
@@ -492,6 +492,15 @@ function CatalogPage() {
   const [manifestOpen, setManifestOpen] = useState(false);
   const [manifestFlashName, setManifestFlashName] = useState<string | null>(null);
 
+  // Focus management: PICK/ACTION → container; SEARCH → input
+  useEffect(() => {
+    if (uiState === 'PICK' || uiState === 'ACTION') {
+      containerRef.current?.focus();
+    } else {
+      searchInputRef.current?.focus();
+    }
+  }, [uiState]);
+
   // Auto-focus search box when a client is selected
   useEffect(() => {
     if (activeClientId !== null) {
@@ -499,7 +508,7 @@ function CatalogPage() {
     }
   }, [activeClientId]);
 
-  // Load all topics once on mount for client-side filtering feedback
+  // Load all topics once on mount
   useEffect(() => {
     fetch('/api/libby/topics')
       .then(r => r.ok ? r.json() : null)
@@ -514,7 +523,7 @@ function CatalogPage() {
     setTimeout(() => setToastMsg(null), 2500);
   };
 
-  // --- Search (re-runs when active client changes to refresh shared indicators) ---
+  // --- Search ---
   const runSearch = async (q: string, clientId: number | null) => {
     if (!q.trim()) { setResults([]); return; }
     setLoading(true);
@@ -536,10 +545,34 @@ function CatalogPage() {
 
   // --- Input change ---
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (uiState !== 'SEARCH') return;
     const val = e.target.value;
     setQuery(val);
     runSearch(val, activeClientId);
+  };
+
+  // --- Search input keydown (SEARCH state only) ---
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Escape') {
+      setQuery('');
+      setResults([]);
+      return;
+    }
+    if (e.metaKey && e.key === 'a') {
+      e.preventDefault();
+      onSelectionChange([], true);
+      return;
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (results.length === 0) return;
+      if (results.length === 1) {
+        setSelected(results[0]);
+        setSelectedWebpageUrl(results[0].webpage_url ?? null);
+        setUiState('ACTION');
+      } else {
+        setUiState('PICK');
+      }
+    }
   };
 
   // --- Copy action ---
@@ -610,100 +643,76 @@ function CatalogPage() {
     setTimeout(() => setStatusMsg(null), 3000);
   };
 
-  // --- Window keyboard listener ---
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      // If help popup is open, don't process Catalog keys (except ⌘? toggle)
-      if (isHelpOpen) return;
+  // --- Container keydown handler (PICK and ACTION states) ---
+  // Fires for keydown on the container div and events bubbling up from its children.
+  // In SEARCH state the input has focus so we return early — input handles its own keys.
+  const handleContainerKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (uiState === 'SEARCH') return;
+    if (isHelpOpen) return;
 
-      if (uiState === 'SEARCH') {
-        if (e.key === ',') {
-          e.preventDefault();
-          if (results.length === 0) return;
-          setFrozenResults(results);
-          setUiState('SELECT');
-          return;
-        }
-        if (e.key === 'Enter') {
-          if (results.length === 1) {
-            setSelected(results[0]);
-            setSelectedWebpageUrl(results[0].webpage_url ?? null);
-            setFrozenResults(results);
-            setUiState('ACTION');
-          }
-          e.preventDefault();
-          return;
-        }
-        if (e.key === 'Escape') { setQuery(''); setResults([]); return; }
-        if (e.metaKey && e.key === 'a') { e.preventDefault(); onSelectionChange([], true); return; }
+    if (uiState === 'PICK') {
+      e.preventDefault();
+      if (e.key === 'Escape') {
+        setUiState('SEARCH');
+        return;
       }
-
-      if (uiState === 'SELECT') {
-        if (e.key === 'Backspace') { e.preventDefault(); setUiState('SEARCH'); return; }
-        if (e.key === 'Escape') {
-          e.preventDefault();
-          setQuery(''); setResults([]); setFrozenResults([]); setUiState('SEARCH');
-          return;
-        }
-        const idx = RESULT_LABELS.indexOf(e.key.toLowerCase());
-        if (idx >= 0 && idx < frozenResults.length) {
-          e.preventDefault();
-          const entry = frozenResults[idx];
-          setSelected(entry);
-          setSelectedWebpageUrl(entry.webpage_url ?? null);
-          setUiState('ACTION');
-          return;
-        }
+      const idx = RESULT_LABELS.indexOf(e.key.toLowerCase());
+      if (idx >= 0 && idx < results.length) {
+        const entry = results[idx];
+        setSelected(entry);
+        setSelectedWebpageUrl(entry.webpage_url ?? null);
+        setUiState('ACTION');
       }
+      return;
+    }
 
-      if (uiState === 'ACTION') {
-        if (e.key === 'Escape') {
-          e.preventDefault();
-          setQuery(''); setResults([]); setFrozenResults([]);
-          setSelected(null); setSelectedWebpageUrl(null); setStatusMsg(null);
-          setUiState('SEARCH');
-          return;
-        }
-        if (e.key === 'c') { e.preventDefault(); handleCopy(); return; }
-        if (e.key === 'r') { e.preventDefault(); handleRecord(); return; }
-        if (e.key === 'm') { e.preventDefault(); handleMake(); return; }
-        if (e.key === 'o') {
-          e.preventDefault();
-          if (selected?.obsidian_link) { window.open(selected.obsidian_link, '_self'); }
-          else { showToast('No Obsidian page for this entry'); }
-          return;
-        }
-        if (e.key === 's') { e.preventDefault(); showToast('synopsis: coming soon'); return; }
-        if (e.key === 'd') { e.preventDefault(); showToast('copy doc: coming soon'); return; }
-        if (e.key === 'f') { e.preventDefault(); showToast('full: coming soon'); return; }
-        if (e.key === 'x') { e.preventDefault(); showToast('find related: future'); return; }
+    if (uiState === 'ACTION') {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setQuery('');
+        setResults([]);
+        setSelected(null);
+        setSelectedWebpageUrl(null);
+        setStatusMsg(null);
+        setUiState('SEARCH');
+        return;
       }
-    };
-
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [uiState, results, frozenResults, selected, activeClientId, isHelpOpen, onSelectionChange]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const displayResults = uiState === 'SEARCH' ? results : frozenResults;
-  const displayQuery = uiState === 'SELECT' ? query + ',' : uiState === 'ACTION' ? '' : query;
+      if (e.key === 'c') { e.preventDefault(); handleCopy(); return; }
+      if (e.key === 'r') { e.preventDefault(); handleRecord(); return; }
+      if (e.key === 'm') { e.preventDefault(); handleMake(); return; }
+      if (e.key === 'o') {
+        e.preventDefault();
+        if (selected?.obsidian_link) { window.open(selected.obsidian_link, '_self'); }
+        else { showToast('No Obsidian page for this entry'); }
+        return;
+      }
+      if (e.key === 's') { e.preventDefault(); showToast('synopsis: coming soon'); return; }
+      if (e.key === 'd') { e.preventDefault(); showToast('copy doc: coming soon'); return; }
+      if (e.key === 'f') { e.preventDefault(); showToast('full: coming soon'); return; }
+      if (e.key === 'x') { e.preventDefault(); showToast('find related: future'); return; }
+    }
+  };
 
   const formatSharedDate = (iso: string) => {
     try { return iso.slice(0, 10); } catch { return iso; }
   };
 
-  // Topic filter feedback
+  // Topic filter feedback (SEARCH only)
   const activeTopicPrefix = parseTopicPrefix(uiState === 'SEARCH' ? query : '');
   const matchingTopics = activeTopicPrefix
     ? allTopics.filter(t => t.name.toLowerCase().startsWith(activeTopicPrefix))
     : [];
   const topicPrefixColor = matchingTopics.length === 1 ? 'var(--color-text)' : 'var(--color-text-light)';
 
-
-  // Show shared-indicator column when a specific client (not just company) is selected
   const showSharedColumn = activeClientId !== null;
 
   return (
-    <div className="libby-find-page">
+    <div
+      ref={containerRef}
+      className="libby-find-page"
+      tabIndex={-1}
+      onKeyDown={handleContainerKeyDown}
+    >
       <div className="libby-catalog-topbar">
         <LibbyClientFilter />
         {activeClientManifestUrl && activeClientId && activeClientName && (
@@ -717,30 +726,43 @@ function CatalogPage() {
         )}
       </div>
 
-      {/* Search box */}
-      <div className={`libby-search-wrap libby-search-wrap--${uiState.toLowerCase()}`}>
-        {uiState === 'ACTION' && selected ? (
-          <div className="libby-search-action-label">
-            <span className="libby-search-action-name">{selected.name}</span>
-          </div>
-        ) : (
+      {/* Search input — SEARCH state only */}
+      {uiState === 'SEARCH' && (
+        <div className="libby-search-wrap libby-search-wrap--search">
           <input
             ref={searchInputRef}
             className="libby-search-input"
             type="text"
-            placeholder={uiState === 'SEARCH' ? 'b .le atomic…' : ''}
-            value={displayQuery}
+            placeholder="b .le atomic…"
+            value={query}
             onChange={handleInputChange}
+            onKeyDown={handleSearchKeyDown}
             autoFocus
-            readOnly={uiState === 'SELECT'}
             spellCheck={false}
           />
-        )}
-        {loading && <span className="libby-search-spinner">…</span>}
-      </div>
+          {loading && <span className="libby-search-spinner">…</span>}
+        </div>
+      )}
 
+      {/* PICK prompt — replaces input, shows result labels as selectable */}
+      {uiState === 'PICK' && (
+        <div className="libby-search-wrap libby-search-wrap--pick">
+          <span className="libby-pick-prompt">
+            Pick a result (a–{RESULT_LABELS[results.length - 1]}) · <strong>escape</strong> to search again
+          </span>
+        </div>
+      )}
 
-      {/* Topic filter feedback bar */}
+      {/* ACTION: selected title shown in place of input */}
+      {uiState === 'ACTION' && selected && (
+        <div className="libby-search-wrap libby-search-wrap--action">
+          <div className="libby-search-action-label">
+            <span className="libby-search-action-name">{selected.name}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Topic filter feedback bar — SEARCH only */}
       {uiState === 'SEARCH' && activeTopicPrefix && (
         <div className="libby-topic-feedback">
           <span className="libby-topic-feedback-prefix" style={{ color: topicPrefixColor }}>.{activeTopicPrefix}</span>
@@ -755,110 +777,106 @@ function CatalogPage() {
         </div>
       )}
 
-      {/* Column headers */}
-      {uiState !== 'ACTION' && displayResults.length > 0 && (
-        <div className="libby-results-header">
-          <span className="libby-result-label">key</span>
-          <span className="libby-result-name-cell" style={{ flexDirection: 'row', alignItems: 'baseline', gap: '4px' }}>
-            <span style={{ color: '#000' }}>title</span>
-            <span style={{ color: 'var(--color-text-light)', fontWeight: 'normal' }}>by author</span>
-          </span>
-          <span className="libby-result-type">type</span>
-          <span className="libby-priority-dots">pri</span>
-          <span className="libby-result-freq">shared</span>
-          {showSharedColumn && <span className="libby-result-shared">with</span>}
-        </div>
-      )}
-
-      {/* Results list */}
-      {uiState !== 'ACTION' && displayResults.length > 0 && (
-        <ul className="libby-results">
-          {displayResults.map((entry, i) => {
-            const label = RESULT_LABELS[i];
-            const isHighlit = uiState === 'SELECT';
-            // Topics that match the active prefix (for second-line display)
-            const rowTopics = activeTopicPrefix
-              ? entry.topics.filter(t => t.name.toLowerCase().startsWith(activeTopicPrefix))
-              : [];
-            return (
-              <li
-                key={entry.id}
-                className={`libby-result-row ${isHighlit ? 'libby-result-row--select' : ''}`}
-                onClick={() => {
-                  if (uiState === 'SELECT') {
-                    setSelected(entry);
-                    setSelectedWebpageUrl(entry.webpage_url ?? null);
-                    setUiState('ACTION');
-                  }
-                }}
-              >
-                <span className={`libby-result-label ${isHighlit ? 'libby-result-label--active' : ''}`}>{label}</span>
-                <span className="libby-result-name-cell">
-                  <span className="libby-result-name">
-                    {entry.name}
-                    {entry.author && (
-                      <span className="libby-result-author-inline"> by {entry.author}</span>
+      {/* Column headers + Results list — SEARCH and PICK */}
+      {uiState !== 'ACTION' && results.length > 0 && (
+        <>
+          <div className="libby-results-header">
+            <span className="libby-result-label">key</span>
+            <span className="libby-result-name-cell" style={{ flexDirection: 'row', alignItems: 'baseline', gap: '4px' }}>
+              <span style={{ color: '#000' }}>title</span>
+              <span style={{ color: 'var(--color-text-light)', fontWeight: 'normal' }}>by author</span>
+            </span>
+            <span className="libby-result-type">type</span>
+            <span className="libby-priority-dots">pri</span>
+            <span className="libby-result-freq">shared</span>
+            {showSharedColumn && <span className="libby-result-shared">with</span>}
+          </div>
+          <ul className="libby-results">
+            {results.map((entry, i) => {
+              const label = RESULT_LABELS[i];
+              const isHighlit = uiState === 'PICK';
+              const rowTopics = activeTopicPrefix
+                ? entry.topics.filter(t => t.name.toLowerCase().startsWith(activeTopicPrefix))
+                : [];
+              return (
+                <li
+                  key={entry.id}
+                  className={`libby-result-row${isHighlit ? ' libby-result-row--select' : ''}`}
+                  onClick={() => {
+                    if (uiState === 'PICK') {
+                      setSelected(entry);
+                      setSelectedWebpageUrl(entry.webpage_url ?? null);
+                      setUiState('ACTION');
+                    }
+                  }}
+                >
+                  <span className={`libby-result-label${isHighlit ? ' libby-result-label--active' : ''}`}>{label}</span>
+                  <span className="libby-result-name-cell">
+                    <span className="libby-result-name">
+                      {entry.name}
+                      {entry.author && (
+                        <span className="libby-result-author-inline"> by {entry.author}</span>
+                      )}
+                    </span>
+                    {rowTopics.length > 0 && (
+                      <span className="libby-result-name-topics"><em>{rowTopics.map(t => t.name).join(', ')}</em></span>
                     )}
                   </span>
-                  {rowTopics.length > 0 && (
-                    <span className="libby-result-name-topics">{rowTopics.map(t => t.name).join(', ')}</span>
+                  <span className="libby-result-type">{TYPE_LABELS[entry.type_code] ?? entry.type_code}</span>
+                  <PriorityDots priority={entry.priority} />
+                  {entry.frequency > 0 && (
+                    <span className="libby-result-freq">{entry.frequency}</span>
                   )}
-                </span>
-                <span className="libby-result-type">{TYPE_LABELS[entry.type_code] ?? entry.type_code}</span>
-                <PriorityDots priority={entry.priority} />
-                {entry.frequency > 0 && (
-                  <span className="libby-result-freq">{entry.frequency}</span>
-                )}
-                {showSharedColumn && entry.last_shared_at && (
-                  <span
-                    className="libby-result-shared-icon"
-                    title={`Shared with ${activeClientName ?? 'client'} on ${formatSharedDate(entry.last_shared_at)}`}
-                  >
-                    ✓
-                  </span>
-                )}
-              </li>
-            );
-          })}
-        </ul>
+                  {showSharedColumn && entry.last_shared_at && (
+                    <span
+                      className="libby-result-shared-icon"
+                      title={`Shared with ${activeClientName ?? 'client'} on ${formatSharedDate(entry.last_shared_at)}`}
+                    >
+                      ✓
+                    </span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </>
       )}
 
       {/* Action section */}
       {uiState === 'ACTION' && selected && (
         <div className="libby-action-section">
-          {/* Entry metadata row */}
           <div className="libby-selected-detail">
             <span className="libby-selected-type">{TYPE_LABELS[selected.type_code] ?? selected.type_code}</span>
             {selected.author && <span className="libby-selected-author">{selected.author}</span>}
-            <span className="libby-selected-topics">
-              {selected.topics.map(t => (
-                <span key={t.code} className="libby-topic-pill">{t.code}</span>
-              ))}
-            </span>
+            {selected.topics.length > 0 && (
+              <span className="libby-selected-topics">
+                <em>{selected.topics.map(t => t.name).join(', ')}</em>
+              </span>
+            )}
             <PriorityDots priority={selected.priority} />
           </div>
 
-          {/* Expanded detail: description + categories */}
           {(selected.description || (selected.categories && selected.categories.length > 0)) && (
             <div className="libby-selected-expanded">
-              {selected.description && (
-                <p className="libby-selected-description">
-                  {selected.description.length > 150
-                    ? selected.description.slice(0, 150) + '…'
-                    : selected.description}
-                </p>
-              )}
+              {selected.description && (() => {
+                const raw = selected.description!;
+                const prefix = selected.author ? `by ${selected.author}` : null;
+                const desc = prefix && raw.toLowerCase().startsWith(prefix.toLowerCase())
+                  ? raw.slice(prefix.length).trimStart()
+                  : raw;
+                const truncated = desc.length > 150 ? desc.slice(0, 150) + '…' : desc;
+                return (
+                  <p className="libby-selected-description">{truncated}</p>
+                );
+              })()}
               {selected.categories && selected.categories.length > 0 && (
-                <div className="libby-selected-categories">
-                  {selected.categories.map(c => (
-                    <span key={c} className="libby-category-pill">{c}</span>
-                  ))}
-                </div>
+                <p className="libby-selected-categories-text">
+                  {selected.categories.join(', ')}
+                </p>
               )}
             </div>
           )}
 
-          {/* Action buttons */}
           <div className="libby-action-bar">
             <button className="libby-action-btn" onClick={handleCopy} title="c — copy URL">
               <span className="libby-action-key">c</span> copy
@@ -877,14 +895,13 @@ function CatalogPage() {
               <button
                 className="libby-action-btn"
                 onClick={() => window.open(selected.obsidian_link!, '_self')}
-                title={`o — open in Obsidian`}
+                title="o — open in Obsidian"
               >
                 <span className="libby-action-key">o</span> obsidian
               </button>
             )}
           </div>
 
-          {/* Action legend */}
           <div className="libby-action-legend">
             <table className="libby-legend-table">
               <tbody>
