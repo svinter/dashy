@@ -573,7 +573,7 @@ def _enrich_event_rows(raw_rows: list, db, vault_meetings=None) -> list[dict]:
             try:
                 fname = f"{r['date']} - {obs_name}.md"
                 if (vault_meetings / fname).exists():
-                    note_path = f"8 Meetings/{fname}"
+                    note_path = f"{_obs_folder('meetings', '8 Meetings')}/{fname}"
             except Exception:
                 pass
 
@@ -617,7 +617,7 @@ def get_clients_by_date(mode: str = "today", days: int = 1):
         from connectors.obsidian import get_vault_path
         _vault = get_vault_path()
         if _vault:
-            vault_meetings = _vault / "8 Meetings"
+            vault_meetings = _vault / _obs_folder("meetings", "8 Meetings")
     except Exception:
         pass
 
@@ -1032,7 +1032,7 @@ def get_wordcloud(body: WordCloudRequest):
     vault = get_vault_path()
     if not vault:
         raise HTTPException(status_code=500, detail="Obsidian vault not configured")
-    meetings_dir = vault / "8 Meetings"
+    meetings_dir = vault / _obs_folder("meetings", "8 Meetings")
 
     stopwords, min_frequency, max_words = _load_wordcloud_config()
 
@@ -1104,7 +1104,7 @@ def get_wordcloud(body: WordCloudRequest):
                             "date": date_str,
                             "client_name": client_name,
                             "obsidian_name": obsidian_name,
-                            "path": f"8 Meetings/{date_str} - {obsidian_name}.md",
+                            "path": f"{_obs_folder('meetings', '8 Meetings')}/{date_str} - {obsidian_name}.md",
                         })
 
     # --- Project sessions ---
@@ -1165,7 +1165,7 @@ def get_wordcloud(body: WordCloudRequest):
                             "date": date_str,
                             "client_name": project_name,
                             "obsidian_name": obsidian_name,
-                            "path": f"8 Meetings/{date_str} - {obsidian_name}.md",
+                            "path": f"{_obs_folder('meetings', '8 Meetings')}/{date_str} - {obsidian_name}.md",
                         })
 
     # Filter, sort, cap
@@ -1406,8 +1406,24 @@ def setup_list_companies():
 # Setup — shared constants and helpers
 # ---------------------------------------------------------------------------
 
-_DRIVE_ROOT_FOLDER_ID = "1Y6zVoKjaCOSs2PJTPSwAELUUBOv7PBy3"
-_DRIVE_TEMPLATE_FOLDER_ID = "1ejHI_5Y6lghWVL22ztV1O3YMRxxQeiHo"
+def _drive_root_folder_id() -> str:
+    from app_config import get_install_config
+    return get_install_config().get("google_drive", {}).get("root_coaching_folder_id", "1Y6zVoKjaCOSs2PJTPSwAELUUBOv7PBy3")
+
+
+def _drive_template_folder_id() -> str:
+    from app_config import get_install_config
+    return get_install_config().get("google_drive", {}).get("template_folder_id", "1ejHI_5Y6lghWVL22ztV1O3YMRxxQeiHo")
+
+
+def _obs_folder(key: str, default: str) -> str:
+    from app_config import get_install_config
+    return get_install_config().get("obsidian", {}).get("folders", {}).get(key, default)
+
+
+def _drive_subfolder(key: str, default: str) -> str:
+    from app_config import get_install_config
+    return get_install_config().get("google_drive", {}).get("subfolder_names", {}).get(key, default)
 
 
 def _folder_id_from_url(url: str) -> str | None:
@@ -1434,9 +1450,9 @@ def _obsidian_company_page(vault: Path, company_name: str) -> dict:
 
     Returns {"action": "moved"|"created"|"exists", "path": str}.
     """
-    folder = vault / "1 Company" / company_name
+    folder = vault / _obs_folder("companies", "1 Company") / company_name
     page = folder / f"{company_name}.md"
-    flat = vault / "1 Company" / f"{company_name}.md"
+    flat = vault / _obs_folder("companies", "1 Company") / f"{company_name}.md"
 
     folder.mkdir(parents=True, exist_ok=True)
 
@@ -1463,7 +1479,7 @@ def _obsidian_client_page(
     manifest_gdoc_url: str = "",
 ) -> Path:
     """Write 1 People/{client_name}.md from the client page template (spec §6.1)."""
-    page = vault / "1 People" / f"{client_name}.md"
+    page = vault / _obs_folder("clients", "1 People") / f"{client_name}.md"
     if page.exists():
         return page
 
@@ -1494,7 +1510,7 @@ def _obsidian_client_page(
         f"#### History\n"
         f"```dataview\n"
         f"TABLE date AS \"Date\", topic AS \"Topic\", meeting AS \"Meeting\"\n"
-        f"FROM \"8 Meetings\"\n"
+        f"FROM \"{_obs_folder('meetings', '8 Meetings')}\"\n"
         f"WHERE contains(client, [[{client_name}]])\n"
         f"SORT date DESC\n"
         f"LIMIT 10\n"
@@ -1527,7 +1543,7 @@ def _obsidian_project_page(
     billing_type: str,
 ) -> Path:
     """Write 1 Company/{company_name}/{project_name}.md from the project page template (spec §6.2)."""
-    page = vault / "1 Company" / company_name / f"{project_name}.md"
+    page = vault / _obs_folder("companies", "1 Company") / company_name / f"{project_name}.md"
     if page.exists():
         return page
 
@@ -1543,7 +1559,7 @@ def _obsidian_project_page(
         f"#### History\n"
         f"```dataview\n"
         f"TABLE date AS \"Date\", topic AS \"Topic\", meeting AS \"Meeting\"\n"
-        f"FROM \"8 Meetings\"\n"
+        f"FROM \"{_obs_folder('meetings', '8 Meetings')}\"\n"
         f"WHERE contains(client, [[{project_name}]])\n"
         f"SORT date DESC\n"
         f"LIMIT 10\n"
@@ -1592,7 +1608,7 @@ def setup_create_company(body: CompanyCreateRequest):
 
     # 1 — Google Drive folder (must succeed before DB write)
     try:
-        folder_id, folder_url = create_drive_folder(name, _DRIVE_ROOT_FOLDER_ID)
+        folder_id, folder_url = create_drive_folder(name, _drive_root_folder_id())
     except Exception as exc:
         logger.error("Drive folder creation failed for company %r: %s", name, exc)
         raise HTTPException(status_code=400, detail=f"Google Drive error: {exc}")
@@ -1936,10 +1952,10 @@ def setup_create_client(body: ClientCreateRequest):
     # create duplicate Clients / client-name / Coaching docs folders.
     try:
         # {company}/Clients/{client_name}/
-        clients_folder_id, _ = get_or_create_drive_folder("Clients", company_folder_id)
+        clients_folder_id, _ = get_or_create_drive_folder(_drive_subfolder("clients", "Clients"), company_folder_id)
         client_folder_id, _ = get_or_create_drive_folder(name, clients_folder_id)
         # {company}/Clients/{client_name}/Coaching docs/
-        coaching_docs_id, coaching_docs_url = get_or_create_drive_folder("Coaching docs", client_folder_id)
+        coaching_docs_id, coaching_docs_url = get_or_create_drive_folder(_drive_subfolder("coaching_docs", "Coaching docs"), client_folder_id)
     except Exception as exc:
         logger.error("Drive folder creation failed for client %r: %s", name, exc)
         raise HTTPException(status_code=400, detail=f"Google Drive error: {exc}")
@@ -1971,7 +1987,7 @@ def setup_create_client(body: ClientCreateRequest):
     wheel_of_life_url = ""
     copied_files: list[dict] = []
     try:
-        template_files = list_drive_files(_DRIVE_TEMPLATE_FOLDER_ID)
+        template_files = list_drive_files(_drive_template_folder_id())
         for tf in template_files:
             copied = copy_drive_file(tf["id"], coaching_docs_id, original_name=tf["name"])
             copied_files.append(copied)
@@ -2168,7 +2184,7 @@ def setup_create_project(body: ProjectCreateRequest):
 
     # 1 — Drive folder (must succeed before DB write)
     try:
-        projects_folder_id, _ = get_or_create_drive_folder("Projects", company_folder_id)
+        projects_folder_id, _ = get_or_create_drive_folder(_drive_subfolder("projects", "Projects"), company_folder_id)
         project_folder_id, project_folder_url = get_or_create_drive_folder(name, projects_folder_id)
     except Exception as exc:
         logger.error("Drive folder creation failed for project %r: %s", name, exc)

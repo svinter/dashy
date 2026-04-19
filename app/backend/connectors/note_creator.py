@@ -302,8 +302,10 @@ def create_upcoming_notes(days_ahead: int = 5, dry_run: bool = False) -> dict:
     if not vault:
         raise RuntimeError("Obsidian vault not configured")
 
-    daily_dir = vault / "9 Daily"
-    meetings_dir = vault / "8 Meetings"
+    from app_config import get_install_config
+    _obs_folders = get_install_config().get("obsidian", {}).get("folders", {})
+    daily_dir = vault / _obs_folders.get("daily", "9 Daily")
+    meetings_dir = vault / _obs_folders.get("meetings", "8 Meetings")
 
     daily_dir.mkdir(exist_ok=True)
     meetings_dir.mkdir(exist_ok=True)

@@ -29,6 +29,23 @@ from report import dry_run_report
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
+def _load_install_config() -> dict:
+    """Load dashy_install.json from the repo root; return {} on any error."""
+    try:
+        import json
+        repo_root = Path(__file__).resolve().parent.parent.parent.parent.parent
+        cfg_path = repo_root / "dashy_install.json"
+        if cfg_path.exists():
+            return json.loads(cfg_path.read_text())
+    except Exception:
+        pass
+    return {}
+
+
+_install = _load_install_config()
+_vault_root = Path(_install.get("obsidian", {}).get("vault_path", "/Users/stevevinter/Obsidian/MyNotes"))
+_lib_folder = _install.get("obsidian", {}).get("folders", {}).get("library", "4 Library")
+
 CONFIG = {
     # Source files (resolved relative to this file's directory)
     "ground_truth":  Path(__file__).parent / "ground_truth.txt",
@@ -38,11 +55,11 @@ CONFIG = {
     "gbooks_pdf":    Path(__file__).parent / "Your_library.pdf",
 
     # Vault
-    "vault_root":    Path("/Users/stevevinter/Obsidian/MyNotes"),
-    "books_dir":     Path("4 Library/Books"),
-    "highlights_dir":Path("4 Library/Highlights"),
-    "summaries_dir": Path("4 Library/Summaries"),
-    "orphans_dir":   Path("4 Library/Books/orphans"),
+    "vault_root":    _vault_root,
+    "books_dir":     Path(f"{_lib_folder}/Books"),
+    "highlights_dir":Path(f"{_lib_folder}/Highlights"),
+    "summaries_dir": Path(f"{_lib_folder}/Summaries"),
+    "orphans_dir":   Path(f"{_lib_folder}/Books/orphans"),
 
     # DB
     "db_path":       Path("/Users/stevevinter/.personal-dashboard/dashboard.db"),
