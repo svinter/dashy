@@ -36,6 +36,13 @@ export function LibbyTopicsPage() {
   // Delete confirmation
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
 
+  // New topic form
+  const [newFormOpen, setNewFormOpen] = useState(false);
+  const [newCode, setNewCode] = useState('');
+  const [newName, setNewName] = useState('');
+  const [newError, setNewError] = useState<string | null>(null);
+  const [newSaving, setNewSaving] = useState(false);
+
   const loadTopics = () => {
     setLoading(true);
     api.get<{ topics: LibraryTopic[] }>('/libby/topics')
@@ -108,15 +115,80 @@ export function LibbyTopicsPage() {
 
   const mergeSource = topics.find(t => t.id === mergeSourceId);
 
+  // --- New topic ---
+  const openNewForm = () => {
+    setNewFormOpen(true);
+    setNewCode('');
+    setNewName('');
+    setNewError(null);
+    setEditingId(null);
+    setMergeSourceId(null);
+    setDeleteConfirmId(null);
+  };
+
+  const cancelNew = () => { setNewFormOpen(false); setNewError(null); };
+
+  const saveNew = async () => {
+    setNewError(null);
+    setNewSaving(true);
+    try {
+      await api.post<LibraryTopic>('/libby/topics', { code: newCode.trim(), name: newName.trim() });
+      setNewFormOpen(false);
+      loadTopics();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setNewError(msg.includes('409') || msg.toLowerCase().includes('already') ? 'Code already in use' : msg);
+    } finally {
+      setNewSaving(false);
+    }
+  };
+
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
 
   return (
     <div className="libby-admin-page">
-      <p className="libby-admin-desc">
-        {topics.length} topic{topics.length !== 1 ? 's' : ''} · Edit code or name inline · Merge to reassign all entries
-      </p>
+      <div className="libby-admin-desc-row">
+        <p className="libby-admin-desc" style={{ margin: 0 }}>
+          {topics.length} topic{topics.length !== 1 ? 's' : ''} · Edit code or name inline · Merge to reassign all entries
+        </p>
+        {!newFormOpen && (
+          <button className="libby-admin-btn libby-admin-btn--new" onClick={openNewForm}>
+            + new topic
+          </button>
+        )}
+      </div>
+
+      {newFormOpen && (
+        <div className="libby-admin-new-form">
+          <input
+            className="libby-admin-input libby-admin-input--code"
+            placeholder="code"
+            maxLength={4}
+            value={newCode}
+            onChange={e => setNewCode(e.target.value)}
+            autoFocus
+            onKeyDown={e => { if (e.key === 'Enter') saveNew(); if (e.key === 'Escape') cancelNew(); }}
+          />
+          <input
+            className="libby-admin-input"
+            placeholder="name"
+            value={newName}
+            onChange={e => setNewName(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') saveNew(); if (e.key === 'Escape') cancelNew(); }}
+          />
+          <button
+            className="libby-admin-btn libby-admin-btn--primary"
+            onClick={saveNew}
+            disabled={newSaving || !newCode.trim() || !newName.trim()}
+          >
+            {newSaving ? 'saving…' : 'save'}
+          </button>
+          <button className="libby-admin-btn" onClick={cancelNew}>cancel</button>
+          {newError && <span className="libby-admin-inline-error">{newError}</span>}
+        </div>
+      )}
 
       {error && <div className="libby-admin-error">{error}</div>}
 

@@ -9686,6 +9686,7 @@ span.news-item-title {
 
 .libby-legend-name {
   width: 7em;
+  white-space: nowrap;
 }
 
 .libby-legend-desc {
@@ -9762,6 +9763,143 @@ span.news-item-title {
   font-size: var(--text-sm);
   color: var(--color-success, #27ae60);
   font-weight: 500;
+}
+
+/* ── Libby admin: New Topic button + form ── */
+
+.libby-admin-desc-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.libby-admin-btn--new {
+  font-size: 0.68rem;
+  white-space: nowrap;
+  color: var(--color-text-light);
+  border-color: var(--color-border);
+}
+
+.libby-admin-new-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+/* ── Libby type reference grid (empty search) ── */
+
+.libby-type-ref {
+  margin-top: 12px;
+}
+
+/* 7-column flat grid: [key][name][count][gap][key][name][count] */
+.libby-type-grid {
+  display: grid;
+  grid-template-columns: 1.2rem 7rem 3rem 4rem 1.2rem 7rem 3rem;
+  gap: 0.3rem 0;
+  align-items: baseline;
+}
+
+.libby-type-grid-hdr {
+  font-size: 0.6rem;
+  font-variant: small-caps;
+  color: var(--color-text-light);
+  opacity: 0.55;
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: 0.2rem;
+  margin-bottom: 0.15rem;
+}
+
+.libby-type-grid-hdr--r {
+  text-align: right;
+}
+
+.libby-type-grid-hdr--spacer {
+  border-bottom: none;
+}
+
+.libby-type-grid-key {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.68rem;
+  color: var(--color-text-light);
+}
+
+.libby-type-grid-name {
+  font-size: 0.68rem;
+  color: var(--color-text-light);
+}
+
+.libby-type-grid--dim {
+  opacity: 0.4;
+}
+
+.libby-type-count {
+  font-size: 0.65rem;
+  font-family: var(--font-mono, monospace);
+  color: var(--color-text-light);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Libby type reference grid (retype selector) ── */
+
+.libby-type-ref-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.libby-type-ref-row {
+  display: grid;
+  grid-template-columns: 14px 90px 14px 90px;
+  gap: 0 6px;
+  align-items: baseline;
+}
+
+.libby-type-ref-code {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.68rem;
+  color: var(--color-text-light);
+}
+
+.libby-type-ref-code--btn {
+  cursor: pointer;
+}
+
+.libby-type-ref-code--btn:hover {
+  color: var(--color-text);
+}
+
+.libby-type-ref-code--current {
+  color: var(--color-text);
+  font-weight: 700;
+}
+
+.libby-type-ref-name {
+  font-size: 0.68rem;
+  color: var(--color-text-light);
+}
+
+/* ── Libby retype section ── */
+
+.libby-retype-section {
+  margin-top: 12px;
+}
+
+.libby-retype-confirm {
+  font-size: var(--text-sm);
+  color: var(--color-text);
+  padding: 6px 0;
+}
+
+.libby-retype-hint {
+  font-size: 0.68rem;
+  color: var(--color-text-light);
+  margin-left: 6px;
 }
 
 /* ── Libby repeat indicator ── */
@@ -9855,6 +9993,17 @@ span.news-item-title {
   padding: 8px 10px;
   color: var(--color-success, #27ae60);
   font-weight: 500;
+}
+
+.libby-result-count {
+  font-size: 0.68rem;
+  color: var(--color-text-light);
+  text-align: right;
+  padding: 4px 0 0;
+}
+
+.libby-result-count--capped {
+  font-style: italic;
 }
 
 .libby-empty {
@@ -10872,4 +11021,56 @@ span.news-item-title {
 
 .libby-book-topic-name {
   color: var(--color-text);
+}
+
+/* ===== ⌥G Go Popup ===== */
+
+.go-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.go-popup {
+  position: fixed;
+  top: 30vh;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3001;
+  width: min(320px, 90vw);
+  background: var(--color-bg, #fff);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+  padding: 12px 14px 10px;
+}
+
+.go-input {
+  width: 100%;
+  box-sizing: border-box;
+  border: none;
+  outline: none;
+  font-size: 1.1rem;
+  font-family: var(--font-mono, monospace);
+  background: transparent;
+  color: var(--color-text);
+  letter-spacing: 0.02em;
+}
+
+.go-input::placeholder {
+  color: var(--color-text-light);
+  opacity: 0.6;
+}
+
+.go-match {
+  margin-top: 6px;
+  font-family: var(--font-serif, Georgia, serif);
+  font-size: 0.85rem;
+  color: var(--color-text);
+  letter-spacing: 0.01em;
+}
+
+.go-match--ambiguous {
+  color: var(--color-text-light);
 }

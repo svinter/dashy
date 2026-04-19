@@ -78,6 +78,10 @@ def asin_from_url(url: str) -> str:
 GBOOKS_API = "https://www.googleapis.com/books/v1/volumes"
 
 
+class QuotaExceededError(Exception):
+    pass
+
+
 def _load_google_books_api_key() -> str:
     config_path = Path.home() / ".personal-dashboard" / "config.json"
     try:
@@ -92,11 +96,12 @@ def _load_google_books_api_key() -> str:
 GOOGLE_BOOKS_API_KEY = _load_google_books_api_key()
 
 
-def enrich_google_books(db_path: Path):
+def enrich_google_books(db_path: Path, limit: int = None):
     """
     For each book with needs_enrichment=1, query Google Books API
     by title + author. Populate isbn, publisher, year, google_books_id.
     Vault-sourced metadata (if isbn already present) is not overwritten.
+    Quota errors (429 or connection failure) leave needs_enrichment=1.
     """
     conn = sqlite3.connect(db_path, timeout=30)
     cur  = conn.cursor()
@@ -111,7 +116,9 @@ def enrich_google_books(db_path: Path):
         AND e.needs_enrichment = 1
     """)
     rows = cur.fetchall()
-    print(f"  Enriching {len(rows)} books via Google Books API...")
+    if limit:
+        rows = rows[:limit]
+    print(f"  Enriching {len(rows)} books via Google Books API (limit={limit})...")
 
     enriched = 0
     not_found = 0
@@ -129,13 +136,23 @@ def enrich_google_books(db_path: Path):
             )
             continue
 
-        data = _query_gbooks(name, author)
-        if not data:
-            not_found += 1
-            cur.execute(
-                "UPDATE library_entries SET needs_enrichment = 0 WHERE id = ?",
-                (entry_id,)
-            )
+        try:
+            data = _query_gbooks(name, author)
+            if not data:
+                # Genuine not found — API responded but no matching book
+                not_found += 1
+                cur.execute(
+                    "UPDATE library_entries SET needs_enrichment = 0 WHERE id = ?",
+                    (entry_id,)
+                )
+                continue
+        except QuotaExceededError:
+            # Stop immediately — leave needs_enrichment = 1 for next run
+            print(f"  Quota exceeded after {enriched} books enriched — stopping")
+            break
+        except Exception as e:
+            # Other transient error — leave needs_enrichment = 1, skip this book
+            print(f"  WARN: {name}: {e}")
             continue
 
         # Extract fields
@@ -186,7 +203,8 @@ def enrich_google_books(db_path: Path):
 
 
 def _query_gbooks(title: str, author: str) -> dict | None:
-    """Query Google Books API. Returns first result volumeInfo or None."""
+    """Query Google Books API. Returns first result or None.
+    Raises QuotaExceededError on HTTP 429. Raises on connection failure."""
     # Clean title for query — drop subtitle
     short_title = title.split(":")[0].strip()
     query = f'intitle:"{short_title}"'
@@ -195,22 +213,20 @@ def _query_gbooks(title: str, author: str) -> dict | None:
         first_author = author.split(",")[0].strip()
         query += f'+inauthor:"{first_author}"'
 
-    try:
-        params: dict = {"q": query, "maxResults": 1, "printType": "books"}
-        if GOOGLE_BOOKS_API_KEY:
-            params["key"] = GOOGLE_BOOKS_API_KEY
-        resp = requests.get(
-            GBOOKS_API,
-            params=params,
-            timeout=10
-        )
-        data = resp.json()
-        items = data.get("items")
-        if items:
-            return items[0]
-    except Exception as e:
-        print(f"    WARN: Google Books API error for '{title}': {e}")
-    return None
+    params: dict = {"q": query, "maxResults": 1, "printType": "books"}
+    if GOOGLE_BOOKS_API_KEY:
+        params["key"] = GOOGLE_BOOKS_API_KEY
+
+    resp = requests.get(GBOOKS_API, params=params, timeout=10)
+
+    if resp.status_code == 429:
+        raise QuotaExceededError("Daily quota exceeded")
+    if resp.status_code != 200:
+        return None
+
+    data = resp.json()
+    items = data.get("items")
+    return items[0] if items else None
 
 
 def _extract_year(date_str: str) -> int | None:

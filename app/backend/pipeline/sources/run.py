@@ -74,6 +74,7 @@ def main():
     parser.add_argument("--vault-apply",   metavar="FILE",      help="Execute approved review YAML")
     parser.add_argument("--create-stubs",  action="store_true", help="Create stub vault .md files")
     parser.add_argument("--all",           action="store_true", help="Run full pipeline (except vault-apply)")
+    parser.add_argument("--limit",         type=int, default=None, help="Max books to enrich in this run")
     args = parser.parse_args()
 
     dry = args.dry_run
@@ -118,7 +119,7 @@ def main():
         if dry:
             print("  DRY RUN: would enrich books with needs_enrichment=1")
         else:
-            enrich_google_books(CONFIG["db_path"])
+            enrich_google_books(CONFIG["db_path"], limit=args.limit)
 
     # ── Vault Scan ────────────────────────────────────────────────────────────
     if args.vault_scan or args.all or dry:

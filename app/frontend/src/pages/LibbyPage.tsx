@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback, Fragment } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Routes, Route, Navigate, NavLink } from 'react-router-dom';
 import { useLibbyContext } from '../contexts/LibbyContext';
 import type { LibbyFilterSelection, LibbyGroup } from '../contexts/LibbyContext';
@@ -26,6 +27,7 @@ interface LibraryEntry {
   frequency: number;
   url: string | null;
   amazon_url: string | null;
+  amazon_short_url: string | null;
   webpage_url: string | null;
   gdoc_id: string | null;
   obsidian_link: string | null;
@@ -60,11 +62,17 @@ const ALL_TYPE_LABELS: Record<string, string> = {
   r: 'research',  q: 'quote',
 };
 
-// Pairs for 2-column type reference grid (left, right)
+// Pairs for retype grid (original layout, not alphabetized)
 const TYPE_GRID_ROWS: [string, string][] = [
   ['b', 'a'], ['e', 'p'], ['v', 'm'], ['t', 'w'],
   ['s', 'z'], ['n', 'd'], ['f', 'c'], ['r', 'q'],
 ];
+
+// Alphabetical by type name — left column (first 8), right column (last 8)
+// article, assessment, book, course, document, essay, framework, movie
+const TYPE_GRID_LEFT  = ['a', 'z', 'b', 'c', 'd', 'e', 'f', 'm'];
+// note, podcast, quote, research, tool, video, webpage, worksheet
+const TYPE_GRID_RIGHT = ['n', 'p', 'q', 'r', 't', 'v', 'w', 's'];
 
 const RESULT_LABELS = 'abcdefghijklmn';
 
@@ -128,17 +136,26 @@ function LibbyHelpPopup({ onClose }: { onClose: () => void }) {
               </tbody>
             </table>
 
+            <div className="libby-help-col-title" style={{ marginTop: '16px' }}>Global</div>
+            <table className="libby-help-keys">
+              <tbody>
+                <tr><td className="libby-help-key">⌥G</td><td>Go to… (module navigation)</td></tr>
+                <tr><td className="libby-help-key">⌘?</td><td>this help</td></tr>
+              </tbody>
+            </table>
+
             <div className="libby-help-col-title" style={{ marginTop: '16px' }}>Actions</div>
             <table className="libby-help-keys">
               <tbody>
                 <tr><td className="libby-help-key">c</td><td>copy URL</td></tr>
                 <tr><td className="libby-help-key">p</td><td>print (copy title + link)</td></tr>
-                <tr><td className="libby-help-key">d</td><td>copy doc to client folder</td></tr>
+                <tr><td className="libby-help-key">d</td><td>doc copy to client folder</td></tr>
                 <tr><td className="libby-help-key">r</td><td>record share with client</td></tr>
                 <tr><td className="libby-help-key">a</td><td>apply last label</td></tr>
                 <tr><td className="libby-help-key">l</td><td>label (add/remove topic)</td></tr>
+                <tr><td className="libby-help-key">o</td><td>open URL in browser</td></tr>
                 <tr><td className="libby-help-key">m</td><td>make webpage</td></tr>
-                <tr><td className="libby-help-key">o</td><td>open in Obsidian</td></tr>
+                <tr><td className="libby-help-key">v</td><td>vault (open in Obsidian)</td></tr>
                 <tr><td className="libby-help-key">y</td><td>retype (change type)</td></tr>
                 <tr><td className="libby-help-key">b</td><td>back to pick</td></tr>
                 <tr><td className="libby-help-key libby-help-key--soon">s</td><td className="libby-help-soon">synopsis <span>(coming soon)</span></td></tr>
@@ -504,6 +521,13 @@ function ManifestOverlay({
 
 function CatalogPage() {
   const { activeClientId, activeClientName, activeCompanyId, activeClientManifestUrl, isHelpOpen, onSelectionChange } = useLibbyContext();
+  const queryClient = useQueryClient();
+  const { data: typeCounts } = useQuery<Record<string, number>>({
+    queryKey: ['libby-type-counts'],
+    queryFn: () => fetch('/api/libby/type-counts').then(r => r.json()),
+    staleTime: 10 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+  });
 
   const searchInputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -696,7 +720,6 @@ function CatalogPage() {
         }
         if (activeClientManifestUrl && data.entry_name) {
           setManifestFlashName(data.entry_name);
-          setManifestOpen(true);
         }
       } else {
         const err = await resp.json().catch(() => ({}));
@@ -782,8 +805,19 @@ function CatalogPage() {
     setUiState('ACTION');
   };
 
-  // --- Obsidian action ---
-  const handleObsidian = () => {
+  // --- Open URL in browser ---
+  const handleOpenUrl = () => {
+    if (!selected) return;
+    const url = selected.webpage_url ?? selected.amazon_short_url ?? selected.amazon_url ?? selected.url;
+    if (!url) {
+      showToast('No URL for this entry');
+      return;
+    }
+    window.open(url, '_blank');
+  };
+
+  // --- Vault (Obsidian) action ---
+  const handleVault = () => {
     if (!selected?.obsidian_link) {
       showToast('No Obsidian page for this entry');
       return;
@@ -893,8 +927,9 @@ function CatalogPage() {
       if (e.key === 'r') { e.preventDefault(); if (!sessionCopied || sessionRecorded) return; handleRecord(); return; }
       if (e.key === 'a') { e.preventDefault(); handleApply(); return; }
       if (e.key === 'l') { e.preventDefault(); setLabelQuery(''); setLabelHighlight(0); setLabelMsg(null); setUiState('LABEL'); return; }
+      if (e.key === 'o') { e.preventDefault(); handleOpenUrl(); return; }
       if (e.key === 'm') { e.preventDefault(); handleMake(); return; }
-      if (e.key === 'o') { e.preventDefault(); handleObsidian(); return; }
+      if (e.key === 'v') { e.preventDefault(); handleVault(); return; }
       if (e.key === 'y') { e.preventDefault(); setRetypeSelected(null); setUiState('RETYPE'); return; }
       if (e.key === 's') { e.preventDefault(); showToast('synopsis: coming soon'); return; }
       if (e.key === 'f') { e.preventDefault(); showToast('full: coming soon'); return; }
@@ -1018,16 +1053,32 @@ function CatalogPage() {
       {/* Type reference grid — empty SEARCH only */}
       {uiState === 'SEARCH' && !query && (
         <div className="libby-type-ref">
-          <div className="libby-type-ref-header">types</div>
-          <div className="libby-type-ref-grid">
-            {TYPE_GRID_ROWS.map(([left, right]) => (
-              <span key={left} className="libby-type-ref-row">
-                <span className="libby-type-ref-code">{left}</span>
-                <span className="libby-type-ref-name">{ALL_TYPE_LABELS[left]}</span>
-                <span className="libby-type-ref-code">{right}</span>
-                <span className="libby-type-ref-name">{ALL_TYPE_LABELS[right]}</span>
-              </span>
-            ))}
+          <div className="libby-type-grid">
+            {/* Header row — 7 cells */}
+            <span className="libby-type-grid-hdr">key</span>
+            <span className="libby-type-grid-hdr">type</span>
+            <span className="libby-type-grid-hdr libby-type-grid-hdr--r">#</span>
+            <span className="libby-type-grid-hdr libby-type-grid-hdr--spacer" />
+            <span className="libby-type-grid-hdr">key</span>
+            <span className="libby-type-grid-hdr">type</span>
+            <span className="libby-type-grid-hdr libby-type-grid-hdr--r">#</span>
+            {/* Data rows */}
+            {TYPE_GRID_LEFT.map((lCode, i) => {
+              const rCode = TYPE_GRID_RIGHT[i];
+              const lCount = typeCounts?.[lCode] ?? 0;
+              const rCount = typeCounts?.[rCode] ?? 0;
+              return (
+                <Fragment key={lCode}>
+                  <span className={`libby-type-grid-key${lCount === 0 ? ' libby-type-grid--dim' : ''}`}>{lCode}</span>
+                  <span className={`libby-type-grid-name${lCount === 0 ? ' libby-type-grid--dim' : ''}`}>{ALL_TYPE_LABELS[lCode]}</span>
+                  <span className="libby-type-count">{lCount > 0 ? lCount.toLocaleString() : ''}</span>
+                  <span />
+                  <span className={`libby-type-grid-key${rCount === 0 ? ' libby-type-grid--dim' : ''}`}>{rCode}</span>
+                  <span className={`libby-type-grid-name${rCount === 0 ? ' libby-type-grid--dim' : ''}`}>{ALL_TYPE_LABELS[rCode]}</span>
+                  <span className="libby-type-count">{rCount > 0 ? rCount.toLocaleString() : ''}</span>
+                </Fragment>
+              );
+            })}
           </div>
         </div>
       )}
@@ -1155,7 +1206,7 @@ function CatalogPage() {
               disabled={!selected.gdoc_id || !activeClientId}
               title={!selected.gdoc_id ? 'd — no doc attached' : !activeClientId ? 'd — select a client first' : 'd — copy doc to client folder'}
             >
-              <span className="libby-action-key">d</span> copy doc
+              <span className="libby-action-key">d</span> doc copy
             </button>
             <button
               className={`libby-action-btn${(!sessionCopied || sessionRecorded) ? ' libby-action-btn--disabled' : ''}`}
@@ -1177,6 +1228,13 @@ function CatalogPage() {
               <span className="libby-action-key">l</span> label
             </button>
             <button
+              className="libby-action-btn"
+              onClick={handleOpenUrl}
+              title="o — open URL in browser"
+            >
+              <span className="libby-action-key">o</span> open
+            </button>
+            <button
               className={`libby-action-btn${selectedWebpageUrl ? ' libby-action-btn--has-page' : ''}`}
               onClick={handleMake}
               title={selectedWebpageUrl ? `m — page exists: ${selectedWebpageUrl}` : 'm — generate page'}
@@ -1185,11 +1243,11 @@ function CatalogPage() {
             </button>
             <button
               className={`libby-action-btn${!selected.obsidian_link ? ' libby-action-btn--disabled' : ''}`}
-              onClick={handleObsidian}
+              onClick={handleVault}
               disabled={!selected.obsidian_link}
-              title={selected.obsidian_link ? 'o — open in Obsidian' : 'o — no Obsidian page'}
+              title={selected.obsidian_link ? 'v — open in Obsidian vault' : 'v — no Obsidian page'}
             >
-              <span className="libby-action-key">o</span> obsidian
+              <span className="libby-action-key">v</span> vault
             </button>
             <button
               className="libby-action-btn"
@@ -1203,19 +1261,20 @@ function CatalogPage() {
           <div className="libby-action-legend">
             <table className="libby-legend-table">
               <tbody>
-                <tr><td className="libby-legend-key">c</td><td className="libby-legend-name">copy</td><td className="libby-legend-desc">copies URL to clipboard</td></tr>
-                <tr><td className="libby-legend-key">p</td><td className="libby-legend-name">print</td><td className="libby-legend-desc">copy title + link to clipboard</td></tr>
-                <tr><td className="libby-legend-key">d</td><td className="libby-legend-name">copy doc</td><td className="libby-legend-desc">copy doc to client coaching folder</td></tr>
-                <tr><td className="libby-legend-key">r</td><td className="libby-legend-name">record</td><td className="libby-legend-desc">log share in Obsidian + Manifest</td></tr>
-                <tr><td className="libby-legend-key">a</td><td className="libby-legend-name">apply</td><td className="libby-legend-desc">repeat last label action</td></tr>
-                <tr><td className="libby-legend-key">l</td><td className="libby-legend-name">label</td><td className="libby-legend-desc">add or remove a topic</td></tr>
-                <tr><td className="libby-legend-key">m</td><td className="libby-legend-name">make</td><td className="libby-legend-desc">publishes webpage, copies URL</td></tr>
-                <tr><td className="libby-legend-key">o</td><td className="libby-legend-name">obsidian</td><td className="libby-legend-desc">opens entry page in Obsidian</td></tr>
-                <tr><td className="libby-legend-key">y</td><td className="libby-legend-name">retype</td><td className="libby-legend-desc">change the type of this entry</td></tr>
-                <tr><td className="libby-legend-key">b</td><td className="libby-legend-name">back</td><td className="libby-legend-desc">return to pick</td></tr>
-                <tr className="libby-legend-row--soon"><td className="libby-legend-key">s</td><td className="libby-legend-name">synopsis</td><td className="libby-legend-desc">generates synopsis <span className="libby-legend-tag">coming soon</span></td></tr>
-                <tr className="libby-legend-row--soon"><td className="libby-legend-key">f</td><td className="libby-legend-name">full</td><td className="libby-legend-desc">full clipboard payload <span className="libby-legend-tag">coming soon</span></td></tr>
+                <tr><td className="libby-legend-key">a</td><td className="libby-legend-name">apply</td><td className="libby-legend-desc">repeat last label</td></tr>
+                <tr><td className="libby-legend-key">b</td><td className="libby-legend-name">back</td><td className="libby-legend-desc">previous state</td></tr>
+                <tr><td className="libby-legend-key">c</td><td className="libby-legend-name">copy</td><td className="libby-legend-desc">copy URL to clipboard</td></tr>
+                <tr><td className="libby-legend-key">d</td><td className="libby-legend-name">doc copy</td><td className="libby-legend-desc">copy doc to client folder + link</td></tr>
                 <tr className="libby-legend-row--future"><td className="libby-legend-key">x</td><td className="libby-legend-name">find related</td><td className="libby-legend-desc"><span className="libby-legend-tag">future</span></td></tr>
+                <tr className="libby-legend-row--soon"><td className="libby-legend-key">f</td><td className="libby-legend-name">full</td><td className="libby-legend-desc">full clipboard payload <span className="libby-legend-tag">coming soon</span></td></tr>
+                <tr><td className="libby-legend-key">l</td><td className="libby-legend-name">label</td><td className="libby-legend-desc">add or remove a topic</td></tr>
+                <tr><td className="libby-legend-key">m</td><td className="libby-legend-name">make</td><td className="libby-legend-desc">publish webpage, copy URL</td></tr>
+                <tr><td className="libby-legend-key">o</td><td className="libby-legend-name">open</td><td className="libby-legend-desc">open URL in browser</td></tr>
+                <tr><td className="libby-legend-key">p</td><td className="libby-legend-name">print</td><td className="libby-legend-desc">copy formatted title + link</td></tr>
+                <tr><td className="libby-legend-key">r</td><td className="libby-legend-name">record</td><td className="libby-legend-desc">log share to Obsidian + Manifest</td></tr>
+                <tr><td className="libby-legend-key">y</td><td className="libby-legend-name">retype</td><td className="libby-legend-desc">change the type of this entry</td></tr>
+                <tr className="libby-legend-row--soon"><td className="libby-legend-key">s</td><td className="libby-legend-name">synopsis</td><td className="libby-legend-desc">generates synopsis <span className="libby-legend-tag">coming soon</span></td></tr>
+                <tr><td className="libby-legend-key">v</td><td className="libby-legend-name">vault</td><td className="libby-legend-desc">open entry page in Obsidian</td></tr>
               </tbody>
             </table>
             {repeatDisplay && (

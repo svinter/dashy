@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from 'react';
+import { lazy, Suspense, useState, useEffect } from 'react';
 import { LibbyProvider } from './contexts/LibbyContext';
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider, useIsFetching } from '@tanstack/react-query';
@@ -10,6 +10,7 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { UndoToast, getUndoTrigger } from './components/UndoToast';
 import { IssueDiscoveryOverlay, type DiscoveryPhase } from './components/IssueDiscoveryOverlay';
 import { RecentPagesOverlay } from './components/RecentPagesOverlay';
+import { GoPopup } from './components/GoPopup';
 import { useSync, useSetupStatus, useConnectors, useAuthStatus } from './api/hooks';
 import { useChangeTracker } from './hooks/useChangeTracker';
 import { usePageHistory } from './hooks/usePageHistory';
@@ -75,6 +76,7 @@ function AppContent() {
   const [discoveryPhase, setDiscoveryPhase] = useState<DiscoveryPhase>('hidden');
   const [recentPagesOpen, setRecentPagesOpen] = useState(false);
   const [recentPagesIndex, setRecentPagesIndex] = useState(1);
+  const [goOpen, setGoOpen] = useState(false);
   const isClaudePage = location.pathname === '/claude';
   const isSetupPage = location.pathname === '/setup';
 
@@ -90,6 +92,21 @@ function AppContent() {
     return (status as { connected?: boolean }).connected;
   })();
 
+  // ⌥G: global Go popup — capture phase on document so it fires before browser shortcuts
+  // and before any child handlers. Use e.code (physical key) not e.key because on macOS
+  // Option+G produces © so e.key is never 'g'.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.altKey && !e.metaKey && !e.ctrlKey && e.code === 'KeyG') {
+        e.preventDefault();
+        e.stopPropagation();
+        setGoOpen(prev => !prev);
+      }
+    };
+    document.addEventListener('keydown', handler, true);
+    return () => document.removeEventListener('keydown', handler, true);
+  }, []);
+
   useKeyboardShortcuts({
     navigate,
     onSearchOpen: () => setSearchOpen(prev => !prev),
@@ -104,7 +121,7 @@ function AppContent() {
         setDiscoveryPhase('reviewing');
       }
     },
-    suppressWhen: searchOpen || helpOpen || discoveryPhase === 'reviewing',
+    suppressWhen: searchOpen || helpOpen || discoveryPhase === 'reviewing' || goOpen,
     pageHistory,
     recentPagesOpen,
     recentPagesIndex,
@@ -201,6 +218,7 @@ function AppContent() {
       />
       <KeyboardHelp isOpen={helpOpen} onClose={() => setHelpOpen(false)} />
       <RecentPagesOverlay isOpen={recentPagesOpen} history={pageHistory} selectedIndex={recentPagesIndex} />
+      <GoPopup isOpen={goOpen} onClose={() => setGoOpen(false)} />
       <UndoToast />
       {isFetching > 0 && (
         <div className="global-fetch-indicator" aria-label="Loading data">

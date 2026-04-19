@@ -30,6 +30,36 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/libby", tags=["libby"])
 
 # ---------------------------------------------------------------------------
+# Type-counts cache
+# ---------------------------------------------------------------------------
+
+_type_counts_cache: dict[str, int] | None = None
+
+
+def _invalidate_type_counts_cache() -> None:
+    global _type_counts_cache
+    _type_counts_cache = None
+
+
+def _get_type_counts(db) -> dict[str, int]:
+    global _type_counts_cache
+    if _type_counts_cache is not None:
+        return _type_counts_cache
+    rows = db.execute(
+        "SELECT type_code, COUNT(*) AS cnt FROM library_entries GROUP BY type_code"
+    ).fetchall()
+    _type_counts_cache = {row[0]: row[1] for row in rows}
+    return _type_counts_cache
+
+
+@router.get("/type-counts")
+def get_type_counts():
+    """Return entry count per type code. Cached in-process; invalidated on entry creation."""
+    db = get_db()
+    return _get_type_counts(db)
+
+
+# ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
@@ -1576,6 +1606,7 @@ def create_entry(body: EntryCreateRequest, background_tasks: BackgroundTasks):
         comments=body.comments,
         priority=body.priority,
     )
+    _invalidate_type_counts_cache()
     background_tasks.add_task(_run_tagging_task, entry_id)
     logger.info("Created library entry %d: %r (%s)", entry_id, name, type_code)
     return {"id": entry_id, "status": "created", "name": name, "type_code": type_code}
@@ -1780,6 +1811,7 @@ def create_book(body: BookCreateRequest, background_tasks: BackgroundTasks):
         categories=body.categories or None,
         authors=body.authors or None,
     )
+    _invalidate_type_counts_cache()
     background_tasks.add_task(_run_tagging_task, entry_id)
     logger.info("Created book entry %d: %r", entry_id, name)
     return {"id": entry_id, "status": "created", "name": name, "type_code": "b"}
