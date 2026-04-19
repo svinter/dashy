@@ -13,6 +13,44 @@ from threading import Lock
 _lock = Lock()
 _cache: dict | None = None
 
+# Separate caches for the two new config files (repo-root, not data-dir)
+_install_cache: dict | None = None
+_dashy_cache: dict | None = None
+_file_lock = Lock()
+
+# Repo root is two levels above this file (app/backend/app_config.py → repo root)
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+
+
+def get_install_config() -> dict:
+    """Return ~/dashy/dashy_install.json as a dict. Cached; returns {} on missing file."""
+    global _install_cache
+    with _file_lock:
+        if _install_cache is None:
+            path = _REPO_ROOT / "dashy_install.json"
+            try:
+                _install_cache = json.loads(path.read_text())
+            except FileNotFoundError:
+                _install_cache = {}
+            except Exception:
+                _install_cache = {}
+        return _install_cache
+
+
+def get_dashy_config() -> dict:
+    """Return ~/dashy/dashy_config.json as a dict. Cached; returns {} on missing file."""
+    global _dashy_cache
+    with _file_lock:
+        if _dashy_cache is None:
+            path = _REPO_ROOT / "dashy_config.json"
+            try:
+                _dashy_cache = json.loads(path.read_text())
+            except FileNotFoundError:
+                _dashy_cache = {}
+            except Exception:
+                _dashy_cache = {}
+        return _dashy_cache
+
 ALLOWED_SECRET_KEYS = frozenset(
     {
         "SLACK_TOKEN",
@@ -99,9 +137,12 @@ def save_config(updates: dict) -> dict:
 
 def invalidate_cache():
     """Clear the in-memory cache so next load_config() re-reads from disk."""
-    global _cache
+    global _cache, _install_cache, _dashy_cache
     with _lock:
         _cache = None
+    with _file_lock:
+        _install_cache = None
+        _dashy_cache = None
 
 
 def get_profile() -> dict:
