@@ -2752,3 +2752,11 @@ export function useBillingPayables(block: number) {
     staleTime: 60_000,
   });
 }
+
+export function useInstallConfig() {
+  return useQuery({
+    queryKey: ['install-config'],
+    queryFn: () => api.get<{ user: { name: string; email: string; coach_email: string }; obsidian: object; calendar: object }>('/config/install'),
+    staleTime: Infinity,  // install config never changes at runtime
+  });
+}

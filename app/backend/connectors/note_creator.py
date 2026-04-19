@@ -8,7 +8,17 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 # Emails to skip when matching attendees to clients (self + Google resource rooms)
-_MY_EMAILS = frozenset(["steve.vinter@gmail.com", "svinter@gmail.com"])
+def _build_my_emails() -> frozenset:
+    try:
+        from app_config import get_install_config
+        email = get_install_config().get("user", {}).get("email", "")
+        if email:
+            return frozenset([email])
+    except Exception:
+        pass
+    return frozenset(["steve.vinter@gmail.com"])
+
+_MY_EMAILS = _build_my_emails()
 _RESOURCE_RE = re.compile(r"@resource\.calendar\.google\.com$", re.IGNORECASE)
 
 # ---------------------------------------------------------------------------

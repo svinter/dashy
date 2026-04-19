@@ -43,6 +43,7 @@ import {
   useBillingSettings,
   useUpdateBillingSettings,
   useCreatePrepaidBlock,
+  useInstallConfig,
 } from '../api/hooks';
 import type { ServiceAuthStatus, SyncSourceInfo, ConnectorInfo, UserProfile, DashboardIssue, BillingCompany, BillingClient, BillingProject, BillingSettings } from '../api/types';
 
@@ -1368,6 +1369,7 @@ function BillingTab() {
   const { data: companies, isLoading } = useBillingCompanies();
   const { data: seedStatus } = useBillingSeedStatus();
   const { data: billingSettings } = useBillingSettings();
+  const { data: installConfig } = useInstallConfig();
   const updateBillingSettings = useUpdateBillingSettings();
   const [settingsDraft, setSettingsDraft] = useState<Partial<BillingSettings>>({});
   const [settingsSaved, setSettingsSaved] = useState(false);
@@ -1450,7 +1452,7 @@ function BillingTab() {
             </label>
             <label style={{ fontSize: 'var(--text-sm)', display: 'flex', flexDirection: 'column', gap: 2 }}>
               <span style={{ color: 'var(--color-text-light)' }}>Contact name</span>
-              <input value={settingsVal('provider_contact_name')} onChange={e => setSettingsDraft(d => ({ ...d, provider_contact_name: e.target.value }))} placeholder="Steve Vinter" style={{ fontSize: 'var(--text-sm)' }} />
+              <input value={settingsVal('provider_contact_name')} onChange={e => setSettingsDraft(d => ({ ...d, provider_contact_name: e.target.value }))} placeholder={installConfig?.user?.name ?? 'Steve Vinter'} style={{ fontSize: 'var(--text-sm)' }} />
             </label>
             <label style={{ fontSize: 'var(--text-sm)', display: 'flex', flexDirection: 'column', gap: 2 }}>
               <span style={{ color: 'var(--color-text-light)' }}>Provider email</span>
