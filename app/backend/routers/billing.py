@@ -3001,7 +3001,9 @@ def _sync_invoice_payment_status(db, invoice_id: int) -> None:
             (invoice_id,),
         ).fetchone()["s"]
     )
-    if total > 0 and paid >= total - 1.00:
+    from app_config import get_dashy_config
+    _tol = get_dashy_config().get("invoice", {}).get("payment_tolerance_dollars", 1.00)
+    if total > 0 and paid >= total - _tol:
         new_status = "paid"
     elif paid > 0.01:
         new_status = "partial"
