@@ -29,7 +29,7 @@
     "upcoming_color_id": "5"
   },
   "billing": {
-    "seed_path": "app/backend/billing_seed.json",
+    "seed_path": "app/backend/dashy_billing_seed.json",
     "seed_path_note": "Relative to repo root. Never committed to git."
   }
 }

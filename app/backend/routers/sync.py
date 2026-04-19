@@ -4,7 +4,7 @@ import threading
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks
@@ -29,6 +29,10 @@ MAX_SYNC_SECONDS = 600  # 10 minutes — force-reset if sync appears stuck (e.g.
 _auto_sync_thread: threading.Thread | None = None
 _auto_sync_stop = threading.Event()
 DEFAULT_AUTO_SYNC_INTERVAL = 900  # 15 minutes
+
+# Daily digest scheduler
+_daily_digest_thread: threading.Thread | None = None
+_daily_digest_stop = threading.Event()
 
 
 def _check_stale_sync_unlocked():
@@ -436,6 +440,12 @@ def sync_granola_notes():
         result = _sync(days_back=30)
         items = result.get("written", 0)
         _update_sync_state("granola_notes", "success", None, items, elapsed=time.monotonic() - t0)
+        # Accumulate into the daily digest tally
+        try:
+            from connectors.daily_digest import accumulate_granola_tally
+            accumulate_granola_tally(result)
+        except Exception:
+            pass
     except ImportError:
         _update_sync_state("granola_notes", "error", "granola_notes connector not available", 0)
     except Exception as e:
@@ -782,6 +792,86 @@ def start_auto_sync():
 def stop_auto_sync():
     """Signal the auto-sync thread to stop. Called on app shutdown."""
     _auto_sync_stop.set()
+
+
+# ---------------------------------------------------------------------------
+# Daily digest scheduler — fires at 7:00 AM US/Eastern every day
+# ---------------------------------------------------------------------------
+
+def sync_daily_digest():
+    """Build and send the daily digest email via Gmail.  Skips silently if Gmail is not connected."""
+    if not _is_enabled("google"):
+        logger.debug("Daily digest skipped — Google connector not enabled")
+        return
+    t0 = time.monotonic()
+    try:
+        from connectors.daily_digest import send_daily_digest
+        result = send_daily_digest()
+        _update_sync_state("daily_digest", "success", None, 1, elapsed=time.monotonic() - t0)
+        logger.info("Daily digest sent: %s", result.get("subject", ""))
+    except ImportError:
+        _update_sync_state("daily_digest", "error", "daily_digest connector not available", 0)
+    except Exception as e:
+        _handle_sync_error("daily_digest", e, time.monotonic() - t0)
+
+
+def _seconds_until_7am_et() -> float:
+    """Return seconds until the next 7:00 AM US/Eastern wall-clock time."""
+    from datetime import timedelta
+
+    try:
+        from zoneinfo import ZoneInfo
+        eastern = ZoneInfo("America/New_York")
+    except Exception:
+        try:
+            import pytz
+            eastern = pytz.timezone("America/New_York")
+        except Exception:
+            # Fall back to UTC 12:00 if timezone unavailable (roughly 7am ET winter)
+            eastern = timezone.utc
+
+    now_et = datetime.now(timezone.utc).astimezone(eastern)
+    target = now_et.replace(hour=7, minute=0, second=0, microsecond=0)
+    if now_et >= target:
+        target += timedelta(days=1)
+    return (target - now_et).total_seconds()
+
+
+def _daily_digest_loop():
+    """Background thread: wake at 7:00 AM ET, send digest, repeat."""
+    logger.info("Daily digest scheduler started")
+    while not _daily_digest_stop.is_set():
+        secs = _seconds_until_7am_et()
+        logger.debug("Daily digest sleeping %.0fs until next 7am ET", secs)
+        if _daily_digest_stop.wait(secs):
+            break  # stop event set
+        if _daily_digest_stop.is_set():
+            break
+        logger.info("Daily digest: 7am ET reached — sending")
+        try:
+            sync_daily_digest()
+        except Exception:
+            logger.exception("Daily digest send failed")
+        # Sleep 70 seconds before recalculating next 7am (prevents double-fire within the same minute)
+        _daily_digest_stop.wait(70)
+    logger.info("Daily digest scheduler stopped")
+
+
+def start_daily_digest():
+    """Start the daily digest background thread. Called from app startup."""
+    global _daily_digest_thread
+    if _daily_digest_thread and _daily_digest_thread.is_alive():
+        return
+    _daily_digest_stop.clear()
+    _daily_digest_thread = threading.Thread(
+        target=_daily_digest_loop, daemon=True, name="daily-digest"
+    )
+    _daily_digest_thread.start()
+
+
+def stop_daily_digest():
+    """Signal the daily digest thread to stop. Called on app shutdown."""
+    _daily_digest_stop.set()
 
 
 @router.post("")

@@ -342,9 +342,10 @@ def startup():
 
         _step("sync_note_creation", sync_note_creation)
 
-        from routers.sync import start_auto_sync
+        from routers.sync import start_auto_sync, start_daily_digest
 
         _step("start_auto_sync", start_auto_sync)
+        _step("start_daily_digest", start_daily_digest)
     else:
         log.info("[startup] Demo mode — skipping sync and auto-sync")
     log.info("[startup] All startup steps completed in %.2fs", time.time() - t_total)
@@ -352,9 +353,10 @@ def startup():
 
 @app.on_event("shutdown")
 def shutdown():
-    from routers.sync import stop_auto_sync
+    from routers.sync import stop_auto_sync, stop_daily_digest
 
     stop_auto_sync()
+    stop_daily_digest()
 
 
 # Serve built frontend — must be last so it doesn't shadow API routes

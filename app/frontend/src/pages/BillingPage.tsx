@@ -4662,6 +4662,13 @@ function BillingScopeBar() {
           >→</button>
         </div>
       )}
+      <BillingClientFilter
+        companies={companies}
+        projects={projects}
+        selection={billingFilterSel}
+        allChip={billingAllChip}
+        onSelectionChange={setBillingFilter}
+      />
       {!isPayables && !isSummary && <>
         <select value={year} onChange={e => setYear(Number(e.target.value))} style={{ fontSize: 'var(--text-sm)' }}>
           {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
@@ -4672,13 +4679,6 @@ function BillingScopeBar() {
           </button>
         ))}
       </>}
-      <BillingClientFilter
-        companies={companies}
-        projects={projects}
-        selection={billingFilterSel}
-        allChip={billingAllChip}
-        onSelectionChange={setBillingFilter}
-      />
       <button
         onClick={toggle}
         style={{

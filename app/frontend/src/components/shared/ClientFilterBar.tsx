@@ -114,7 +114,30 @@ export function ClientFilterBar<T extends FilterItem,>({
   const [text, setText] = useState('');
   const [matchIndex, setMatchIndex] = useState(0);
   const [helpOpen, setHelpOpen] = useState(false);
+  // 'visible' | 'fading' | 'hidden' — drives the 20s auto-hide behavior
+  const [inputPhase, setInputPhase] = useState<'visible' | 'fading' | 'hidden'>('visible');
   const inputRef = useRef<HTMLInputElement>(null);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const resetHideTimer = useCallback(() => {
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current);
+    setInputPhase('visible');
+    hideTimerRef.current = setTimeout(() => {
+      setInputPhase('fading');
+      fadeTimerRef.current = setTimeout(() => setInputPhase('hidden'), 300);
+    }, 20000);
+  }, []);
+
+  // Start the auto-hide timer on mount
+  useEffect(() => {
+    resetHideTimer();
+    return () => {
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+      if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (autoFocus) inputRef.current?.focus();
@@ -130,28 +153,36 @@ export function ClientFilterBar<T extends FilterItem,>({
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.metaKey && e.key === 'f') { e.preventDefault(); inputRef.current?.focus(); return; }
+      if (e.metaKey && e.key === 'f') {
+        e.preventDefault();
+        resetHideTimer();
+        inputRef.current?.focus();
+        return;
+      }
       if (e.metaKey && (e.key === '/' || e.key === '?')) { e.preventDefault(); setHelpOpen(h => !h); return; }
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, []);
+  }, [resetHideTimer]);
 
   const addToSelection = useCallback((item: T) => {
     if (!selection.find(s => s.type === item.type && s.id === item.id)) {
       onSelectionChange([...selection, item], false);
+      resetHideTimer();
     }
-  }, [selection, onSelectionChange]);
+  }, [selection, onSelectionChange, resetHideTimer]);
 
   const removeFromSelection = useCallback((item: T) => {
     const next = selection.filter(s => !(s.type === item.type && s.id === item.id));
     onSelectionChange(next, allChip && next.length === 0);
-  }, [selection, allChip, onSelectionChange]);
+    resetHideTimer();
+  }, [selection, allChip, onSelectionChange, resetHideTimer]);
 
   const clearToAll = useCallback(() => {
     onSelectionChange([], true);
     setText('');
-  }, [onSelectionChange]);
+    resetHideTimer();
+  }, [onSelectionChange, resetHideTimer]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Escape') { e.preventDefault(); setText(''); return; }
@@ -169,6 +200,13 @@ export function ClientFilterBar<T extends FilterItem,>({
 
   const showingAll = selection.length === 0;
 
+  const inputAreaStyle: React.CSSProperties = {
+    opacity: inputPhase === 'visible' ? 1 : 0,
+    transition: 'opacity 0.3s',
+    display: inputPhase === 'hidden' ? 'none' : undefined,
+    pointerEvents: inputPhase !== 'visible' ? 'none' : undefined,
+  };
+
   return (
     <div className={`coaching-filter${className ? ` ${className}` : ''}`} style={style}>
       {shortcuts.length > 0 && (
@@ -180,7 +218,7 @@ export function ClientFilterBar<T extends FilterItem,>({
           {allChip && showingAll ? (
             <span className="coaching-filter-chip coaching-filter-chip--all">
               All
-              <button className="coaching-filter-chip-remove" onClick={() => onSelectionChange([], false)}>×</button>
+              <button className="coaching-filter-chip-remove" onClick={() => { onSelectionChange([], false); resetHideTimer(); }}>×</button>
             </span>
           ) : (
             selection.map((item, i) => (
@@ -196,30 +234,32 @@ export function ClientFilterBar<T extends FilterItem,>({
         </div>
       )}
 
-      {text && (
-        <div className="coaching-filter-autocomplete">
-          {currentMatch ? (
-            <span style={{ color: multipleMatches ? 'var(--color-text-light)' : 'var(--color-text)' }}>
-              {removing && <span style={{ opacity: 0.5 }}>−</span>}
-              {autocompleteLabel(currentMatch)}
-              {multipleMatches && <span className="coaching-filter-ac-hint"> ← → to cycle</span>}
-            </span>
-          ) : (
-            <span style={{ color: 'var(--color-text-light)', fontStyle: 'italic' }}>no match</span>
-          )}
-        </div>
-      )}
+      <div style={inputAreaStyle}>
+        {text && (
+          <div className="coaching-filter-autocomplete">
+            {currentMatch ? (
+              <span style={{ color: multipleMatches ? 'var(--color-text-light)' : 'var(--color-text)' }}>
+                {removing && <span style={{ opacity: 0.5 }}>−</span>}
+                {autocompleteLabel(currentMatch)}
+                {multipleMatches && <span className="coaching-filter-ac-hint"> ← → to cycle</span>}
+              </span>
+            ) : (
+              <span style={{ color: 'var(--color-text-light)', fontStyle: 'italic' }}>no match</span>
+            )}
+          </div>
+        )}
 
-      <input
-        ref={inputRef}
-        className="coaching-filter-input"
-        type="text"
-        value={text}
-        onChange={e => setText(e.target.value)}
-        onKeyDown={handleKeyDown}
-        placeholder={placeholder}
-        spellCheck={false}
-      />
+        <input
+          ref={inputRef}
+          className="coaching-filter-input"
+          type="text"
+          value={text}
+          onChange={e => { setText(e.target.value); resetHideTimer(); }}
+          onKeyDown={handleKeyDown}
+          placeholder={placeholder}
+          spellCheck={false}
+        />
+      </div>
     </div>
   );
 }
