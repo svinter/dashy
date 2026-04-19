@@ -393,44 +393,90 @@ def sync_news():
         _handle_sync_error("news", e, time.monotonic() - t0)
 
 
-def _granola_notes_min_interval() -> int:
-    """Return the minimum seconds between granola_notes syncs.
-
-    During business hours (8:00–18:00 US/Eastern) use a 30-minute window so
-    the sync fires at 5 minutes past every half-hour (8:05, 8:35, …, 18:05).
-    Outside that window fall back to the standard 2-hour cadence.
-    """
+def _get_eastern_tz():
+    """Return a US/Eastern timezone object, or None if neither zoneinfo nor pytz is available."""
     try:
         from zoneinfo import ZoneInfo
-        eastern = ZoneInfo("America/New_York")
+        return ZoneInfo("America/New_York")
     except Exception:
         try:
             import pytz
-            eastern = pytz.timezone("America/New_York")
+            return pytz.timezone("America/New_York")
         except Exception:
-            return 7200  # zoneinfo and pytz both unavailable — stay safe
+            return None
 
-    from datetime import timezone as _tz
-    now_et = datetime.now(_tz.utc).astimezone(eastern)
-    hour = now_et.hour  # 0–23 in Eastern time
-    if 8 <= hour < 18:
-        return 1800  # 30 minutes during business hours
-    return 7200  # 2 hours outside business hours
+
+def _granola_notes_should_fire(last_sync_at: datetime | None) -> bool:
+    """Return True if it's time to run the Granola notes sync.
+
+    During business hours fires at business_hours_offset_minutes past each
+    business_hours_interval_minutes boundary (e.g. 8:05, 8:35, 9:05 …).
+    Outside business hours uses a simple after_hours_interval_hours rate limit.
+    All settings come from dashy_config.json["granola_sync"] with hardcoded fallbacks.
+    """
+    from datetime import timedelta
+
+    from app_config import get_dashy_config
+
+    cfg          = get_dashy_config().get("granola_sync", {})
+    biz_start    = int(cfg.get("business_hours_start", 8))
+    biz_end      = int(cfg.get("business_hours_end", 18))
+    interval_min = int(cfg.get("business_hours_interval_minutes", 30))
+    offset_min   = int(cfg.get("business_hours_offset_minutes", 5))
+    after_hrs    = int(cfg.get("after_hours_interval_hours", 2))
+
+    eastern = _get_eastern_tz()
+    if eastern is None:
+        # No timezone support — fall back to simple elapsed check
+        if last_sync_at is None:
+            return True
+        return (datetime.now() - last_sync_at).total_seconds() >= interval_min * 60
+
+    now_utc = datetime.now(timezone.utc)
+    now_et  = now_utc.astimezone(eastern)
+    hour    = now_et.hour
+
+    if biz_start <= hour < biz_end:
+        # Compute the most recent target = offset_min past the last interval boundary.
+        # e.g. interval=30, offset=5 at 9:47 ET → boundary=9:30 → target=9:35.
+        total_min    = hour * 60 + now_et.minute
+        boundary_min = (total_min // interval_min) * interval_min
+        target_min   = boundary_min + offset_min
+
+        ws_h, ws_m   = divmod(target_min % (24 * 60), 60)
+        window_start = now_et.replace(hour=ws_h, minute=ws_m, second=0, microsecond=0)
+
+        if now_et < window_start:
+            # We haven't reached the offset yet in this interval — use the previous one.
+            window_start -= timedelta(minutes=interval_min)
+
+        if last_sync_at is None:
+            return True
+
+        # Convert window_start to naive local time so it's comparable with
+        # last_sync_at (which is stored as datetime.now().isoformat() — naive local).
+        window_start_local = window_start.astimezone().replace(tzinfo=None)
+        return last_sync_at < window_start_local
+
+    else:
+        # After-hours: simple rate limit.
+        if last_sync_at is None:
+            return True
+        return (datetime.now() - last_sync_at).total_seconds() >= after_hrs * 3600
 
 
 def sync_granola_notes():
     if not _is_enabled("granola_notes"):
         return
-    # Rate-limit: 30 min during business hours (8–18 ET), 2 hours otherwise
+    # Fire at offset_min past each interval boundary during business hours; rate-limit after hours.
     try:
         with get_db_connection(readonly=True) as db:
             row = db.execute(
                 "SELECT last_sync_at FROM sync_state WHERE source = 'granola_notes'"
             ).fetchone()
-            if row and row["last_sync_at"]:
-                last = datetime.fromisoformat(row["last_sync_at"])
-                if (datetime.now() - last).total_seconds() < _granola_notes_min_interval():
-                    return
+            last = datetime.fromisoformat(row["last_sync_at"]) if (row and row["last_sync_at"]) else None
+            if not _granola_notes_should_fire(last):
+                return
     except Exception:
         pass
     t0 = time.monotonic()
