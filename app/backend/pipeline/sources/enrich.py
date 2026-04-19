@@ -102,9 +102,20 @@ def enrich_google_books(db_path: Path, limit: int = None):
     by title + author. Populate isbn, publisher, year, google_books_id.
     Vault-sourced metadata (if isbn already present) is not overwritten.
     Quota errors (429 or connection failure) leave needs_enrichment=1.
+    Genuine not-found results are upserted into library_enrich_not_found.
     """
     conn = sqlite3.connect(db_path, timeout=30)
     cur  = conn.cursor()
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS library_enrich_not_found (
+            entry_id    INTEGER PRIMARY KEY,
+            name        TEXT,
+            author      TEXT,
+            first_seen  TEXT DEFAULT (datetime('now')),
+            attempts    INTEGER DEFAULT 1
+        )
+    """)
 
     cur.execute("""
         SELECT e.id, e.name, b.id as book_id, b.author, b.isbn,
@@ -145,6 +156,12 @@ def enrich_google_books(db_path: Path, limit: int = None):
                     "UPDATE library_entries SET needs_enrichment = 0 WHERE id = ?",
                     (entry_id,)
                 )
+                cur.execute("""
+                    INSERT INTO library_enrich_not_found (entry_id, name, author)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(entry_id) DO UPDATE SET
+                        attempts = attempts + 1
+                """, (entry_id, name, author))
                 continue
         except QuotaExceededError:
             # Stop immediately — leave needs_enrichment = 1 for next run
@@ -204,29 +221,36 @@ def enrich_google_books(db_path: Path, limit: int = None):
 
 def _query_gbooks(title: str, author: str) -> dict | None:
     """Query Google Books API. Returns first result or None.
-    Raises QuotaExceededError on HTTP 429. Raises on connection failure."""
-    # Clean title for query — drop subtitle
+    Raises QuotaExceededError on HTTP 429. Raises on connection failure.
+
+    Strategy:
+      1. Try title + first author token
+      2. If no results, retry title-only (catches bad/noisy author strings)
+    """
     short_title = title.split(":")[0].strip()
-    query = f'intitle:"{short_title}"'
+
+    def _fetch(query: str) -> dict | None:
+        params: dict = {"q": query, "maxResults": 1, "printType": "books"}
+        if GOOGLE_BOOKS_API_KEY:
+            params["key"] = GOOGLE_BOOKS_API_KEY
+        resp = requests.get(GBOOKS_API, params=params, timeout=10)
+        if resp.status_code == 429:
+            raise QuotaExceededError("Daily quota exceeded")
+        if resp.status_code != 200:
+            return None
+        items = resp.json().get("items")
+        return items[0] if items else None
+
+    # Pass 1: title + first author token
     if author:
-        # Use first author name only
         first_author = author.split(",")[0].strip()
-        query += f'+inauthor:"{first_author}"'
+        result = _fetch(f'intitle:"{short_title}"+inauthor:"{first_author}"')
+        if result:
+            return result
+        time.sleep(0.05)  # small pause between the two requests
 
-    params: dict = {"q": query, "maxResults": 1, "printType": "books"}
-    if GOOGLE_BOOKS_API_KEY:
-        params["key"] = GOOGLE_BOOKS_API_KEY
-
-    resp = requests.get(GBOOKS_API, params=params, timeout=10)
-
-    if resp.status_code == 429:
-        raise QuotaExceededError("Daily quota exceeded")
-    if resp.status_code != 200:
-        return None
-
-    data = resp.json()
-    items = data.get("items")
-    return items[0] if items else None
+    # Pass 2: title only (handles noisy/wrong author data)
+    return _fetch(f'intitle:"{short_title}"')
 
 
 def _extract_year(date_str: str) -> int | None:

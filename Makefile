@@ -1,4 +1,4 @@
-.PHONY: start stop restart backend frontend status logs app build dev run test test-headed test-setup test-seed test-servers-start test-servers-stop test-status test-logs test-clean lint fmt blft verify dmg release db-migrate db-upgrade db-downgrade db-current db-history db-revision whatsapp whatsapp-stop setup ship demo demo-seed demo-backend demo-frontend demo-reset demo-capture
+.PHONY: start stop restart backend frontend status logs app build dev run test test-headed test-setup test-seed test-servers-start test-servers-stop test-status test-logs test-clean lint fmt blft verify dmg release db-migrate db-upgrade db-downgrade db-current db-history db-revision whatsapp whatsapp-stop setup ship demo demo-seed demo-backend demo-frontend demo-reset demo-capture enrich enrich-status enrich-notfound enrich-notfound-csv
 
 BACKEND_DIR = app/backend
 FRONTEND_DIR = app/frontend
@@ -279,6 +279,38 @@ demo-capture:
 	@echo ""
 	@echo "Screenshots: demo/screenshots/"
 	@echo "Video:       demo/video/"
+
+# --- Library enrichment ---
+
+enrich:
+	@echo "Starting enrichment run..."
+	@$(MAKE) stop
+	@cd $(BACKEND_DIR)/pipeline/sources && source $(CURDIR)/$(BACKEND_DIR)/venv/bin/activate && python run.py --enrich --limit 900
+	@$(MAKE) dev
+	@sleep 3
+	@cd $(BACKEND_DIR) && source venv/bin/activate && python scripts/update_vault_stubs.py
+	@echo "Enrichment complete. Check output above for counts."
+
+enrich-status:
+	@sqlite3 ~/.personal-dashboard/dashboard.db \
+		"SELECT COUNT(*) || ' books remaining to enrich' FROM library_entries WHERE type_code='b' AND needs_enrichment=1;"
+
+enrich-notfound:
+	@echo "Books not found in Google Books API:"
+	@echo "─────────────────────────────────────"
+	@sqlite3 ~/.personal-dashboard/dashboard.db \
+		".mode column" \
+		".width 6 50 30 8" \
+		"SELECT entry_id, name, author, attempts FROM library_enrich_not_found ORDER BY name;"
+	@echo ""
+	@sqlite3 ~/.personal-dashboard/dashboard.db \
+		"SELECT COUNT(*) || ' total books not found in Google Books' FROM library_enrich_not_found;"
+
+enrich-notfound-csv:
+	@sqlite3 -csv ~/.personal-dashboard/dashboard.db \
+		"SELECT entry_id, name, author, attempts, first_seen FROM library_enrich_not_found ORDER BY name;" \
+		> ~/Desktop/enrich_not_found.csv
+	@echo "Exported to ~/Desktop/enrich_not_found.csv"
 
 # --- Ship (commit, push, PR, optional merge) ---
 # Usage:
