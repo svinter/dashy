@@ -550,11 +550,13 @@ function EditForm({
   allTopics,
   onSaved,
   onCancel,
+  onDeleted,
 }: {
   entry: LibraryEntry;
   allTopics: LibraryTopic[];
   onSaved: (updated: LibraryEntry) => void;
   onCancel: () => void;
+  onDeleted: (name: string) => void;
 }) {
   const tc = entry.type_code;
 
@@ -573,6 +575,28 @@ function EditForm({
   const [topicIds, setTopicIds] = useState<number[]>(entry.topics.map(t => t.id));
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    try {
+      const resp = await fetch(`/api/libby/entries/${entry.id}`, { method: 'DELETE' });
+      if (resp.ok) {
+        const data = await resp.json() as { name: string };
+        onDeleted(data.name);
+      } else {
+        const err = await resp.json().catch(() => ({}));
+        setSaveError((err as { detail?: string }).detail ?? 'Delete failed');
+        setDeleteConfirm(false);
+      }
+    } catch {
+      setSaveError('Network error');
+      setDeleteConfirm(false);
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const toggleTopic = (id: number) => {
     setTopicIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
@@ -628,7 +652,17 @@ function EditForm({
   const hasSynopsis = !isBook && !isQuote;
 
   return (
-    <div className="libby-edit-form">
+    <div
+      className="libby-edit-form"
+      onKeyDown={e => {
+        // When in delete-confirm state, Escape steps back to normal edit (not close form)
+        if (deleteConfirm && e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          setDeleteConfirm(false);
+        }
+      }}
+    >
       <div className="libby-edit-field">
         <label className="libby-edit-label">name</label>
         <input className="libby-edit-input" type="text" value={name}
@@ -736,14 +770,39 @@ function EditForm({
       {saveError && <div className="libby-edit-error">{saveError}</div>}
 
       <div className="libby-edit-footer">
-        <button type="button" className="libby-edit-save-btn"
-          onClick={handleSave} disabled={saving || !name.trim()}>
-          {saving ? 'saving…' : 'save'}
-        </button>
-        <button type="button" className="libby-edit-cancel-btn" onClick={onCancel}>
-          cancel
-        </button>
-        <span className="libby-edit-hint">Esc · cancel</span>
+        {/* Delete — left side, muted until confirmed */}
+        <div className="libby-edit-delete-area">
+          {deleteConfirm ? (
+            <>
+              <span className="libby-edit-delete-prompt">Confirm delete?</span>
+              <button type="button" className="libby-edit-delete-confirm-btn"
+                onClick={handleDelete} disabled={deleting}>
+                {deleting ? 'deleting…' : 'Yes, delete'}
+              </button>
+              <button type="button" className="libby-edit-delete-cancel-btn"
+                onClick={() => setDeleteConfirm(false)}>
+                Cancel
+              </button>
+            </>
+          ) : (
+            <button type="button" className="libby-edit-delete-btn"
+              onClick={() => setDeleteConfirm(true)}>
+              Delete entry
+            </button>
+          )}
+        </div>
+
+        {/* Save / Cancel — right side */}
+        <div className="libby-edit-save-area">
+          <button type="button" className="libby-edit-save-btn"
+            onClick={handleSave} disabled={saving || !name.trim()}>
+            {saving ? 'saving…' : 'save'}
+          </button>
+          <button type="button" className="libby-edit-cancel-btn" onClick={onCancel}>
+            cancel
+          </button>
+          <span className="libby-edit-hint">Esc · cancel</span>
+        </div>
       </div>
     </div>
   );
@@ -2033,6 +2092,40 @@ function CatalogPage() {
                       ✓
                     </span>
                   )}
+                  {(() => {
+                    const linkUrl = entry.type_code === 'b'
+                      ? (entry.amazon_short_url || entry.amazon_url)
+                      : entry.url;
+                    const hasLink = !!linkUrl;
+                    const hasVault = !!entry.obsidian_link;
+                    if (!hasLink && !hasVault) return null;
+                    return (
+                      <span className="libby-result-quick-links">
+                        {hasLink && (
+                          <button
+                            className="libby-result-quick-link"
+                            onClick={e => {
+                              e.stopPropagation();
+                              window.open(linkUrl!, '_blank', 'noopener,noreferrer');
+                            }}
+                          >🔗</button>
+                        )}
+                        {hasVault && (
+                          <button
+                            className="libby-result-quick-link"
+                            onClick={e => {
+                              e.stopPropagation();
+                              const a = document.createElement('a');
+                              a.href = entry.obsidian_link!;
+                              document.body.appendChild(a);
+                              a.click();
+                              document.body.removeChild(a);
+                            }}
+                          >📓</button>
+                        )}
+                      </span>
+                    );
+                  })()}
                 </li>
               );
             })}
@@ -2063,6 +2156,14 @@ function CatalogPage() {
                 showToast('Saved');
               }}
               onCancel={() => setEditOpen(false)}
+              onDeleted={name => {
+                setEditOpen(false);
+                setSelected(null);
+                setSelectedWebpageUrl(null);
+                setResults(prev => prev.filter(r => r.id !== selected.id));
+                setUiState('SEARCH');
+                showToast(`Deleted: ${name}`);
+              }}
             />
           ) : (
           <>

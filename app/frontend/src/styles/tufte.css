@@ -11752,44 +11752,106 @@ span.news-item-title {
   margin: 6px 0;
 }
 
+/* Libby edit form — delete button and confirmation */
+
 .libby-edit-footer {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
   margin-top: 12px;
   padding-top: 10px;
   border-top: 1px solid var(--color-border);
 }
 
-.libby-edit-save-btn {
-  font-size: 0.78rem;
-  padding: 4px 14px;
+.libby-edit-delete-area {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.libby-edit-save-area {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.libby-edit-delete-btn {
+  font-size: 0.72rem;
+  padding: 2px 6px;
   border: none;
-  border-radius: 3px;
-  background: var(--color-text);
-  color: #fff;
+  background: none;
+  color: var(--color-text-lighter, #aaa);
   cursor: pointer;
   font-family: inherit;
 }
 
-.libby-edit-save-btn:disabled {
-  opacity: 0.4;
+.libby-edit-delete-btn:hover {
+  color: #c0392b;
+}
+
+.libby-edit-delete-prompt {
+  font-size: 0.72rem;
+  color: var(--color-text-light);
+}
+
+.libby-edit-delete-confirm-btn {
+  font-size: 0.72rem;
+  padding: 2px 8px;
+  border: 1px solid #c0392b;
+  border-radius: 3px;
+  background: none;
+  color: #c0392b;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.libby-edit-delete-confirm-btn:hover {
+  background: #c0392b;
+  color: #fff;
+}
+
+.libby-edit-delete-confirm-btn:disabled {
+  opacity: 0.5;
   cursor: default;
 }
 
-.libby-edit-cancel-btn {
-  font-size: 0.78rem;
-  padding: 4px 10px;
-  border: 1px solid var(--color-border);
-  border-radius: 3px;
-  background: #fff;
+.libby-edit-delete-cancel-btn {
+  font-size: 0.72rem;
+  padding: 2px 6px;
+  border: none;
+  background: none;
   color: var(--color-text-light);
   cursor: pointer;
   font-family: inherit;
 }
 
-.libby-edit-hint {
-  font-size: 0.7rem;
-  color: var(--color-text-lighter, #aaa);
-  margin-left: auto;
+/* Libby result row — quick-access link icons */
+
+.libby-result-quick-links {
+  display: flex;
+  gap: 0.3rem;
+  align-items: center;
+  margin-left: 0.5rem;
+  opacity: 0.4;
+  transition: opacity 0.15s;
+}
+
+.libby-result-row:hover .libby-result-quick-links {
+  opacity: 1;
+}
+
+.libby-result-quick-link {
+  font-size: 0.75rem;
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0 0.1rem;
+  line-height: 1;
+  color: var(--color-text-light);
+}
+
+.libby-result-quick-link:hover {
+  color: var(--color-accent);
 }

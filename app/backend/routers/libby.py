@@ -1585,6 +1585,44 @@ def update_entry(entry_id: int, body: EntryUpdateRequest):
 
 
 # ---------------------------------------------------------------------------
+# DELETE /api/libby/entries/{id} — permanently delete an entry
+# ---------------------------------------------------------------------------
+
+@router.delete("/entries/{entry_id}")
+def delete_entry(entry_id: int):
+    """Delete a library entry and its type-specific entity row.
+
+    Removes in FK-safe order: topics, share log, enrich-not-found log,
+    the master library_entries row, then the type-specific entity row
+    (library_books or library_items). Does not touch any external systems.
+    """
+    db = get_db()
+    row = db.execute(
+        "SELECT id, name, entity_id, type_code FROM library_entries WHERE id = ?",
+        (entry_id,),
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Entry not found")
+
+    entry_name = row["name"]
+    entity_id  = row["entity_id"]
+    tc         = row["type_code"]
+
+    with get_write_db() as dbw:
+        dbw.execute("DELETE FROM library_entry_topics WHERE entry_id = ?", (entry_id,))
+        dbw.execute("DELETE FROM library_share_log WHERE entry_id = ?",    (entry_id,))
+        dbw.execute("DELETE FROM library_enrich_not_found WHERE entry_id = ?", (entry_id,))
+        dbw.execute("DELETE FROM library_entries WHERE id = ?", (entry_id,))
+        if tc == "b":
+            dbw.execute("DELETE FROM library_books WHERE id = ?",  (entity_id,))
+        else:
+            dbw.execute("DELETE FROM library_items WHERE id = ?",  (entity_id,))
+        dbw.commit()
+
+    return {"deleted": True, "name": entry_name}
+
+
+# ---------------------------------------------------------------------------
 # Retype — change entry's type
 # POST /api/libby/entries/{id}/retype
 # ---------------------------------------------------------------------------
