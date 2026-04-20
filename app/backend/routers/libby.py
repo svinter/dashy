@@ -166,19 +166,10 @@ def search_library(q: str = "", client_id: int | None = None):
             e.comments,
             e.obsidian_link,
             lb.categories,
-            CASE e.type_code
-                WHEN 'b' THEN lb.author
-                WHEN 'a' THEN la.author
-                WHEN 'w' THEN lw.author
-                WHEN 'p' THEN lp.host
-                ELSE NULL
-            END AS author
+            COALESCE(lb.author, li.author) AS author
         FROM library_entries e
-        LEFT JOIN library_books    lb ON e.type_code = 'b' AND e.entity_id = lb.id
-        LEFT JOIN library_articles la ON e.type_code = 'a' AND e.entity_id = la.id
-        LEFT JOIN library_webpages lw ON e.type_code = 'w' AND e.entity_id = lw.id
-        LEFT JOIN library_podcasts lp ON e.type_code = 'p' AND e.entity_id = lp.id
-        LEFT JOIN library_tools    lt ON e.type_code = 't' AND e.entity_id = lt.id
+        LEFT JOIN library_books lb ON e.type_code = 'b' AND e.entity_id = lb.id
+        LEFT JOIN library_items li ON e.type_code != 'b' AND e.entity_id = li.id
         WHERE 1=1
     """
     params: list = []
@@ -1062,18 +1053,10 @@ def action_make(entry_id: int):
         SELECT
             e.id, e.name, e.type_code, e.url, e.webpage_url, e.amazon_url,
             e.comments,
-            CASE e.type_code
-                WHEN 'b' THEN lb.author
-                WHEN 'a' THEN la.author
-                WHEN 'w' THEN lw.author
-                WHEN 'p' THEN lp.host
-                ELSE NULL
-            END AS author
+            COALESCE(lb.author, li.author) AS author
         FROM library_entries e
-        LEFT JOIN library_books    lb ON e.type_code = 'b' AND e.entity_id = lb.id
-        LEFT JOIN library_articles la ON e.type_code = 'a' AND e.entity_id = la.id
-        LEFT JOIN library_webpages lw ON e.type_code = 'w' AND e.entity_id = lw.id
-        LEFT JOIN library_podcasts lp ON e.type_code = 'p' AND e.entity_id = lp.id
+        LEFT JOIN library_books lb ON e.type_code = 'b' AND e.entity_id = lb.id
+        LEFT JOIN library_items li ON e.type_code != 'b' AND e.entity_id = li.id
         WHERE e.id = ?
         """,
         (entry_id,),
@@ -1385,28 +1368,31 @@ def retype_entry(entry_id: int, body: RetypeRequest):
     if old_code == new_code:
         raise HTTPException(status_code=400, detail=f"Entry is already type '{new_code}'")
 
-    # Get old type's table_name for cleanup
-    old_type = db.execute(
-        "SELECT table_name FROM library_types WHERE code = ?", (old_code,)
-    ).fetchone()
-
     new_table = new_type["table_name"]
 
     with get_write_db() as dbw:
-        # Insert minimal row in new type table
-        cur = dbw.execute(f"INSERT INTO {new_table} DEFAULT VALUES")  # noqa: S608
-        new_entity_id = cur.lastrowid
-
-        # Point entry at new type row
-        dbw.execute(
-            "UPDATE library_entries SET type_code = ?, entity_id = ? WHERE id = ?",
-            (new_code, new_entity_id, entry_id),
-        )
-
-        # Delete old type-specific row if we know the table
-        if old_type and old_entity_id is not None:
-            old_table = old_type["table_name"]
-            dbw.execute(f"DELETE FROM {old_table} WHERE id = ?", (old_entity_id,))  # noqa: S608
+        if old_code != 'b' and new_code != 'b':
+            # Non-book → non-book: both map to library_items, entity_id stays the same.
+            # Just update the type_code — no insert/delete needed.
+            dbw.execute(
+                "UPDATE library_entries SET type_code = ? WHERE id = ?",
+                (new_code, entry_id),
+            )
+        else:
+            # Involves a book type (blocked by UI, but handle defensively):
+            # Insert a fresh row in the new table and clean up the old one.
+            cur = dbw.execute(f"INSERT INTO {new_table} (id) VALUES (NULL)")  # noqa: S608
+            new_entity_id = cur.lastrowid
+            dbw.execute(
+                "UPDATE library_entries SET type_code = ?, entity_id = ? WHERE id = ?",
+                (new_code, new_entity_id, entry_id),
+            )
+            old_type = db.execute(
+                "SELECT table_name FROM library_types WHERE code = ?", (old_code,)
+            ).fetchone()
+            if old_type and old_entity_id is not None:
+                old_table = old_type["table_name"]
+                dbw.execute(f"DELETE FROM {old_table} WHERE id = ?", (old_entity_id,))  # noqa: S608
 
         dbw.commit()
 
@@ -1841,14 +1827,10 @@ def _run_tagging_task(entry_id: int) -> None:
     entry_row = db.execute(
         """
         SELECT e.id, e.name, e.type_code, e.url, e.comments,
-               CASE e.type_code
-                   WHEN 'b' THEN lb.author
-                   WHEN 'a' THEN la.author
-                   ELSE NULL
-               END AS author
+               COALESCE(lb.author, li.author) AS author
         FROM library_entries e
-        LEFT JOIN library_books    lb ON e.type_code = 'b' AND e.entity_id = lb.id
-        LEFT JOIN library_articles la ON e.type_code = 'a' AND e.entity_id = la.id
+        LEFT JOIN library_books lb ON e.type_code = 'b' AND e.entity_id = lb.id
+        LEFT JOIN library_items li ON e.type_code != 'b' AND e.entity_id = li.id
         WHERE e.id = ?
         """,
         (entry_id,),
@@ -2005,14 +1987,10 @@ def _run_synopsis_task(entry_id: int) -> None:
     entry_row = db.execute(
         """
         SELECT e.id, e.name, e.type_code, e.url, e.comments,
-               CASE e.type_code
-                   WHEN 'b' THEN lb.author
-                   WHEN 'a' THEN la.author
-                   ELSE NULL
-               END AS author
+               COALESCE(lb.author, li.author) AS author
         FROM library_entries e
-        LEFT JOIN library_books    lb ON e.type_code = 'b' AND e.entity_id = lb.id
-        LEFT JOIN library_articles la ON e.type_code = 'a' AND e.entity_id = la.id
+        LEFT JOIN library_books lb ON e.type_code = 'b' AND e.entity_id = lb.id
+        LEFT JOIN library_items li ON e.type_code != 'b' AND e.entity_id = li.id
         WHERE e.id = ?
         """,
         (entry_id,),

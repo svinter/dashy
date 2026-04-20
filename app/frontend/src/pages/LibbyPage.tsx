@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback, Fragment } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Routes, Route, Navigate, NavLink } from 'react-router-dom';
 import { useLibbyContext } from '../contexts/LibbyContext';
 import type { LibbyFilterSelection, LibbyGroup } from '../contexts/LibbyContext';
@@ -521,7 +521,6 @@ function ManifestOverlay({
 
 function CatalogPage() {
   const { activeClientId, activeClientName, activeCompanyId, activeClientManifestUrl, isHelpOpen, onSelectionChange } = useLibbyContext();
-  const queryClient = useQueryClient();
   const { data: typeCounts } = useQuery<Record<string, number>>({
     queryKey: ['libby-type-counts'],
     queryFn: () => fetch('/api/libby/type-counts').then(r => r.json()),
@@ -1062,23 +1061,32 @@ function CatalogPage() {
             <span className="libby-type-grid-hdr">key</span>
             <span className="libby-type-grid-hdr">type</span>
             <span className="libby-type-grid-hdr libby-type-grid-hdr--r">#</span>
-            {/* Data rows */}
-            {TYPE_GRID_LEFT.map((lCode, i) => {
-              const rCode = TYPE_GRID_RIGHT[i];
-              const lCount = typeCounts?.[lCode] ?? 0;
-              const rCount = typeCounts?.[rCode] ?? 0;
-              return (
-                <Fragment key={lCode}>
-                  <span className={`libby-type-grid-key${lCount === 0 ? ' libby-type-grid--dim' : ''}`}>{lCode}</span>
-                  <span className={`libby-type-grid-name${lCount === 0 ? ' libby-type-grid--dim' : ''}`}>{ALL_TYPE_LABELS[lCode]}</span>
-                  <span className="libby-type-count">{lCount > 0 ? lCount.toLocaleString() : ''}</span>
-                  <span />
-                  <span className={`libby-type-grid-key${rCount === 0 ? ' libby-type-grid--dim' : ''}`}>{rCode}</span>
-                  <span className={`libby-type-grid-name${rCount === 0 ? ' libby-type-grid--dim' : ''}`}>{ALL_TYPE_LABELS[rCode]}</span>
-                  <span className="libby-type-count">{rCount > 0 ? rCount.toLocaleString() : ''}</span>
-                </Fragment>
-              );
-            })}
+            {/* Data rows — only types with entries, split into two columns */}
+            {(() => {
+              const activeTypes = [...TYPE_GRID_LEFT, ...TYPE_GRID_RIGHT]
+                .filter((code, idx, arr) => arr.indexOf(code) === idx) // dedupe (they're disjoint but be safe)
+                .filter(code => (typeCounts?.[code] ?? 0) > 0)
+                .sort((a, b) => ALL_TYPE_LABELS[a].localeCompare(ALL_TYPE_LABELS[b]));
+              const mid = Math.ceil(activeTypes.length / 2);
+              const leftCol = activeTypes.slice(0, mid);
+              const rightCol = activeTypes.slice(mid);
+              return leftCol.map((lCode, i) => {
+                const rCode = rightCol[i];
+                const lCount = typeCounts?.[lCode] ?? 0;
+                const rCount = rCode ? (typeCounts?.[rCode] ?? 0) : 0;
+                return (
+                  <Fragment key={lCode}>
+                    <span className="libby-type-grid-key">{lCode}</span>
+                    <span className="libby-type-grid-name">{ALL_TYPE_LABELS[lCode]}</span>
+                    <span className="libby-type-count">{lCount.toLocaleString()}</span>
+                    <span />
+                    <span className="libby-type-grid-key">{rCode ?? ''}</span>
+                    <span className="libby-type-grid-name">{rCode ? ALL_TYPE_LABELS[rCode] : ''}</span>
+                    <span className="libby-type-count">{rCode && rCount > 0 ? rCount.toLocaleString() : ''}</span>
+                  </Fragment>
+                );
+              });
+            })()}
           </div>
         </div>
       )}
