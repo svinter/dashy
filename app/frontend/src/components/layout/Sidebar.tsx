@@ -20,7 +20,7 @@ export function Sidebar() {
   const onRampPage = pathname.startsWith('/ramp');
   const onClaudePage = pathname.startsWith('/claude');
   const onBillingPage = pathname.startsWith('/billing');
-  const onCoachingPage = pathname.startsWith('/coaching');
+  void pathname.startsWith('/coaching'); // onCoachingPage unused
   const { data: badgeCounts } = useBillingBadgeCounts(onBillingPage);
   const queueCount = badgeCounts?.queue_count ?? 0;
   const unmatchedCount = badgeCounts?.unmatched_payments_count ?? 0;

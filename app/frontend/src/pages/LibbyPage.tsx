@@ -516,6 +516,411 @@ function ManifestOverlay({
 }
 
 // ---------------------------------------------------------------------------
+// QuickAddModal — create non-book entries without leaving Catalog
+// ---------------------------------------------------------------------------
+
+// Non-book types sorted alphabetically by name
+const NONBOOK_TYPES_ALPHA = [
+  { code: 'a', name: 'article' },
+  { code: 'z', name: 'assessment' },
+  { code: 'c', name: 'course' },
+  { code: 'd', name: 'document' },
+  { code: 'e', name: 'essay' },
+  { code: 'f', name: 'framework' },
+  { code: 'm', name: 'movie' },
+  { code: 'n', name: 'note' },
+  { code: 'p', name: 'podcast' },
+  { code: 'q', name: 'quote' },
+  { code: 'r', name: 'research' },
+  { code: 't', name: 'tool' },
+  { code: 'v', name: 'video' },
+  { code: 'w', name: 'webpage' },
+  { code: 's', name: 'worksheet' },
+];
+
+// Types where we fetch og: metadata from a URL
+const URL_FETCH_TYPES = new Set(['a', 'p', 'v', 'w']);
+// Types where content is text (name derived from it)
+const TEXT_TYPES = new Set(['q', 'n']);
+
+interface MovieCandidate {
+  title: string;
+  year: string | null;
+  poster: string | null;
+  imdb_id: string | null;
+}
+
+function QuickAddModal({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void;
+  onCreated: (name: string, typeCode: string) => void;
+}) {
+  const backdropRef = useRef<HTMLDivElement>(null);
+
+  const [step, setStep] = useState<'TYPE' | 'FILL'>('TYPE');
+  const [typeCode, setTypeCode] = useState<string | null>(null);
+
+  const [name, setName] = useState('');
+  const [url, setUrl] = useState('');
+  const [author, setAuthor] = useState('');
+  const [text, setText] = useState('');
+  const [priority, setPriority] = useState<'high' | 'medium' | 'low'>('medium');
+
+  const [fetchLoading, setFetchLoading] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [fetchedDescription, setFetchedDescription] = useState<string | null>(null);
+
+  const [movieQuery, setMovieQuery] = useState('');
+  const [movieCandidates, setMovieCandidates] = useState<MovieCandidate[]>([]);
+  const [movieLoading, setMovieLoading] = useState(false);
+  const [movieSelectedIdx, setMovieSelectedIdx] = useState<number | null>(null);
+
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Escape closes modal; in TYPE step, letter keys select a type
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onClose(); return; }
+      if (step === 'TYPE' && !e.metaKey && !e.altKey && !e.ctrlKey) {
+        const match = NONBOOK_TYPES_ALPHA.find(t => t.code === e.key.toLowerCase());
+        if (match) { e.preventDefault(); e.stopPropagation(); selectType(match.code); }
+      }
+    };
+    window.addEventListener('keydown', handler, true);
+    return () => window.removeEventListener('keydown', handler, true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onClose, step]);
+
+  const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.target === backdropRef.current) onClose();
+  };
+
+  const selectType = (code: string) => {
+    setTypeCode(code);
+    setStep('FILL');
+    setName(''); setUrl(''); setAuthor(''); setText('');
+    setFetchError(null); setFetchedDescription(null);
+    setMovieQuery(''); setMovieCandidates([]); setMovieSelectedIdx(null);
+    setSaveError(null);
+  };
+
+  const handleFetchMetadata = async () => {
+    if (!url.trim()) return;
+    setFetchLoading(true);
+    setFetchError(null);
+    setFetchedDescription(null);
+    try {
+      const resp = await fetch('/api/libby/fetch-metadata', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: url.trim() }),
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.title && !name) setName(data.title);
+        if (data.author && !author) setAuthor(data.author);
+        if (data.description) setFetchedDescription(data.description.slice(0, 200));
+      } else {
+        const err = await resp.json().catch(() => ({}));
+        setFetchError(err.detail ?? 'Could not fetch metadata');
+      }
+    } catch {
+      setFetchError('Network error');
+    } finally {
+      setFetchLoading(false);
+    }
+  };
+
+  const handleMovieLookup = async () => {
+    if (!movieQuery.trim()) return;
+    setMovieLoading(true);
+    setMovieCandidates([]);
+    setMovieSelectedIdx(null);
+    try {
+      const resp = await fetch(`/api/libby/movies/lookup?title=${encodeURIComponent(movieQuery.trim())}`);
+      if (resp.ok) {
+        const data = await resp.json();
+        setMovieCandidates(data.candidates ?? []);
+      }
+    } catch { /* ignore */ }
+    finally { setMovieLoading(false); }
+  };
+
+  const handleSave = async () => {
+    if (!typeCode) return;
+    let finalName = name.trim();
+    let finalUrl = url.trim() || undefined;
+    let finalAttribution: string | undefined;
+
+    if (TEXT_TYPES.has(typeCode) && !finalName) {
+      finalName = text.trim().slice(0, 80);
+    }
+    if (typeCode === 'm' && movieSelectedIdx !== null) {
+      const m = movieCandidates[movieSelectedIdx];
+      if (!finalName) finalName = m.title ?? '';
+      if (!finalUrl && m.imdb_id) finalUrl = `https://www.imdb.com/title/${m.imdb_id}/`;
+    }
+    if (typeCode === 'q' && author.trim()) {
+      finalAttribution = author.trim();
+    }
+
+    if (!finalName) { setSaveError('Name is required'); return; }
+
+    const body: Record<string, unknown> = {
+      name: finalName,
+      type_code: typeCode,
+      priority,
+      url: finalUrl ?? null,
+      comments: null,
+      author: author.trim() || null,
+      item_text: TEXT_TYPES.has(typeCode) ? (text.trim() || null) : null,
+      attribution: finalAttribution ?? null,
+    };
+
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const resp = await fetch('/api/libby/entries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (resp.ok) {
+        onCreated(finalName, typeCode);
+        onClose();
+      } else {
+        const err = await resp.json().catch(() => ({}));
+        setSaveError(err.detail ?? 'Save failed');
+      }
+    } catch {
+      setSaveError('Network error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const typeName = typeCode ? (ALL_TYPE_LABELS[typeCode] ?? typeCode) : '';
+  const isUrlType = typeCode ? URL_FETCH_TYPES.has(typeCode) : false;
+  const isTextType = typeCode ? TEXT_TYPES.has(typeCode) : false;
+  const isMovie = typeCode === 'm';
+
+  const canSave = (() => {
+    if (!typeCode) return false;
+    if (isMovie) return movieSelectedIdx !== null || name.trim().length > 0;
+    if (isTextType) return text.trim().length > 0 || name.trim().length > 0;
+    return name.trim().length > 0;
+  })();
+
+  const leftCol = NONBOOK_TYPES_ALPHA.slice(0, 8);
+  const rightCol = NONBOOK_TYPES_ALPHA.slice(8);
+
+  return (
+    <div className="libby-quickadd-backdrop" ref={backdropRef} onClick={handleBackdropClick}>
+      <div className="libby-quickadd-modal" role="dialog" aria-modal="true">
+        <div className="libby-quickadd-header">
+          <span className="libby-quickadd-title">
+            {step === 'TYPE' ? 'quick add' : `add ${typeName}`}
+          </span>
+          <button className="libby-quickadd-close" onClick={onClose} title="Close (Esc)">×</button>
+        </div>
+
+        {step === 'TYPE' && (
+          <div className="libby-quickadd-body">
+            <div className="libby-quickadd-type-hint">pick a type (or press its letter)</div>
+            <div className="libby-quickadd-type-grid">
+              {leftCol.map((t, i) => {
+                const r = rightCol[i];
+                return (
+                  <Fragment key={t.code}>
+                    <button className="libby-quickadd-type-btn" onClick={() => selectType(t.code)}>
+                      <span className="libby-quickadd-type-key">{t.code}</span>
+                      <span className="libby-quickadd-type-name">{t.name}</span>
+                    </button>
+                    {r ? (
+                      <button className="libby-quickadd-type-btn" onClick={() => selectType(r.code)}>
+                        <span className="libby-quickadd-type-key">{r.code}</span>
+                        <span className="libby-quickadd-type-name">{r.name}</span>
+                      </button>
+                    ) : <div />}
+                  </Fragment>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {step === 'FILL' && typeCode && (
+          <div className="libby-quickadd-body">
+            <button className="libby-quickadd-back" onClick={() => setStep('TYPE')}>← back</button>
+
+            {/* URL-based types */}
+            {isUrlType && (
+              <div className="libby-quickadd-field">
+                <label className="libby-quickadd-label">URL</label>
+                <div className="libby-quickadd-url-row">
+                  <input
+                    className="libby-quickadd-input"
+                    type="url"
+                    placeholder="https://…"
+                    value={url}
+                    onChange={e => setUrl(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleFetchMetadata(); } }}
+                    autoFocus
+                  />
+                  <button
+                    className="libby-quickadd-fetch-btn"
+                    onClick={handleFetchMetadata}
+                    disabled={fetchLoading || !url.trim()}
+                  >
+                    {fetchLoading ? '…' : 'fetch'}
+                  </button>
+                </div>
+                {fetchError && <div className="libby-quickadd-error">{fetchError}</div>}
+                {fetchedDescription && (
+                  <div className="libby-quickadd-fetched-desc">{fetchedDescription}</div>
+                )}
+              </div>
+            )}
+
+            {/* Movie search */}
+            {isMovie && (
+              <div className="libby-quickadd-field">
+                <label className="libby-quickadd-label">Movie title</label>
+                <div className="libby-quickadd-url-row">
+                  <input
+                    className="libby-quickadd-input"
+                    type="text"
+                    placeholder="search…"
+                    value={movieQuery}
+                    onChange={e => setMovieQuery(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleMovieLookup(); } }}
+                    autoFocus
+                  />
+                  <button
+                    className="libby-quickadd-fetch-btn"
+                    onClick={handleMovieLookup}
+                    disabled={movieLoading || !movieQuery.trim()}
+                  >
+                    {movieLoading ? '…' : 'search'}
+                  </button>
+                </div>
+                {movieCandidates.length > 0 && (
+                  <ul className="libby-quickadd-movie-list">
+                    {movieCandidates.map((m, i) => (
+                      <li
+                        key={m.imdb_id ?? i}
+                        className={`libby-quickadd-movie-item${movieSelectedIdx === i ? ' libby-quickadd-movie-item--selected' : ''}`}
+                        onClick={() => { setMovieSelectedIdx(i); setName(m.title ?? ''); }}
+                      >
+                        {m.poster && <img className="libby-quickadd-movie-poster" src={m.poster} alt="" />}
+                        <span className="libby-quickadd-movie-meta">
+                          <span className="libby-quickadd-movie-title">{m.title}</span>
+                          {m.year && <span className="libby-quickadd-movie-year">{m.year}</span>}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+
+            {/* Text types (quote, note) */}
+            {isTextType && (
+              <div className="libby-quickadd-field">
+                <label className="libby-quickadd-label">{typeCode === 'q' ? 'quote' : 'note'}</label>
+                <textarea
+                  className="libby-quickadd-textarea"
+                  placeholder={typeCode === 'q' ? 'Enter the quote…' : 'Enter note text…'}
+                  value={text}
+                  onChange={e => setText(e.target.value)}
+                  rows={4}
+                  autoFocus
+                />
+              </div>
+            )}
+
+            {/* Name field */}
+            {!isTextType ? (
+              <div className="libby-quickadd-field">
+                <label className="libby-quickadd-label">name</label>
+                <input
+                  className="libby-quickadd-input"
+                  type="text"
+                  placeholder="Title or name…"
+                  value={name}
+                  onChange={e => setName(e.target.value)}
+                  autoFocus={!isUrlType && !isMovie}
+                />
+              </div>
+            ) : (
+              <div className="libby-quickadd-field">
+                <label className="libby-quickadd-label">name <span className="libby-quickadd-optional">(optional — defaults to first 80 chars)</span></label>
+                <input
+                  className="libby-quickadd-input"
+                  type="text"
+                  placeholder="Override name…"
+                  value={name}
+                  onChange={e => setName(e.target.value)}
+                />
+              </div>
+            )}
+
+            {/* Author — for URL and quote types */}
+            {(isUrlType || typeCode === 'q') && (
+              <div className="libby-quickadd-field">
+                <label className="libby-quickadd-label">
+                  {typeCode === 'q' ? 'attribution' : 'author'}
+                  {' '}<span className="libby-quickadd-optional">(optional)</span>
+                </label>
+                <input
+                  className="libby-quickadd-input"
+                  type="text"
+                  placeholder={typeCode === 'q' ? 'Source or author…' : 'Author name…'}
+                  value={author}
+                  onChange={e => setAuthor(e.target.value)}
+                />
+              </div>
+            )}
+
+            {/* Priority */}
+            <div className="libby-quickadd-field">
+              <label className="libby-quickadd-label">priority</label>
+              <div className="libby-quickadd-priority-row">
+                {(['high', 'medium', 'low'] as const).map(p => (
+                  <button
+                    key={p}
+                    className={`libby-quickadd-pri-btn${priority === p ? ' libby-quickadd-pri-btn--active' : ''}`}
+                    onClick={() => setPriority(p)}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {saveError && <div className="libby-quickadd-error">{saveError}</div>}
+
+            <div className="libby-quickadd-footer">
+              <button
+                className="libby-quickadd-save-btn"
+                onClick={handleSave}
+                disabled={!canSave || saving}
+              >
+                {saving ? 'saving…' : 'save'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
+// ---------------------------------------------------------------------------
 // CatalogPage
 // ---------------------------------------------------------------------------
 
@@ -563,6 +968,9 @@ function CatalogPage() {
   // Manifest overlay
   const [manifestOpen, setManifestOpen] = useState(false);
   const [manifestFlashName, setManifestFlashName] = useState<string | null>(null);
+
+  // Quick-add modal
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
 
   // Reset session copy/record state when a new entry is selected
   useEffect(() => {
@@ -645,6 +1053,12 @@ function CatalogPage() {
     if (e.metaKey && e.key === 'a') {
       e.preventDefault();
       onSelectionChange([], true);
+      return;
+    }
+    // + or = opens quick-add modal
+    if ((e.key === '+' || e.key === '=') && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      setQuickAddOpen(true);
       return;
     }
     if (e.key === 'Enter') {
@@ -892,6 +1306,11 @@ function CatalogPage() {
         setUiState('SEARCH');
         return;
       }
+      // + or = opens quick-add modal
+      if (e.key === '+' || e.key === '=') {
+        setQuickAddOpen(true);
+        return;
+      }
       const idx = RESULT_LABELS.indexOf(e.key.toLowerCase());
       if (idx >= 0 && idx < results.length) {
         const entry = results[idx];
@@ -987,15 +1406,24 @@ function CatalogPage() {
     >
       <div className="libby-catalog-topbar">
         <LibbyClientFilter />
-        {activeClientManifestUrl && activeClientId && activeClientName && (
+        <div className="libby-catalog-topbar-actions">
+          {activeClientManifestUrl && activeClientId && activeClientName && (
+            <button
+              className="libby-manifest-btn"
+              onClick={() => setManifestOpen(o => !o)}
+              title="Open manifest"
+            >
+              manifest
+            </button>
+          )}
           <button
-            className="libby-manifest-btn"
-            onClick={() => setManifestOpen(o => !o)}
-            title="Open manifest"
+            className="libby-quickadd-trigger"
+            onClick={() => setQuickAddOpen(true)}
+            title="Quick add entry (+ or =)"
           >
-            manifest
+            +
           </button>
-        )}
+        </div>
       </div>
 
       {/* Search input — SEARCH state only */}
@@ -1412,6 +1840,16 @@ function CatalogPage() {
           clientName={activeClientName}
           onClose={() => { setManifestOpen(false); setManifestFlashName(null); }}
           flashName={manifestFlashName}
+        />
+      )}
+
+      {/* Quick-add modal */}
+      {quickAddOpen && (
+        <QuickAddModal
+          onClose={() => setQuickAddOpen(false)}
+          onCreated={(createdName, createdType) => {
+            showToast(`Added: ${createdName} (${ALL_TYPE_LABELS[createdType] ?? createdType})`);
+          }}
         />
       )}
     </div>

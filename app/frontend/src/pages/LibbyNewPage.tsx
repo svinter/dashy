@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useLibbyContext } from '../contexts/LibbyContext';
 
 // ---------------------------------------------------------------------------
@@ -45,10 +45,98 @@ interface BookCandidate {
   isbn: string | null;
   publisher: string | null;
   year: string | null;
+  page_count: number | null;
   description: string | null;
   cover_url: string | null;
   asin: string | null;
   amazon_url: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// CandidateGrid — card-based book candidate selector
+// ---------------------------------------------------------------------------
+
+function CandidateGrid({
+  candidates,
+  onConfirm,
+}: {
+  candidates: BookCandidate[];
+  onConfirm: (c: BookCandidate) => void;
+}) {
+  const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
+
+  // Reset selection when candidate list changes
+  useEffect(() => { setSelectedIdx(null); }, [candidates]);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (candidates.length === 0) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setSelectedIdx(i => (i === null ? 0 : Math.min(i + 1, candidates.length - 1)));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setSelectedIdx(i => (i === null ? 0 : Math.max(i - 1, 0)));
+    } else if (e.key === 'Enter' && selectedIdx !== null) {
+      e.preventDefault();
+      onConfirm(candidates[selectedIdx]);
+    }
+  }, [candidates, selectedIdx, onConfirm]);
+
+  return (
+    <div
+      className="libby-book-candidates"
+      ref={gridRef}
+      tabIndex={0}
+      onKeyDown={handleKeyDown}
+      style={{ outline: 'none' }}
+    >
+      {candidates.map((c, i) => {
+        const selected = i === selectedIdx;
+        const details: string[] = [];
+        if (c.year) details.push(c.year);
+        if (c.page_count) details.push(`${c.page_count} pages`);
+        return (
+          <div
+            key={c.google_books_id ?? i}
+            className={`libby-book-candidate${selected ? ' selected' : ''}`}
+            onClick={() => setSelectedIdx(i)}
+          >
+            {c.cover_url ? (
+              <img
+                className="libby-book-candidate-cover"
+                src={c.cover_url}
+                alt=""
+                loading="lazy"
+              />
+            ) : (
+              <div className="libby-book-candidate-cover-placeholder">📖</div>
+            )}
+            <div className="libby-book-candidate-meta">
+              <span className="libby-book-candidate-title">{c.title}</span>
+              {c.author && <span className="libby-book-candidate-author">{c.author}</span>}
+              {details.length > 0 && (
+                <span className="libby-book-candidate-details">{details.join(' · ')}</span>
+              )}
+              {c.isbn && (
+                <span className="libby-book-candidate-isbn">ISBN: {c.isbn}</span>
+              )}
+            </div>
+          </div>
+        );
+      })}
+      {selectedIdx !== null && (
+        <button
+          type="button"
+          className="libby-admin-btn libby-admin-btn--primary"
+          style={{ alignSelf: 'flex-start', marginTop: '0.25rem' }}
+          onClick={() => onConfirm(candidates[selectedIdx])}
+        >
+          Use this book
+        </button>
+      )}
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -91,7 +179,7 @@ function BookCreationForm({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  const fillFromCandidate = (c: BookCandidate) => {
+  const fillFromCandidate = (c: BookCandidate, clearCandidates = true) => {
     setName(c.title || '');
     setAuthor(c.author || '');
     setIsbn(c.isbn || '');
@@ -99,10 +187,8 @@ function BookCreationForm({
     setYear(c.year || '');
     setAmazonUrl(c.amazon_url || '');
     setGoogleBooksId(c.google_books_id || '');
-    // Pre-fill comments from description (truncated to 300 chars)
     if (c.description) setComments(c.description.slice(0, 300));
-    setCandidates([]);
-    setSearched(false);
+    if (clearCandidates) { setCandidates([]); setSearched(false); }
   };
 
   const handleSearch = async () => {
@@ -263,20 +349,7 @@ function BookCreationForm({
             <div className="libby-book-no-results">No results — fill fields manually below</div>
           )}
           {candidates.length > 0 && (
-            <ul className="libby-book-candidates">
-              {candidates.map((c, i) => (
-                <li
-                  key={c.google_books_id ?? i}
-                  className="libby-book-candidate"
-                  onClick={() => fillFromCandidate(c)}
-                >
-                  <span className="libby-book-candidate-title">{c.title}</span>
-                  {c.author && <span className="libby-book-candidate-author">{c.author}</span>}
-                  {c.year && <span className="libby-book-candidate-year">{c.year}</span>}
-                  {c.isbn && <span className="libby-book-candidate-isbn">ISBN {c.isbn}</span>}
-                </li>
-              ))}
-            </ul>
+            <CandidateGrid candidates={candidates} onConfirm={c => fillFromCandidate(c)} />
           )}
         </div>
       ) : (
@@ -332,38 +405,16 @@ function BookCreationForm({
                   </button>
                 </div>
                 {candidates.length > 0 && (
-                  <ul className="libby-book-candidates">
-                    {candidates.map((c, i) => (
-                      <li
-                        key={c.google_books_id ?? i}
-                        className="libby-book-candidate"
-                        onClick={() => { fillFromCandidate(c); setAmazonUrl(lookupUrl.trim()); setUrlFallback(false); }}
-                      >
-                        <span className="libby-book-candidate-title">{c.title}</span>
-                        {c.author && <span className="libby-book-candidate-author">{c.author}</span>}
-                        {c.year && <span className="libby-book-candidate-year">{c.year}</span>}
-                        {c.isbn && <span className="libby-book-candidate-isbn">ISBN {c.isbn}</span>}
-                      </li>
-                    ))}
-                  </ul>
+                  <CandidateGrid
+                    candidates={candidates}
+                    onConfirm={c => { fillFromCandidate(c); setAmazonUrl(lookupUrl.trim()); setUrlFallback(false); }}
+                  />
                 )}
               </div>
             </>
           )}
           {!urlFallback && candidates.length > 1 && (
-            <ul className="libby-book-candidates">
-              {candidates.slice(1).map((c, i) => (
-                <li
-                  key={c.google_books_id ?? i}
-                  className="libby-book-candidate"
-                  onClick={() => fillFromCandidate(c)}
-                >
-                  <span className="libby-book-candidate-title">{c.title}</span>
-                  {c.author && <span className="libby-book-candidate-author">{c.author}</span>}
-                  {c.year && <span className="libby-book-candidate-year">{c.year}</span>}
-                </li>
-              ))}
-            </ul>
+            <CandidateGrid candidates={candidates.slice(1)} onConfirm={c => fillFromCandidate(c)} />
           )}
         </div>
       )}

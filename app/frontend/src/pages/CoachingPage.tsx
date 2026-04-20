@@ -815,6 +815,7 @@ interface LayoutWord {
   y?: number;
   rotate?: number;
   wordData?: WordData;
+  [key: string]: unknown;
 }
 
 interface WordPopover {

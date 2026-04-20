@@ -44,7 +44,7 @@ import {
   useBillingPayables,
 } from '../api/hooks';
 import type { BillingUnprocessedEvent, BillingCompany, BillingProject, BillingSession, BillingPrepaidBlock, BillingInvoice, BillingInvoiceDetail, BillingSummaryData, BillingSummaryCell, BillingPayment, BillingLunchMoneySyncResult, InvoiceLineInput, InvoiceBulkImportRow, InvoiceBulkImportResult } from '../api/types';
-import { ClientFilterBar, HelpPopover } from '../components/shared/ClientFilterBar';
+import { ClientFilterBar } from '../components/shared/ClientFilterBar';
 import type { HelpShortcut } from '../components/shared/ClientFilterBar';
 
 // ---------------------------------------------------------------------------
@@ -65,9 +65,6 @@ const BILLING_PERIODIC_ID      = -3;  // invoice-billed companies with no prepai
 const BILLING_ALL_PROJECTS_ID  = -4;  // all active projects (.j symbolic group)
 const BILLING_INDIVIDUAL_ID    = -5;  // individual-billed companies (.i symbolic group)
 
-// Kept for any references in sub-routes (InvoicePrepPage, etc.)
-const SCOPE_COMPANY_PREPAID  = 'g:prepaid';
-const SCOPE_COMPANY_PERIODIC = 'g:periodic';
 
 // ---------------------------------------------------------------------------
 // Billing client filter — selection model
@@ -3101,6 +3098,7 @@ function InvoicesListView() {
   const { demo } = useDemoMode();
   const { year, month, effectiveCompanyIds } = useBillingScope();
   const navigate = useNavigate();
+  const { data: companies = [] } = useBillingCompanies();
   const [filterStatusBtn, setFilterStatusBtn] = useState<'all' | 'draft' | 'unpaid' | 'paid'>('all');
   const [filterUnlinked, setFilterUnlinked] = useState(false);
   const apiStatus = filterStatusBtn === 'all' || filterStatusBtn === 'unpaid' ? undefined : filterStatusBtn;
@@ -4824,11 +4822,6 @@ function PayablesView() {
   const tdStyle: React.CSSProperties = { padding: '4px 8px', verticalAlign: 'top' };
   const amtStyle: React.CSSProperties = { ...tdStyle, textAlign: 'right', fontVariantNumeric: 'tabular-nums' };
   const statusTdStyle: React.CSSProperties = { ...tdStyle, paddingLeft: 20 };
-  const sectionHeaderStyle: React.CSSProperties = {
-    fontWeight: 600, fontSize: 'var(--text-sm)',
-    borderBottom: '2px solid var(--color-border)',
-    paddingBottom: 4, marginBottom: 0, color: 'var(--color-fg)',
-  };
   const thBase: React.CSSProperties = { padding: '4px 8px', fontWeight: 600, fontSize: 'var(--text-sm)', borderBottom: '2px solid var(--color-border)', whiteSpace: 'nowrap' };
   const colGroup = (
     <colgroup>
@@ -5003,12 +4996,12 @@ function PayablesView() {
                     </tr>
                   </thead>
                   <tbody>
-                    {group.invoices.map(({ co_id, co_name, inv }) => (
+                    {group.invoices.map(({ co_name, inv }) => (
                       <tr key={inv.id} style={{ borderTop: '1px solid var(--color-border)' }}>
                         <td style={tdStyle}>
                           <button
                             style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: '#111', fontSize: 'inherit', textDecoration: 'underline', textDecorationColor: 'var(--color-border)' }}
-                            onClick={() => { setViewTab('by-company'); setSel([{ type: 'company', id: co_id, label: co_name }]); setAllChip(false); }}
+                            onClick={() => { setViewTab('by-company'); }}
                           >
                             {co_name}
                           </button>

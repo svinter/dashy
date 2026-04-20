@@ -1540,6 +1540,10 @@ class EntryCreateRequest(BaseModel):
     url: str | None = None
     comments: str | None = None
     priority: str = "medium"
+    # Extra fields written to library_items (non-book types only)
+    author: str | None = None
+    item_text: str | None = None      # stored in library_items.text
+    attribution: str | None = None    # stored in library_items.attribution
 
 
 @router.post("/entries")
@@ -1572,6 +1576,13 @@ def create_entry(body: EntryCreateRequest, background_tasks: BackgroundTasks):
         # Minimal entity row (id only)
         entity_cursor = dbw.execute(f"INSERT INTO {table_name} (id) VALUES (NULL)")
         entity_id = entity_cursor.lastrowid
+
+        # For library_items, populate optional metadata fields if provided
+        if table_name == "library_items" and (body.author or body.item_text or body.attribution):
+            dbw.execute(
+                "UPDATE library_items SET author = ?, text = ?, attribution = ? WHERE id = ?",
+                (body.author or None, body.item_text or None, body.attribution or None, entity_id),
+            )
 
         # Main entry row
         entry_cursor = dbw.execute(
@@ -1641,6 +1652,7 @@ def _google_books_search(params: dict) -> list[dict]:
             "year": str(info.get("publishedDate", ""))[:4] or None,
             "description": desc[:500] if desc else None,
             "cover_url": info.get("imageLinks", {}).get("thumbnail"),
+            "page_count": info.get("pageCount"),
         })
     return candidates
 
@@ -1801,6 +1813,137 @@ def create_book(body: BookCreateRequest, background_tasks: BackgroundTasks):
     background_tasks.add_task(_run_tagging_task, entry_id)
     logger.info("Created book entry %d: %r", entry_id, name)
     return {"id": entry_id, "status": "created", "name": name, "type_code": "b"}
+
+
+# ---------------------------------------------------------------------------
+# POST /api/libby/fetch-metadata — URL metadata extraction
+# ---------------------------------------------------------------------------
+
+class FetchMetadataRequest(BaseModel):
+    url: str
+
+
+@router.post("/fetch-metadata")
+def fetch_metadata(body: FetchMetadataRequest):
+    """Fetch a URL and extract Open Graph metadata (title, description, author).
+
+    For YouTube URLs, uses the oEmbed API for richer metadata.
+    Returns: title, author, description, site_name — all optional strings.
+    """
+    import re as _re
+
+    url = body.url.strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="URL is required")
+
+    # YouTube oEmbed — richer and more reliable than scraping
+    if "youtube.com" in url or "youtu.be" in url:
+        try:
+            resp = httpx.get(
+                "https://www.youtube.com/oembed",
+                params={"url": url, "format": "json"},
+                timeout=8.0,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                return {
+                    "title": data.get("title"),
+                    "author": data.get("author_name"),
+                    "description": None,
+                    "site_name": "YouTube",
+                }
+        except Exception as exc:
+            logger.warning("YouTube oEmbed failed for %s: %s", url, exc)
+
+    # General fetch + og: tag extraction
+    try:
+        resp = httpx.get(
+            url,
+            timeout=10.0,
+            follow_redirects=True,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; DashyBot/1.0)"},
+        )
+        resp.raise_for_status()
+        html_text = resp.text[:100_000]
+    except Exception as exc:
+        logger.warning("Fetch failed for %s: %s", url, exc)
+        raise HTTPException(status_code=422, detail=f"Could not fetch URL: {exc}")
+
+    def _og(prop: str) -> str | None:
+        m = _re.search(
+            rf'<meta[^>]+property=["\']og:{_re.escape(prop)}["\'][^>]+content=["\']([^"\']+)["\']',
+            html_text, _re.IGNORECASE,
+        ) or _re.search(
+            rf'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:{_re.escape(prop)}["\']',
+            html_text, _re.IGNORECASE,
+        )
+        return _html.unescape(m.group(1)).strip() if m else None
+
+    def _meta_name(name: str) -> str | None:
+        m = _re.search(
+            rf'<meta[^>]+name=["\']({_re.escape(name)})["\'][^>]+content=["\']([^"\']+)["\']',
+            html_text, _re.IGNORECASE,
+        ) or _re.search(
+            rf'<meta[^>]+content=["\']([^"\']+)["\'][^>]+name=["\']({_re.escape(name)})["\']',
+            html_text, _re.IGNORECASE,
+        )
+        return _html.unescape(m.group(2)).strip() if m else None
+
+    def _title_tag() -> str | None:
+        m = _re.search(r'<title[^>]*>([^<]+)</title>', html_text, _re.IGNORECASE)
+        return _html.unescape(m.group(1)).strip() if m else None
+
+    title = _og("title") or _meta_name("title") or _title_tag()
+    description = _og("description") or _meta_name("description")
+    author = _og("article:author") or _meta_name("author")
+    site_name = _og("site_name")
+
+    return {
+        "title": title,
+        "author": author,
+        "description": description,
+        "site_name": site_name,
+    }
+
+
+# ---------------------------------------------------------------------------
+# GET /api/libby/movies/lookup — OMDB movie search
+# ---------------------------------------------------------------------------
+
+@router.get("/movies/lookup")
+def lookup_movie(title: str):
+    """Search OMDB for movies matching the given title.
+
+    Returns up to 5 candidates with title, year, poster, and imdb_id.
+    """
+    if not title.strip():
+        raise HTTPException(status_code=400, detail="Title is required")
+
+    try:
+        resp = httpx.get(
+            "https://www.omdbapi.com/",
+            params={"s": title.strip(), "type": "movie", "apikey": "trilogy"},
+            timeout=8.0,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as exc:
+        logger.warning("OMDB API error: %s", exc)
+        raise HTTPException(status_code=502, detail="OMDB lookup failed")
+
+    if data.get("Response") == "False":
+        return {"candidates": []}
+
+    candidates = []
+    for item in (data.get("Search") or [])[:5]:
+        candidates.append({
+            "title": item.get("Title"),
+            "year": item.get("Year"),
+            "poster": item.get("Poster") if item.get("Poster") != "N/A" else None,
+            "imdb_id": item.get("imdbID"),
+        })
+
+    return {"candidates": candidates}
 
 
 # ---------------------------------------------------------------------------
