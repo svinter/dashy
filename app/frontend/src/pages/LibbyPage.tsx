@@ -164,6 +164,7 @@ function LibbyHelpPopup({ onClose }: { onClose: () => void }) {
                 <tr><td className="libby-help-key">c</td><td>copy URL</td></tr>
                 <tr><td className="libby-help-key">p</td><td>print (copy title + link)</td></tr>
                 <tr><td className="libby-help-key">d</td><td>doc copy to client folder</td></tr>
+                <tr><td className="libby-help-key">e</td><td>edit entry fields inline</td></tr>
                 <tr><td className="libby-help-key">r</td><td>record share with client</td></tr>
                 <tr><td className="libby-help-key">a</td><td>apply last label</td></tr>
                 <tr><td className="libby-help-key">l</td><td>label (add/remove topic)</td></tr>
@@ -221,18 +222,19 @@ function buildDetailLinks(entry: LibraryEntry): DetailLink[] {
   if (entry.obsidian_link) {
     links.push({ icon: '📓', label: 'Vault', url: entry.obsidian_link, isObsidian: true });
   }
-  const amazonUrl = entry.amazon_url || entry.amazon_short_url;
-  if (amazonUrl) {
-    links.push({ icon: '🔗', label: 'Amazon', url: amazonUrl });
-  }
-  if (entry.gdoc_id && entry.url) {
-    links.push({ icon: '📄', label: 'Doc', url: entry.url });
+  if (entry.type_code === 'b') {
+    // Books: Amazon link from amazon_short_url or amazon_url; Web only for the generated Libby page
+    const amazonUrl = entry.amazon_short_url || entry.amazon_url;
+    if (amazonUrl) links.push({ icon: '🔗', label: 'Amazon', url: amazonUrl });
+    if (entry.webpage_url) links.push({ icon: '🌐', label: 'Web', url: entry.webpage_url });
+    if (entry.gdoc_id && entry.url) links.push({ icon: '📄', label: 'Doc', url: entry.url });
   } else {
-    const webUrl = entry.webpage_url || entry.url;
-    if (webUrl) links.push({ icon: '🌐', label: 'Web', url: webUrl });
-  }
-  if (entry.preview_link) {
-    links.push({ icon: '👁', label: 'Preview', url: entry.preview_link });
+    // Non-books: Doc if gdoc_id set, otherwise Web from url
+    if (entry.gdoc_id && entry.url) {
+      links.push({ icon: '📄', label: 'Doc', url: entry.url });
+    } else if (entry.url) {
+      links.push({ icon: '🌐', label: 'Web', url: entry.url });
+    }
   }
   return links;
 }
@@ -537,6 +539,214 @@ function parseTopicPrefix(query: string): string | null {
     }
   }
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Edit form
+// ---------------------------------------------------------------------------
+
+function EditForm({
+  entry,
+  allTopics,
+  onSaved,
+  onCancel,
+}: {
+  entry: LibraryEntry;
+  allTopics: LibraryTopic[];
+  onSaved: (updated: LibraryEntry) => void;
+  onCancel: () => void;
+}) {
+  const tc = entry.type_code;
+
+  const [name, setName] = useState(entry.name);
+  const [priority, setPriority] = useState<'high' | 'medium' | 'low'>(entry.priority);
+  const [url, setUrl] = useState(entry.url ?? '');
+  const [author, setAuthor] = useState(entry.author ?? '');
+  const [year, setYear] = useState(entry.year != null ? String(entry.year) : '');
+  const [isbn, setIsbn] = useState(entry.isbn ?? '');
+  const [publication, setPublication] = useState(entry.publication ?? '');
+  const [publishedDate, setPublishedDate] = useState(entry.published_date ?? '');
+  const [synopsis, setSynopsis] = useState(entry.synopsis ?? '');
+  const [quoteText, setQuoteText] = useState(entry.quote_text ?? '');
+  const [attribution, setAttribution] = useState(entry.attribution ?? '');
+  const [context, setContext] = useState(entry.context ?? '');
+  const [topicIds, setTopicIds] = useState<number[]>(entry.topics.map(t => t.id));
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const toggleTopic = (id: number) => {
+    setTopicIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
+
+  const handleSave = async () => {
+    if (!name.trim()) { setSaveError('Name is required'); return; }
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const body: Record<string, unknown> = {
+        name: name.trim(),
+        priority,
+        url: url.trim() || null,
+        topic_ids: topicIds,
+      };
+      if (tc === 'b') {
+        body.author = author.trim() || null;
+        body.year = year ? parseInt(year, 10) : null;
+        body.isbn = isbn.trim() || null;
+      } else if (tc === 'q') {
+        body.text = quoteText.trim() || null;
+        body.attribution = attribution.trim() || null;
+        body.context = context.trim() || null;
+      } else {
+        body.author = author.trim() || null;
+        body.publication = publication.trim() || null;
+        body.published_date = publishedDate.trim() || null;
+        body.synopsis = synopsis.trim() || null;
+      }
+      const resp = await fetch(`/api/libby/entries/${entry.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (resp.ok) {
+        const updated = await resp.json();
+        onSaved(updated as LibraryEntry);
+      } else {
+        const err = await resp.json().catch(() => ({}));
+        setSaveError((err as { detail?: string }).detail ?? 'Save failed');
+      }
+    } catch {
+      setSaveError('Network error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const isBook = tc === 'b';
+  const isQuote = tc === 'q';
+  const hasPublication = !isBook && !isQuote;
+  const hasSynopsis = !isBook && !isQuote;
+
+  return (
+    <div className="libby-edit-form">
+      <div className="libby-edit-field">
+        <label className="libby-edit-label">name</label>
+        <input className="libby-edit-input" type="text" value={name}
+          onChange={e => setName(e.target.value)} autoFocus />
+      </div>
+
+      <div className="libby-edit-field">
+        <label className="libby-edit-label">priority</label>
+        <div className="libby-edit-priority-row">
+          {(['high', 'medium', 'low'] as const).map(p => (
+            <button key={p} type="button"
+              className={`libby-edit-pri-btn${priority === p ? ' libby-edit-pri-btn--active' : ''}`}
+              onClick={() => setPriority(p)}>{p}</button>
+          ))}
+        </div>
+      </div>
+
+      <div className="libby-edit-field">
+        <label className="libby-edit-label">url <span className="libby-edit-optional">(optional)</span></label>
+        <input className="libby-edit-input" type="text" value={url}
+          onChange={e => setUrl(e.target.value)} />
+      </div>
+
+      {tc !== 'q' && (
+        <div className="libby-edit-field">
+          <label className="libby-edit-label">
+            {tc === 'p' ? 'host' : 'author'}{' '}
+            <span className="libby-edit-optional">(optional)</span>
+          </label>
+          <input className="libby-edit-input" type="text" value={author}
+            onChange={e => setAuthor(e.target.value)} />
+        </div>
+      )}
+
+      {isBook && (
+        <>
+          <div className="libby-edit-field">
+            <label className="libby-edit-label">year <span className="libby-edit-optional">(optional)</span></label>
+            <input className="libby-edit-input libby-edit-input--short" type="number" value={year}
+              onChange={e => setYear(e.target.value)} />
+          </div>
+          <div className="libby-edit-field">
+            <label className="libby-edit-label">isbn <span className="libby-edit-optional">(optional)</span></label>
+            <input className="libby-edit-input" type="text" value={isbn}
+              onChange={e => setIsbn(e.target.value)} />
+          </div>
+        </>
+      )}
+
+      {hasPublication && (
+        <>
+          <div className="libby-edit-field">
+            <label className="libby-edit-label">publication <span className="libby-edit-optional">(optional)</span></label>
+            <input className="libby-edit-input" type="text" value={publication}
+              onChange={e => setPublication(e.target.value)} />
+          </div>
+          <div className="libby-edit-field">
+            <label className="libby-edit-label">date <span className="libby-edit-optional">(optional)</span></label>
+            <input className="libby-edit-input" type="text" placeholder="e.g. 2024-01"
+              value={publishedDate} onChange={e => setPublishedDate(e.target.value)} />
+          </div>
+        </>
+      )}
+
+      {isQuote && (
+        <>
+          <div className="libby-edit-field">
+            <label className="libby-edit-label">quote</label>
+            <textarea className="libby-edit-textarea" rows={3} value={quoteText}
+              onChange={e => setQuoteText(e.target.value)} />
+          </div>
+          <div className="libby-edit-field">
+            <label className="libby-edit-label">attribution <span className="libby-edit-optional">(optional)</span></label>
+            <input className="libby-edit-input" type="text" value={attribution}
+              onChange={e => setAttribution(e.target.value)} />
+          </div>
+          <div className="libby-edit-field">
+            <label className="libby-edit-label">context <span className="libby-edit-optional">(optional)</span></label>
+            <input className="libby-edit-input" type="text" value={context}
+              onChange={e => setContext(e.target.value)} />
+          </div>
+        </>
+      )}
+
+      {hasSynopsis && (
+        <div className="libby-edit-field">
+          <label className="libby-edit-label">synopsis <span className="libby-edit-optional">(optional)</span></label>
+          <textarea className="libby-edit-textarea" rows={3} value={synopsis}
+            onChange={e => setSynopsis(e.target.value)} />
+        </div>
+      )}
+
+      <div className="libby-edit-field">
+        <label className="libby-edit-label">topics</label>
+        <div className="libby-edit-topics">
+          {allTopics.map(t => (
+            <button key={t.id} type="button"
+              className={`libby-edit-topic-chip${topicIds.includes(t.id) ? ' libby-edit-topic-chip--active' : ''}`}
+              onClick={() => toggleTopic(t.id)}
+            >{t.name}</button>
+          ))}
+        </div>
+      </div>
+
+      {saveError && <div className="libby-edit-error">{saveError}</div>}
+
+      <div className="libby-edit-footer">
+        <button type="button" className="libby-edit-save-btn"
+          onClick={handleSave} disabled={saving || !name.trim()}>
+          {saving ? 'saving…' : 'save'}
+        </button>
+        <button type="button" className="libby-edit-cancel-btn" onClick={onCancel}>
+          cancel
+        </button>
+        <span className="libby-edit-hint">Esc · cancel</span>
+      </div>
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1160,6 +1370,9 @@ function CatalogPage() {
   // Detail panel expand/collapse
   const [detailExpanded, setDetailExpanded] = useState(true);
 
+  // Inline edit form
+  const [editOpen, setEditOpen] = useState(false);
+
   // Hover preview
   const [hoverEntry, setHoverEntry] = useState<LibraryEntry | null>(null);
   const [hoverPos, setHoverPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -1170,6 +1383,7 @@ function CatalogPage() {
     setSessionCopied(false);
     setSessionRecorded(false);
     setDetailExpanded(true);
+    setEditOpen(false);
   }, [selected?.id]);
 
   // Clear hover preview on any keypress
@@ -1526,9 +1740,18 @@ function CatalogPage() {
     }
 
     if (uiState === 'ACTION') {
+      // When the edit form is open, let inputs handle their own keys.
+      // Only intercept Escape to close the form.
+      const tgt = e.target as HTMLElement;
+      if (editOpen && (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA')) {
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setEditOpen(false); }
+        return;
+      }
       // Stop propagation immediately so global app-level keyboard shortcuts
       // (e.g. sidebar navigation) don't also fire on single-letter keys.
       e.stopPropagation();
+      // Escape: close edit form if open, otherwise return to search
+      if (e.key === 'Escape' && editOpen) { e.preventDefault(); setEditOpen(false); return; }
       // ⌥↑ / ⌥↓: toggle detail panel
       if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
         e.preventDefault();
@@ -1559,6 +1782,7 @@ function CatalogPage() {
       if (e.key === 'm') { e.preventDefault(); handleMake(); return; }
       if (e.key === 'v') { e.preventDefault(); handleVault(); return; }
       if (e.key === 'y') { e.preventDefault(); setRetypeSelected(null); setUiState('RETYPE'); return; }
+      if (e.key === 'e') { e.preventDefault(); setEditOpen(true); return; }
       if (e.key === 's') { e.preventDefault(); showToast('synopsis: coming soon'); return; }
       if (e.key === 'f') { e.preventDefault(); showToast('full: coming soon'); return; }
       if (e.key === 'x') { e.preventDefault(); showToast('find related: future'); return; }
@@ -1819,6 +2043,19 @@ function CatalogPage() {
       {/* Action section */}
       {uiState === 'ACTION' && selected && (
         <div className="libby-action-section">
+          {editOpen ? (
+            <EditForm
+              entry={selected}
+              allTopics={allTopics}
+              onSaved={updated => {
+                setSelected(updated);
+                setEditOpen(false);
+                showToast('Saved');
+              }}
+              onCancel={() => setEditOpen(false)}
+            />
+          ) : (
+          <>
           <DetailPanel
             entry={selected}
             expanded={detailExpanded}
@@ -1826,68 +2063,61 @@ function CatalogPage() {
           />
 
           <div className="libby-action-bar">
-            <button className="libby-action-btn" onClick={handleCopy} title="c — copy URL">
-              <span className="libby-action-key">c</span> copy
-            </button>
-            <button className="libby-action-btn" onClick={handlePrint} title="p — print (copy title + link)">
-              <span className="libby-action-key">p</span> print
-            </button>
-            <button
-              className={`libby-action-btn${(!selected.gdoc_id || !activeClientId) ? ' libby-action-btn--disabled' : ''}`}
-              onClick={handleCopyDoc}
-              disabled={!selected.gdoc_id || !activeClientId}
-              title={!selected.gdoc_id ? 'd — no doc attached' : !activeClientId ? 'd — select a client first' : 'd — copy doc to client folder'}
-            >
-              <span className="libby-action-key">d</span> doc copy
-            </button>
-            <button
-              className={`libby-action-btn${(!sessionCopied || sessionRecorded) ? ' libby-action-btn--disabled' : ''}`}
-              onClick={handleRecord}
-              disabled={!sessionCopied || sessionRecorded}
-              title={sessionRecorded ? 'r — already recorded this session' : !sessionCopied ? 'r — copy first (c/p/d), then record' : 'r — record share with client'}
-            >
-              <span className="libby-action-key">r</span> record{sessionRecorded ? ' ✓' : ''}
-            </button>
+            {/* Alphabetical: a b c d e l m o p r v y */}
             <button
               className={`libby-action-btn${!repeatDisplay ? ' libby-action-btn--disabled' : ''}`}
-              onClick={handleApply}
-              disabled={!repeatDisplay}
+              onClick={handleApply} disabled={!repeatDisplay}
               title={repeatDisplay ? `a — apply: ${repeatDisplay}` : 'a — no label set (use l first)'}
-            >
-              <span className="libby-action-key">a</span> apply
-            </button>
-            <button className="libby-action-btn" onClick={() => { setLabelQuery(''); setLabelHighlight(0); setLabelMsg(null); setUiState('LABEL'); }} title="l — label (add/remove topic)">
-              <span className="libby-action-key">l</span> label
-            </button>
+            ><span className="libby-action-key">a</span> apply</button>
+            <button className="libby-action-btn"
+              onClick={() => setUiState('PICK')} title="b — back to pick">
+              <span className="libby-action-key">b</span> back</button>
+            <button className="libby-action-btn" onClick={handleCopy} title="c — copy URL">
+              <span className="libby-action-key">c</span> copy</button>
             <button
-              className="libby-action-btn"
-              onClick={handleOpenUrl}
-              title="o — open URL in browser"
-            >
-              <span className="libby-action-key">o</span> open
-            </button>
+              className={`libby-action-btn${(!selected.gdoc_id || !activeClientId) ? ' libby-action-btn--disabled' : ''}`}
+              onClick={handleCopyDoc} disabled={!selected.gdoc_id || !activeClientId}
+              title={!selected.gdoc_id ? 'd — no doc attached' : !activeClientId ? 'd — select a client first' : 'd — copy doc to client folder'}
+            ><span className="libby-action-key">d</span> doc copy</button>
+            <button className="libby-action-btn" onClick={() => setEditOpen(true)} title="e — edit entry fields">
+              <span className="libby-action-key">e</span> edit</button>
+            <button className="libby-action-btn"
+              onClick={() => { setLabelQuery(''); setLabelHighlight(0); setLabelMsg(null); setUiState('LABEL'); }}
+              title="l — label (add/remove topic)">
+              <span className="libby-action-key">l</span> label</button>
             <button
               className={`libby-action-btn${selectedWebpageUrl ? ' libby-action-btn--has-page' : ''}`}
               onClick={handleMake}
               title={selectedWebpageUrl ? `m — page exists: ${selectedWebpageUrl}` : 'm — generate page'}
-            >
-              <span className="libby-action-key">m</span> make{selectedWebpageUrl ? ' ✓' : ''}
-            </button>
+            ><span className="libby-action-key">m</span> make{selectedWebpageUrl ? ' ✓' : ''}</button>
+            <button className="libby-action-btn" onClick={handleOpenUrl} title="o — open URL in browser">
+              <span className="libby-action-key">o</span> open</button>
+            <button className="libby-action-btn" onClick={handlePrint} title="p — print (copy title + link)">
+              <span className="libby-action-key">p</span> print</button>
+            <button
+              className={`libby-action-btn${(!sessionCopied || sessionRecorded) ? ' libby-action-btn--disabled' : ''}`}
+              onClick={handleRecord} disabled={!sessionCopied || sessionRecorded}
+              title={sessionRecorded ? 'r — already recorded this session' : !sessionCopied ? 'r — copy first (c/p/d), then record' : 'r — record share with client'}
+            ><span className="libby-action-key">r</span> record{sessionRecorded ? ' ✓' : ''}</button>
             <button
               className={`libby-action-btn${!selected.obsidian_link ? ' libby-action-btn--disabled' : ''}`}
-              onClick={handleVault}
-              disabled={!selected.obsidian_link}
+              onClick={handleVault} disabled={!selected.obsidian_link}
               title={selected.obsidian_link ? 'v — open in Obsidian vault' : 'v — no Obsidian page'}
-            >
-              <span className="libby-action-key">v</span> vault
-            </button>
-            <button
-              className="libby-action-btn"
+            ><span className="libby-action-key">v</span> vault</button>
+            <button className="libby-action-btn"
               onClick={() => { setRetypeSelected(null); setUiState('RETYPE'); }}
-              title="y — retype (change type)"
-            >
-              <span className="libby-action-key">y</span> retype
-            </button>
+              title="y — retype (change type)">
+              <span className="libby-action-key">y</span> retype</button>
+            {/* Dimmed / coming soon */}
+            <button className="libby-action-btn libby-action-btn--disabled" disabled
+              onClick={() => showToast('full: coming soon')} title="f — full clipboard payload (coming soon)">
+              <span className="libby-action-key">f</span> full</button>
+            <button className="libby-action-btn libby-action-btn--disabled" disabled
+              onClick={() => showToast('synopsis: coming soon')} title="s — synopsis (coming soon)">
+              <span className="libby-action-key">s</span> synopsis</button>
+            <button className="libby-action-btn libby-action-btn--disabled" disabled
+              onClick={() => showToast('find related: future')} title="x — find related (future)">
+              <span className="libby-action-key">x</span> find related</button>
           </div>
 
           <div className="libby-action-legend">
@@ -1897,6 +2127,7 @@ function CatalogPage() {
                 <tr><td className="libby-legend-key">b</td><td className="libby-legend-name">back</td><td className="libby-legend-desc">previous state</td></tr>
                 <tr><td className="libby-legend-key">c</td><td className="libby-legend-name">copy</td><td className="libby-legend-desc">copy URL to clipboard</td></tr>
                 <tr><td className="libby-legend-key">d</td><td className="libby-legend-name">doc copy</td><td className="libby-legend-desc">copy doc to client folder + link</td></tr>
+                <tr><td className="libby-legend-key">e</td><td className="libby-legend-name">edit</td><td className="libby-legend-desc">edit entry fields inline</td></tr>
                 <tr className="libby-legend-row--future"><td className="libby-legend-key">x</td><td className="libby-legend-name">find related</td><td className="libby-legend-desc"><span className="libby-legend-tag">future</span></td></tr>
                 <tr className="libby-legend-row--soon"><td className="libby-legend-key">f</td><td className="libby-legend-name">full</td><td className="libby-legend-desc">full clipboard payload <span className="libby-legend-tag">coming soon</span></td></tr>
                 <tr><td className="libby-legend-key">l</td><td className="libby-legend-name">label</td><td className="libby-legend-desc">add or remove a topic</td></tr>
@@ -1917,6 +2148,8 @@ function CatalogPage() {
           </div>
 
           {statusMsg && <div className="libby-status-msg">{statusMsg}</div>}
+          </>
+          )}
         </div>
       )}
 

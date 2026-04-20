@@ -1356,6 +1356,235 @@ def remove_entry_topic(entry_id: int, topic_id: int):
 
 
 # ---------------------------------------------------------------------------
+# PUT /api/libby/entries/{id} — update entry fields
+# ---------------------------------------------------------------------------
+
+def _fetch_entry_dict(db, entry_id: int) -> dict:
+    """Fetch a single entry in the same schema as search results."""
+    import json as _json
+
+    row = db.execute(
+        """
+        SELECT
+            e.id, e.name, e.type_code, e.priority, e.frequency,
+            e.url, e.amazon_url, e.amazon_short_url, e.webpage_url,
+            e.gdoc_id, e.comments, e.obsidian_link,
+            lb.categories,
+            COALESCE(lb.author, li.author) AS author,
+            lb.year, lb.isbn, lb.subtitle, lb.preview_link,
+            li.publication, li.published_date,
+            li.show_name, li.episode, li.host,
+            li.text AS quote_text, li.attribution, li.context,
+            li.notes AS synopsis
+        FROM library_entries e
+        LEFT JOIN library_books lb ON e.type_code = 'b' AND e.entity_id = lb.id
+        LEFT JOIN library_items li ON e.type_code != 'b' AND e.entity_id = li.id
+        WHERE e.id = ?
+        """,
+        (entry_id,),
+    ).fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Entry not found")
+
+    def _quote_author(comments: str | None) -> str | None:
+        if not comments:
+            return None
+        idx = comments.find(" \u2014 ")
+        if idx < 0:
+            return None
+        return comments[idx + 3:].strip() or None
+
+    author = row["author"] or (
+        _quote_author(row["comments"]) if row["type_code"] == "q" else None
+    )
+    categories: list[str] = []
+    if row["categories"]:
+        try:
+            categories = _json.loads(row["categories"])
+        except Exception:
+            pass
+
+    topics = [
+        {"id": tr["topic_id"], "code": tr["code"], "name": tr["name"]}
+        for tr in db.execute(
+            """SELECT jet.entry_id, lt.id AS topic_id, lt.code, lt.name
+               FROM library_entry_topics jet
+               JOIN library_topics lt ON jet.topic_id = lt.id
+               WHERE jet.entry_id = ?""",
+            (entry_id,),
+        ).fetchall()
+    ]
+
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "type_code": row["type_code"],
+        "priority": row["priority"],
+        "frequency": row["frequency"],
+        "url": row["url"],
+        "amazon_url": row["amazon_url"],
+        "amazon_short_url": row["amazon_short_url"],
+        "webpage_url": row["webpage_url"],
+        "gdoc_id": row["gdoc_id"],
+        "obsidian_link": row["obsidian_link"],
+        "author": author,
+        "author_match": False,
+        "description": row["comments"] or None,
+        "categories": categories,
+        "topics": topics,
+        "year": row["year"],
+        "isbn": row["isbn"],
+        "subtitle": row["subtitle"],
+        "preview_link": row["preview_link"],
+        "publication": row["publication"],
+        "published_date": row["published_date"],
+        "show_name": row["show_name"],
+        "episode": row["episode"],
+        "host": row["host"],
+        "quote_text": row["quote_text"],
+        "attribution": row["attribution"],
+        "context": row["context"],
+        "synopsis": row["synopsis"],
+        "last_shared_at": None,
+    }
+
+
+class EntryUpdateRequest(BaseModel):
+    name: str | None = None
+    comments: str | None = None
+    priority: str | None = None
+    url: str | None = None
+    topic_ids: list[int] | None = None
+    # Book fields
+    author: str | None = None
+    year: int | None = None
+    isbn: str | None = None
+    # Non-book item fields
+    publication: str | None = None
+    published_date: str | None = None
+    synopsis: str | None = None
+    # Quote fields
+    text: str | None = None
+    attribution: str | None = None
+    context: str | None = None
+    # Worksheet / Assessment
+    gdoc_id: str | None = None
+
+
+@router.put("/entries/{entry_id}")
+def update_entry(entry_id: int, body: EntryUpdateRequest):
+    """Update a library entry's fields.
+
+    Updates library_entries master fields (name, comments, priority, url, gdoc_id),
+    type-specific fields in library_books or library_items, and replaces the full
+    topic set if topic_ids is provided. Returns the updated entry in search-result
+    schema.
+    """
+    if body.priority is not None and body.priority not in ("high", "medium", "low"):
+        raise HTTPException(status_code=400, detail="Priority must be high, medium, or low")
+
+    db = get_db()
+    entry = db.execute(
+        "SELECT id, type_code, entity_id FROM library_entries WHERE id = ?",
+        (entry_id,),
+    ).fetchone()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Entry not found")
+
+    tc = entry["type_code"]
+    entity_id = entry["entity_id"]
+
+    with get_write_db() as dbw:
+        # --- library_entries master fields ---
+        entry_fields: list[tuple[str, object]] = []
+        if body.name is not None:
+            name = body.name.strip()
+            if not name:
+                raise HTTPException(status_code=400, detail="Name cannot be empty")
+            entry_fields.append(("name", name))
+        if body.comments is not None:
+            entry_fields.append(("comments", body.comments.strip() or None))
+        if body.priority is not None:
+            entry_fields.append(("priority", body.priority))
+        if body.url is not None:
+            entry_fields.append(("url", body.url.strip() or None))
+        if body.gdoc_id is not None:
+            entry_fields.append(("gdoc_id", body.gdoc_id.strip() or None))
+
+        if entry_fields:
+            set_clause = ", ".join(f"{col} = ?" for col, _ in entry_fields)
+            values = [v for _, v in entry_fields]
+            dbw.execute(
+                f"UPDATE library_entries SET {set_clause}, updated_at = datetime('now') WHERE id = ?",  # noqa: S608
+                values + [entry_id],
+            )
+
+        # --- Type-specific fields ---
+        if tc == "b":
+            book_fields: list[tuple[str, object]] = []
+            if body.author is not None:
+                book_fields.append(("author", body.author.strip() or None))
+            if body.year is not None:
+                book_fields.append(("year", body.year))
+            if body.isbn is not None:
+                book_fields.append(("isbn", body.isbn.strip() or None))
+            if book_fields:
+                set_clause = ", ".join(f"{col} = ?" for col, _ in book_fields)
+                values = [v for _, v in book_fields]
+                dbw.execute(
+                    f"UPDATE library_books SET {set_clause} WHERE id = ?",  # noqa: S608
+                    values + [entity_id],
+                )
+        else:
+            item_fields: list[tuple[str, object]] = []
+            if body.author is not None:
+                item_fields.append(("author", body.author.strip() or None))
+            if body.publication is not None:
+                item_fields.append(("publication", body.publication.strip() or None))
+            if body.published_date is not None:
+                item_fields.append(("published_date", body.published_date.strip() or None))
+            if body.synopsis is not None:
+                item_fields.append(("notes", body.synopsis.strip() or None))
+            if body.text is not None:
+                item_fields.append(("text", body.text.strip() or None))
+            if body.attribution is not None:
+                item_fields.append(("attribution", body.attribution.strip() or None))
+            if body.context is not None:
+                item_fields.append(("context", body.context.strip() or None))
+            if item_fields:
+                set_clause = ", ".join(f"{col} = ?" for col, _ in item_fields)
+                values = [v for _, v in item_fields]
+                dbw.execute(
+                    f"UPDATE library_items SET {set_clause} WHERE id = ?",  # noqa: S608
+                    values + [entity_id],
+                )
+
+        # --- Topics: full replace ---
+        if body.topic_ids is not None:
+            dbw.execute(
+                "DELETE FROM library_entry_topics WHERE entry_id = ?",
+                (entry_id,),
+            )
+            if body.topic_ids:
+                valid_ids = {
+                    r["id"] for r in db.execute("SELECT id FROM library_topics").fetchall()
+                }
+                for tid in body.topic_ids:
+                    if tid in valid_ids:
+                        dbw.execute(
+                            "INSERT OR IGNORE INTO library_entry_topics (entry_id, topic_id) VALUES (?, ?)",
+                            (entry_id, tid),
+                        )
+
+        dbw.commit()
+
+    # Re-fetch and return updated entry in search-result schema
+    updated_db = get_db()
+    return _fetch_entry_dict(updated_db, entry_id)
+
+
+# ---------------------------------------------------------------------------
 # Retype — change entry's type
 # POST /api/libby/entries/{id}/retype
 # ---------------------------------------------------------------------------

@@ -9594,21 +9594,22 @@ span.news-item-title {
 
 .libby-action-bar {
   display: flex;
-  gap: 8px;
+  gap: 5px;
   flex-wrap: wrap;
 }
 
 .libby-action-btn {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 5px 12px;
+  gap: 4px;
+  padding: 2px 7px;
   border: 1px solid var(--color-border);
-  border-radius: 4px;
+  border-radius: 3px;
   background: var(--color-bg);
   color: var(--color-text);
-  font-size: var(--text-sm);
+  font-size: 0.75rem;
   cursor: pointer;
+  font-family: inherit;
 }
 
 .libby-action-btn:hover {
@@ -11628,4 +11629,167 @@ span.news-item-title {
   color: var(--color-text);
   line-height: 1.45;
   margin-top: 0.25rem;
+}
+
+/* ============================================================
+   Libby — inline edit form
+   ============================================================ */
+
+.libby-edit-form {
+  background: var(--color-bg-subtle, #fafafa);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+}
+
+.libby-edit-field {
+  margin-bottom: 10px;
+}
+
+.libby-edit-label {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-light);
+  margin-bottom: 3px;
+}
+
+.libby-edit-optional {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--color-text-lighter, #aaa);
+}
+
+.libby-edit-input {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 0.82rem;
+  font-family: inherit;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  padding: 4px 7px;
+  background: #fff;
+  color: var(--color-text);
+}
+
+.libby-edit-input:focus {
+  outline: none;
+  border-color: var(--color-text-light);
+}
+
+.libby-edit-input--short {
+  width: 80px;
+}
+
+.libby-edit-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 0.82rem;
+  font-family: inherit;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  padding: 4px 7px;
+  background: #fff;
+  color: var(--color-text);
+  resize: vertical;
+}
+
+.libby-edit-textarea:focus {
+  outline: none;
+  border-color: var(--color-text-light);
+}
+
+.libby-edit-priority-row {
+  display: flex;
+  gap: 6px;
+}
+
+.libby-edit-pri-btn {
+  font-size: 0.75rem;
+  padding: 3px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  background: #fff;
+  color: var(--color-text-light);
+  cursor: pointer;
+}
+
+.libby-edit-pri-btn--active {
+  background: var(--color-text);
+  color: #fff;
+  border-color: var(--color-text);
+}
+
+.libby-edit-topics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.libby-edit-topic-chip {
+  font-size: 0.72rem;
+  padding: 2px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--color-text-light);
+  cursor: pointer;
+}
+
+.libby-edit-topic-chip--active {
+  background: var(--color-text);
+  color: #fff;
+  border-color: var(--color-text);
+}
+
+.libby-edit-error {
+  font-size: 0.75rem;
+  color: var(--color-error, #c00);
+  margin: 6px 0;
+}
+
+.libby-edit-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--color-border);
+}
+
+.libby-edit-save-btn {
+  font-size: 0.78rem;
+  padding: 4px 14px;
+  border: none;
+  border-radius: 3px;
+  background: var(--color-text);
+  color: #fff;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.libby-edit-save-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.libby-edit-cancel-btn {
+  font-size: 0.78rem;
+  padding: 4px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  background: #fff;
+  color: var(--color-text-light);
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.libby-edit-hint {
+  font-size: 0.7rem;
+  color: var(--color-text-lighter, #aaa);
+  margin-left: auto;
 }
