@@ -4138,7 +4138,7 @@ function CashReceivedView({ data }: { data: BillingSummaryData }) {
 }
 
 // ---------------------------------------------------------------------------
-// Summary view — /billing/summary
+// Overview view — /billing/overview
 // ---------------------------------------------------------------------------
 
 function SummaryView() {
@@ -4218,8 +4218,8 @@ function AnnualSummaryView() {
 
   return (
     <div>
-      <Link to="/billing/summary" style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-light)', textDecoration: 'none' }}>
-        ← Summary
+      <Link to="/billing/overview" style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-light)', textDecoration: 'none' }}>
+        ← Overview
       </Link>
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-md)', margin: 'var(--space-sm) 0 var(--space-lg)' }}>
         <h2 style={{ margin: 0 }}>Annual Summary {yearNum}</h2>
@@ -4627,8 +4627,12 @@ function PaymentsView() {
 function prepLink() {
   const now = new Date();
   const m = now.getMonth(); // 0-based; if 0 (Jan), go to Dec of prev year
-  if (m === 0) return `/billing/prepare/${now.getFullYear() - 1}/12`;
-  return `/billing/prepare/${now.getFullYear()}/${m}`;
+  if (m === 0) return `/billing/draft/${now.getFullYear() - 1}/12`;
+  return `/billing/draft/${now.getFullYear()}/${m}`;
+}
+
+function DraftBaseRedirect() {
+  return <Navigate to={prepLink().slice('/billing'.length)} replace />;
 }
 
 
@@ -4640,7 +4644,7 @@ function BillingScopeBar() {
   const { data: companies = [] } = useBillingCompanies();
   const { data: projects = [] } = useBillingProjects();
   const isPayables = useMatch('/billing/payables');
-  const isSummary  = useMatch('/billing/summary');
+  const isSummary  = useMatch('/billing/overview');
   const MIN_YEAR = 2025;
 
   return (
@@ -5032,22 +5036,22 @@ function PayablesView() {
 
 function BillingNav() {
   const { year, month } = useBillingScope();
-  const onPrepare = useMatch('/billing/prepare/*');
+  const onPrepare = useMatch('/billing/draft/*');
   const onInvoices = useMatch('/billing/invoices/*');
-  const onSummary = useMatch('/billing/summary') || useMatch('/billing/annual/*');
+  const onSummary = useMatch('/billing/overview') || useMatch('/billing/annual/*');
   const onPayments = useMatch('/billing/payments');
   const onPayables = useMatch('/billing/payables');
-  // Prepare link: use scope year/month; if month is null (all), fall back to prepLink()
-  const prepTo = month !== null ? `/billing/prepare/${year}/${month}` : prepLink();
+  // Draft link: use scope year/month; if month is null (all), fall back to prepLink()
+  const prepTo = month !== null ? `/billing/draft/${year}/${month}` : prepLink();
   return (
     <div className="tab-bar">
-      <NavLink to="/billing" end className={({ isActive }) => `tab${isActive ? ' active' : ''}`}>Sessions</NavLink>
+      <NavLink to="/billing/queue" className={({ isActive }) => `tab${isActive ? ' active' : ''}`}>Sessions</NavLink>
       <NavLink to="/billing/sessions" className={({ isActive }) => `tab${isActive ? ' active' : ''}`}>Confirmed</NavLink>
       <NavLink to="/billing/invoices" className={() => `tab${onInvoices ? ' active' : ''}`}>Invoices</NavLink>
       <NavLink to="/billing/payments" className={() => `tab${onPayments ? ' active' : ''}`}>Payments</NavLink>
       <NavLink to="/billing/payables" className={() => `tab${onPayables ? ' active' : ''}`}>Payables</NavLink>
-      <NavLink to="/billing/summary" className={() => `tab${onSummary ? ' active' : ''}`}>Summary</NavLink>
-      <NavLink to={prepTo} className={() => `tab${onPrepare ? ' active' : ''}`}>Prepare</NavLink>
+      <NavLink to="/billing/overview" className={() => `tab${onSummary ? ' active' : ''}`}>Overview</NavLink>
+      <NavLink to={prepTo} className={() => `tab${onPrepare ? ' active' : ''}`}>Draft</NavLink>
     </div>
   );
 }
@@ -5091,16 +5095,18 @@ export function BillingPage() {
           <BillingNav />
           <BillingScopeBar />
           <Routes>
-            <Route path="/" element={<UnprocessedQueue />} />
+            <Route path="/" element={<Navigate to="queue" replace />} />
+            <Route path="/queue" element={<UnprocessedQueue />} />
             <Route path="/sessions" element={<SessionsView />} />
             <Route path="/invoices" element={<InvoicesListView />} />
             <Route path="/invoices/:id" element={<InvoiceDetailView />} />
             <Route path="/payments" element={<PaymentsView />} />
             <Route path="/payables" element={<PayablesView />} />
-            <Route path="/summary" element={<SummaryView />} />
+            <Route path="/overview" element={<SummaryView />} />
             <Route path="/annual/:year" element={<AnnualSummaryView />} />
-            <Route path="/prepare/:year/:month" element={<InvoicePrepPage />} />
-            <Route path="*" element={<Navigate to="/billing" replace />} />
+            <Route path="/draft" element={<DraftBaseRedirect />} />
+            <Route path="/draft/:year/:month" element={<InvoicePrepPage />} />
+            <Route path="*" element={<Navigate to="/billing/queue" replace />} />
           </Routes>
         </div>
       </BillingScopeContext.Provider>

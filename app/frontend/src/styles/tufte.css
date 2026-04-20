@@ -9735,7 +9735,7 @@ span.news-item-title {
   bottom: 24px;
   left: 50%;
   transform: translateX(-50%);
-  background: var(--color-bg-2, #2a2a2a);
+  background: var(--color-bg, #fffff8);
   color: var(--color-text);
   font-size: var(--text-sm);
   padding: 7px 16px;

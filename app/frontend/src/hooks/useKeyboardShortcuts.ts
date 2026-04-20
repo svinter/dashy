@@ -10,11 +10,11 @@ export interface ShortcutDef {
 }
 
 export const SHORTCUT_DEFINITIONS: ShortcutDef[] = [
-  // Navigation (g + key)
+  // Navigation (g + key, optionally g + key + subpage key)
   { keys: 'g d', description: 'Go to Today', category: 'navigation' },
   { keys: 'g n', description: 'Go to Thoughts', category: 'navigation' },
   { keys: 'g i', description: 'Go to Issues', category: 'navigation' },
-  { keys: 'g l', description: 'Go to Library', category: 'navigation' },
+  { keys: 'g l [c/t/y/n]', description: 'Go to Library (Catalog/Topics/Types/New)', category: 'navigation' },
   { keys: 'g m', description: 'Go to Meetings', category: 'navigation' },
   { keys: 'g w', description: 'Go to Writing', category: 'navigation' },
   { keys: 'g p', description: 'Go to People', category: 'navigation' },
@@ -23,11 +23,12 @@ export const SHORTCUT_DEFINITIONS: ShortcutDef[] = [
   { keys: 'g c', description: 'Go to Claude', category: 'navigation' },
   { keys: 'g e', description: 'Go to Email', category: 'navigation' },
   { keys: 'g k', description: 'Go to Slack', category: 'navigation' },
-  { keys: 'g o', description: 'Go to Coaching', category: 'navigation' },
+  { keys: 'g o [c/l/s/v/o]', description: 'Go to Coaching (Clients/Cloud/Setup/Vinny/Ops)', category: 'navigation' },
   { keys: 'g f', description: 'Go to Drive (files)', category: 'navigation' },
   { keys: 'g x', description: 'Go to Ramp (expenses)', category: 'navigation' },
-  { keys: 'g b', description: 'Go to Billing', category: 'navigation' },
+  { keys: 'g b [q/s/i/p/o/d]', description: 'Go to Billing (Queue/Sessions/Invoices/…)', category: 'navigation' },
   { keys: 'g s', description: 'Go to Settings', category: 'navigation' },
+  { keys: '⌘→ / ⌘←', description: 'Next / previous page in current module', category: 'navigation' },
 
   // Actions
   { keys: 'h', description: 'Help / intro', category: 'actions' },
@@ -67,7 +68,6 @@ export const SHORTCUT_DEFINITIONS: ShortcutDef[] = [
 
   // Overlays
   { keys: 'Ctrl+Tab', description: 'Switch recent page', category: 'overlays' },
-  { keys: '\u2325G', description: 'Go to… (module navigation popup)', category: 'overlays' },
   { keys: '\u2318K', description: 'Search / command palette', category: 'overlays' },
   { keys: 'Tab (in \u2318K)', description: 'Quick create (issue/thought)', category: 'overlays' },
   { keys: '\u2318E (in \u2318K)', description: 'Toggle external search', category: 'overlays' },
@@ -76,26 +76,76 @@ export const SHORTCUT_DEFINITIONS: ShortcutDef[] = [
   { keys: 'Escape', description: 'Close overlay', category: 'overlays' },
 ];
 
-// Route map for g+key navigation shortcuts
-const GO_ROUTES: Record<string, string> = {
-  d: '/',
-  n: '/notes',
-  i: '/issues',
-  l: '/libby/catalog',
-  m: '/meetings',
-  w: '/docs',
-  p: '/people',
-  h: '/github',
-  q: '/code-search',
-  c: '/claude',
-  e: '/email',
-  k: '/slack',
-  o: '/coaching',
-  f: '/drive',
-  x: '/ramp',
-  b: '/billing',
-  s: '/settings',
+// ---------------------------------------------------------------------------
+// g + letter navigation map
+// Entries with 'path' navigate immediately.
+// Entries with 'default' + 'sub' navigate to default, then await a third key.
+// ---------------------------------------------------------------------------
+
+type GNavSimple = { path: string };
+type GNavModule = { default: string; sub: Record<string, string> };
+type GNavEntry = GNavSimple | GNavModule;
+
+const G_NAV: Record<string, GNavEntry> = {
+  d: { path: '/' },
+  n: { path: '/notes' },
+  i: { path: '/issues' },
+  l: {
+    default: '/libby/catalog',
+    sub: {
+      c: '/libby/catalog',
+      t: '/libby/topics',
+      y: '/libby/types',
+      n: '/libby/new',
+    },
+  },
+  m: { path: '/meetings' },
+  w: { path: '/docs' },
+  p: { path: '/people' },
+  h: { path: '/github' },
+  q: { path: '/code-search' },
+  c: { path: '/claude' },
+  e: { path: '/email' },
+  k: { path: '/slack' },
+  o: {
+    default: '/coaching/clients',
+    sub: {
+      c: '/coaching/clients',
+      l: '/coaching/wordcloud',
+      s: '/coaching/setup',
+      v: '/coaching/vinny',
+      o: '/coaching/operations',
+    },
+  },
+  f: { path: '/drive' },
+  x: { path: '/ramp' },
+  b: {
+    default: '/billing/queue',
+    sub: {
+      q: '/billing/queue',
+      s: '/billing/sessions',
+      i: '/billing/invoices',
+      p: '/billing/payments',
+      o: '/billing/overview',
+      d: '/billing/draft',
+    },
+  },
+  s: { path: '/settings' },
 };
+
+// ---------------------------------------------------------------------------
+// ⌘→ / ⌘← module page cycling
+// ---------------------------------------------------------------------------
+
+const MODULE_PAGE_ORDER: Record<string, string[]> = {
+  '/libby':    ['/libby/catalog', '/libby/topics', '/libby/types', '/libby/new'],
+  '/billing':  ['/billing/queue', '/billing/sessions', '/billing/invoices',
+                '/billing/payments', '/billing/overview', '/billing/draft'],
+  '/coaching': ['/coaching/clients', '/coaching/wordcloud', '/coaching/setup',
+                '/coaching/vinny', '/coaching/operations'],
+};
+
+type GNavState = 'idle' | 'waiting-module' | 'waiting-subpage';
 
 interface UseKeyboardShortcutsOptions {
   navigate: (path: string) => void;
@@ -119,8 +169,9 @@ interface UseKeyboardShortcutsOptions {
 
 export function useKeyboardShortcuts(opts: UseKeyboardShortcutsOptions) {
   const location = useLocation();
-  const pendingPrefix = useRef<string | null>(null);
-  const prefixTimer = useRef<number>(0);
+  const gNavState = useRef<GNavState>('idle');
+  const gNavModule = useRef<string | null>(null);
+  const gNavTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const optsRef = useRef(opts);
   optsRef.current = opts;
 
@@ -168,7 +219,25 @@ export function useKeyboardShortcuts(opts: UseKeyboardShortcutsOptions) {
         return;
       }
 
-      // Don't process if meta/ctrl/alt held (except Cmd+K above)
+      // ⌘→ / ⌘← — next/previous page within current module
+      if (e.metaKey && !e.ctrlKey && !e.altKey &&
+          (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) {
+        e.preventDefault();
+        const pathname = location.pathname;
+        const moduleKey = Object.keys(MODULE_PAGE_ORDER).find(k => pathname.startsWith(k));
+        if (moduleKey) {
+          const pages = MODULE_PAGE_ORDER[moduleKey];
+          const idx = pages.findIndex(p => pathname === p || pathname.startsWith(p + '/'));
+          if (e.key === 'ArrowRight') {
+            o.navigate(idx >= 0 ? pages[(idx + 1) % pages.length] : pages[0]);
+          } else {
+            o.navigate(idx >= 0 ? pages[(idx - 1 + pages.length) % pages.length] : pages[pages.length - 1]);
+          }
+        }
+        return;
+      }
+
+      // Don't process other shortcuts if meta/ctrl/alt held
       if (e.metaKey || e.ctrlKey || e.altKey) return;
 
       // ? key: help overlay
@@ -178,29 +247,60 @@ export function useKeyboardShortcuts(opts: UseKeyboardShortcutsOptions) {
         return;
       }
 
-      // Handle pending "g" prefix
-      if (pendingPrefix.current === 'g') {
-        clearTimeout(prefixTimer.current);
-        pendingPrefix.current = null;
+      // ---------------------------------------------------------------------------
+      // g navigation — three-state machine
+      // ---------------------------------------------------------------------------
 
-        const route = GO_ROUTES[e.key];
-        if (route) {
-          e.preventDefault();
-          o.navigate(route);
+      if (gNavState.current === 'waiting-subpage') {
+        if (gNavTimer.current) clearTimeout(gNavTimer.current);
+        const modKey = gNavModule.current!;
+        const entry = G_NAV[modKey];
+        if ('sub' in entry) {
+          const subPath = entry.sub[e.key.toLowerCase()];
+          if (subPath) {
+            e.preventDefault();
+            o.navigate(subPath);
+          }
+        }
+        gNavState.current = 'idle';
+        gNavModule.current = null;
+        return;
+      }
+
+      if (gNavState.current === 'waiting-module') {
+        if (gNavTimer.current) clearTimeout(gNavTimer.current);
+        gNavState.current = 'idle';
+
+        const entry = G_NAV[e.key.toLowerCase()];
+        if (!entry) return;
+
+        e.preventDefault();
+        if ('path' in entry) {
+          o.navigate(entry.path);
+        } else {
+          o.navigate(entry.default);
+          gNavModule.current = e.key.toLowerCase();
+          gNavState.current = 'waiting-subpage';
+          gNavTimer.current = setTimeout(() => {
+            gNavState.current = 'idle';
+            gNavModule.current = null;
+          }, 800);
         }
         return;
       }
 
-      // "g" starts a sequence
+      // 'g' starts the sequence
       if (e.key === 'g') {
-        pendingPrefix.current = 'g';
-        prefixTimer.current = window.setTimeout(() => {
-          pendingPrefix.current = null;
+        gNavState.current = 'waiting-module';
+        gNavTimer.current = window.setTimeout(() => {
+          gNavState.current = 'idle';
         }, 1500);
         return;
       }
 
+      // ---------------------------------------------------------------------------
       // Single-key shortcuts
+      // ---------------------------------------------------------------------------
       if (e.key === 'c') {
         o.navigate('/notes?focus=1');
         return;

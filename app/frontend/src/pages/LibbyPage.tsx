@@ -74,7 +74,7 @@ const TYPE_GRID_LEFT  = ['a', 'z', 'b', 'c', 'd', 'e', 'f', 'm'];
 // note, podcast, quote, research, tool, video, webpage, worksheet
 const TYPE_GRID_RIGHT = ['n', 'p', 'q', 'r', 't', 'v', 'w', 's'];
 
-const RESULT_LABELS = 'abcdefghijklmn';
+const RESULT_LABELS = 'abcdefghijklmnopqrstuvwxyz';
 
 type UiState = 'SEARCH' | 'PICK' | 'ACTION' | 'LABEL' | 'RETYPE';
 
@@ -130,7 +130,7 @@ function LibbyHelpPopup({ onClose }: { onClose: () => void }) {
             <table className="libby-help-keys">
               <tbody>
                 <tr><td className="libby-help-key">Return</td><td>select (1 result) or pick mode</td></tr>
-                <tr><td className="libby-help-key">a–n</td><td>pick from results</td></tr>
+                <tr><td className="libby-help-key">a–z</td><td>pick from results</td></tr>
                 <tr><td className="libby-help-key">b</td><td>back to previous state</td></tr>
                 <tr><td className="libby-help-key">Esc</td><td>return to search</td></tr>
               </tbody>
@@ -1581,12 +1581,12 @@ function CatalogPage() {
               );
             })}
           </ul>
-          {results.length === 14 && searchTotal > 14 && (
+          {results.length === 26 && searchTotal > 26 && (
             <div className="libby-result-count libby-result-count--capped">
-              showing 14 of {searchTotal.toLocaleString()} — refine your search
+              showing 26 of {searchTotal.toLocaleString()} — refine your search
             </div>
           )}
-          {results.length > 0 && results.length < 14 && (
+          {results.length > 0 && results.length < 26 && (
             <div className="libby-result-count">
               {results.length} {results.length === 1 ? 'result' : 'results'}
             </div>

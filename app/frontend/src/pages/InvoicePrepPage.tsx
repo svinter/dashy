@@ -760,7 +760,7 @@ export function InvoicePrepPage() {
   const prepDateFilter: BillingDateState = { year, month, week: null };
   function handlePrepDateChange(f: BillingDateState) {
     const m = f.month ?? month;
-    navigate(`/billing/prepare/${f.year}/${m}`);
+    navigate(`/billing/draft/${f.year}/${m}`);
   }
 
   if (isLoading || !prepData) return (

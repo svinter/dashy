@@ -142,7 +142,7 @@ def _name_match_score(name: str, name_tokens: list[str]) -> int:
 def search_library(q: str = "", client_id: int | None = None):
     """Search library entries using Libby query syntax.
 
-    Returns up to 14 results ranked by: priority → name-match quality → frequency.
+    Returns up to 26 results ranked by: priority → name-match quality → frequency.
     When client_id is provided, each result includes last_shared_at (most recent
     share date for that entry + client), or null if never shared.
     Books also match on author; title matches rank higher than author-only matches.
@@ -280,7 +280,7 @@ def search_library(q: str = "", client_id: int | None = None):
 
     results.sort(key=lambda r: r["_rank"], reverse=True)
     total = len(results)
-    results = results[:14]
+    results = results[:26]
     for r in results:
         del r["_rank"]
 
