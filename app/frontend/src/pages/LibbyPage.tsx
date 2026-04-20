@@ -37,6 +37,20 @@ interface LibraryEntry {
   categories: string[];
   topics: LibraryTopic[];
   last_shared_at: string | null;
+  // Rich metadata
+  year?: number | null;
+  isbn?: string | null;
+  subtitle?: string | null;
+  preview_link?: string | null;
+  publication?: string | null;
+  published_date?: string | null;
+  show_name?: string | null;
+  episode?: string | null;
+  host?: string | null;
+  quote_text?: string | null;
+  attribution?: string | null;
+  context?: string | null;
+  synopsis?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -181,6 +195,177 @@ function PriorityDots({ priority }: { priority: string }) {
       <span className={priority === 'high' || priority === 'medium' ? 'libby-dot libby-dot--on' : 'libby-dot libby-dot--off'}>●</span>
       <span className={priority === 'high' ? 'libby-dot libby-dot--on' : 'libby-dot libby-dot--off'}>●</span>
     </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Detail panel helpers
+// ---------------------------------------------------------------------------
+
+function openDetailUrl(url: string, isObsidian = false) {
+  if (isObsidian) {
+    const a = document.createElement('a');
+    a.href = url;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  } else {
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
+}
+
+interface DetailLink { icon: string; label: string; url: string; isObsidian?: boolean }
+
+function buildDetailLinks(entry: LibraryEntry): DetailLink[] {
+  const links: DetailLink[] = [];
+  if (entry.obsidian_link) {
+    links.push({ icon: '📓', label: 'Vault', url: entry.obsidian_link, isObsidian: true });
+  }
+  const amazonUrl = entry.amazon_url || entry.amazon_short_url;
+  if (amazonUrl) {
+    links.push({ icon: '🔗', label: 'Amazon', url: amazonUrl });
+  }
+  if (entry.gdoc_id && entry.url) {
+    links.push({ icon: '📄', label: 'Doc', url: entry.url });
+  } else {
+    const webUrl = entry.webpage_url || entry.url;
+    if (webUrl) links.push({ icon: '🌐', label: 'Web', url: webUrl });
+  }
+  if (entry.preview_link) {
+    links.push({ icon: '👁', label: 'Preview', url: entry.preview_link });
+  }
+  return links;
+}
+
+function DetailPanel({
+  entry,
+  expanded,
+  onToggle,
+}: {
+  entry: LibraryEntry;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const tc = entry.type_code;
+
+  // Type-specific meta line
+  const metaParts: string[] = [];
+  if (tc === 'b') {
+    if (entry.year) metaParts.push(String(entry.year));
+    if (entry.categories?.length) metaParts.push(entry.categories.slice(0, 3).join(', '));
+  } else if (['a', 'e', 'r'].includes(tc)) {
+    if (entry.publication) metaParts.push(entry.publication);
+    if (entry.published_date) metaParts.push(entry.published_date);
+  } else if (tc === 'p') {
+    if (entry.show_name) metaParts.push(entry.show_name);
+    if (entry.episode) metaParts.push(entry.episode);
+    if (entry.host) metaParts.push(`hosted by ${entry.host}`);
+  }
+  const metaLine = metaParts.join(' · ') || null;
+
+  // Description text
+  let descText: string | null = null;
+  if (tc === 'q') {
+    descText = entry.quote_text || entry.description;
+  } else if (entry.description) {
+    const raw = entry.description;
+    const prefix = entry.author ? `by ${entry.author}` : null;
+    const cleaned = (prefix && raw.toLowerCase().startsWith(prefix.toLowerCase()))
+      ? raw.slice(prefix.length).trimStart()
+      : raw;
+    descText = (!expanded && cleaned.length > 300)
+      ? cleaned.slice(0, 300) + '…'
+      : cleaned;
+  }
+
+  const topicsText = entry.topics.map(t => t.name).join(', ');
+  const links = buildDetailLinks(entry);
+
+  return (
+    <div className="libby-detail-panel">
+      <div className="libby-detail-header">
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="libby-detail-title">{entry.name}</div>
+          {entry.author && tc !== 'q' && (
+            <div className="libby-detail-author">by {entry.author}</div>
+          )}
+          {!expanded && metaLine && (
+            <div className="libby-detail-meta-line">{metaLine}</div>
+          )}
+        </div>
+        <button className="libby-detail-toggle" onClick={onToggle}>
+          {expanded ? 'collapse ▲' : 'expand ▼'}
+        </button>
+      </div>
+
+      {expanded && (
+        <>
+          {metaLine && (
+            <div className="libby-detail-meta-line">{metaLine}</div>
+          )}
+          {tc === 'b' && entry.isbn && (
+            <div className="libby-detail-meta-line libby-detail-isbn">ISBN: {entry.isbn}</div>
+          )}
+          {descText && (
+            <div className="libby-detail-description">{descText}</div>
+          )}
+          {tc === 'q' && entry.attribution && (
+            <div className="libby-detail-meta-line">— {entry.attribution}</div>
+          )}
+          {tc === 'q' && entry.context && (
+            <div className="libby-detail-meta-line libby-detail-context">{entry.context}</div>
+          )}
+          {entry.synopsis && (
+            <div className="libby-detail-description">{entry.synopsis}</div>
+          )}
+          {topicsText && (
+            <div className="libby-detail-topics">Topics: {topicsText}</div>
+          )}
+        </>
+      )}
+
+      {links.length > 0 && (
+        <div className="libby-detail-links">
+          {links.map(link => (
+            <button
+              key={link.label}
+              className="libby-detail-link"
+              onClick={() => openDetailUrl(link.url, link.isObsidian)}
+            >
+              {link.icon} {link.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Hover preview
+// ---------------------------------------------------------------------------
+
+function HoverPreview({ entry, pos }: { entry: LibraryEntry; pos: { x: number; y: number } }) {
+  const previewWidth = 300;
+  const left = (pos.x + previewWidth > window.innerWidth - 16)
+    ? window.innerWidth - previewWidth - 16
+    : pos.x;
+
+  const rawDesc = entry.quote_text || entry.description;
+  const descPreview = rawDesc
+    ? rawDesc.slice(0, 100) + (rawDesc.length > 100 ? '…' : '')
+    : null;
+  const meta = [entry.author, entry.year != null ? String(entry.year) : null]
+    .filter(Boolean).join(' · ');
+  const topicsText = entry.topics.map(t => t.name).join(', ');
+
+  return (
+    <div className="libby-hover-preview" style={{ left, top: pos.y, position: 'fixed' }}>
+      <div className="libby-hover-preview-title">{entry.name}</div>
+      {meta && <div className="libby-hover-preview-meta">{meta}</div>}
+      {descPreview && <div className="libby-hover-preview-desc">{descPreview}</div>}
+      {topicsText && <div className="libby-hover-preview-meta">{topicsText}</div>}
+    </div>
   );
 }
 
@@ -972,11 +1157,30 @@ function CatalogPage() {
   // Quick-add modal
   const [quickAddOpen, setQuickAddOpen] = useState(false);
 
-  // Reset session copy/record state when a new entry is selected
+  // Detail panel expand/collapse
+  const [detailExpanded, setDetailExpanded] = useState(true);
+
+  // Hover preview
+  const [hoverEntry, setHoverEntry] = useState<LibraryEntry | null>(null);
+  const [hoverPos, setHoverPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Reset session state + detail expansion when a new entry is selected
   useEffect(() => {
     setSessionCopied(false);
     setSessionRecorded(false);
+    setDetailExpanded(true);
   }, [selected?.id]);
+
+  // Clear hover preview on any keypress
+  useEffect(() => {
+    const handler = () => {
+      if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+      setHoverEntry(null);
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, []);
 
   // Focus management: LABEL → label input; PICK/ACTION/RETYPE → container; SEARCH → input
   useEffect(() => {
@@ -1325,6 +1529,12 @@ function CatalogPage() {
       // Stop propagation immediately so global app-level keyboard shortcuts
       // (e.g. sidebar navigation) don't also fire on single-letter keys.
       e.stopPropagation();
+      // ⌥↑ / ⌥↓: toggle detail panel
+      if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+        e.preventDefault();
+        setDetailExpanded(prev => !prev);
+        return;
+      }
       if (e.key === 'Escape') {
         e.preventDefault();
         repeatRef.current = null;
@@ -1551,6 +1761,18 @@ function CatalogPage() {
                       setUiState('ACTION');
                     }
                   }}
+                  onMouseEnter={e => {
+                    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    hoverTimerRef.current = setTimeout(() => {
+                      setHoverEntry(entry);
+                      setHoverPos({ x: rect.right + 8, y: rect.top });
+                    }, 400);
+                  }}
+                  onMouseLeave={() => {
+                    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+                    setHoverEntry(null);
+                  }}
                 >
                   <span className={`libby-result-label${isHighlit ? ' libby-result-label--active' : ''}`}>{label}</span>
                   <span className="libby-result-name-cell">
@@ -1597,37 +1819,11 @@ function CatalogPage() {
       {/* Action section */}
       {uiState === 'ACTION' && selected && (
         <div className="libby-action-section">
-          <div className="libby-selected-detail">
-            <span className="libby-selected-type">{TYPE_LABELS[selected.type_code] ?? selected.type_code}</span>
-            {selected.author && <span className="libby-selected-author">{selected.author}</span>}
-            {selected.topics.length > 0 && (
-              <span className="libby-selected-topics">
-                <em>{selected.topics.map(t => t.name).join(', ')}</em>
-              </span>
-            )}
-            <PriorityDots priority={selected.priority} />
-          </div>
-
-          {(selected.description || (selected.categories && selected.categories.length > 0)) && (
-            <div className="libby-selected-expanded">
-              {selected.description && (() => {
-                const raw = selected.description!;
-                const prefix = selected.author ? `by ${selected.author}` : null;
-                const desc = prefix && raw.toLowerCase().startsWith(prefix.toLowerCase())
-                  ? raw.slice(prefix.length).trimStart()
-                  : raw;
-                const truncated = desc.length > 150 ? desc.slice(0, 150) + '…' : desc;
-                return (
-                  <p className="libby-selected-description">{truncated}</p>
-                );
-              })()}
-              {selected.categories && selected.categories.length > 0 && (
-                <p className="libby-selected-categories-text">
-                  {selected.categories.join(', ')}
-                </p>
-              )}
-            </div>
-          )}
+          <DetailPanel
+            entry={selected}
+            expanded={detailExpanded}
+            onToggle={() => setDetailExpanded(prev => !prev)}
+          />
 
           <div className="libby-action-bar">
             <button className="libby-action-btn" onClick={handleCopy} title="c — copy URL">
@@ -1822,6 +2018,9 @@ function CatalogPage() {
           </div>
         );
       })()}
+
+      {/* Hover preview */}
+      {hoverEntry && <HoverPreview entry={hoverEntry} pos={hoverPos} />}
 
       {/* Toast */}
       {toastMsg && (

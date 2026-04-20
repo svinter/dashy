@@ -166,7 +166,20 @@ def search_library(q: str = "", client_id: int | None = None):
             e.comments,
             e.obsidian_link,
             lb.categories,
-            COALESCE(lb.author, li.author) AS author
+            COALESCE(lb.author, li.author) AS author,
+            lb.year,
+            lb.isbn,
+            lb.subtitle,
+            lb.preview_link,
+            li.publication,
+            li.published_date,
+            li.show_name,
+            li.episode,
+            li.host,
+            li.text        AS quote_text,
+            li.attribution,
+            li.context,
+            li.notes       AS synopsis
         FROM library_entries e
         LEFT JOIN library_books lb ON e.type_code = 'b' AND e.entity_id = lb.id
         LEFT JOIN library_items li ON e.type_code != 'b' AND e.entity_id = li.id
@@ -271,6 +284,19 @@ def search_library(q: str = "", client_id: int | None = None):
             "description": row["comments"] or None,
             "categories": categories,
             "topics": topics_by_entry.get(row["id"], []),
+            "year": row["year"],
+            "isbn": row["isbn"],
+            "subtitle": row["subtitle"],
+            "preview_link": row["preview_link"],
+            "publication": row["publication"],
+            "published_date": row["published_date"],
+            "show_name": row["show_name"],
+            "episode": row["episode"],
+            "host": row["host"],
+            "quote_text": row["quote_text"],
+            "attribution": row["attribution"],
+            "context": row["context"],
+            "synopsis": row["synopsis"],
             "_rank": (
                 _PRIORITY_RANK.get(row["priority"], 0),
                 name_score,
