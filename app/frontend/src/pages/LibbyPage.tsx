@@ -1331,6 +1331,14 @@ function CatalogPage() {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const labelInputRef = useRef<HTMLInputElement>(null);
+
+  // Transition to PICK with guaranteed focus on the container.
+  // setTimeout 0 defers the .focus() until after React commits the render,
+  // so it wins over any browser focus that landed on a clicked button.
+  const transitionToPick = useCallback(() => {
+    setUiState('PICK');
+    setTimeout(() => containerRef.current?.focus(), 0);
+  }, []);
   const repeatRef = useRef<{ action: 'add' | 'remove'; topic: LibraryTopic } | null>(null);
 
   const [query, setQuery] = useState('');
@@ -1487,7 +1495,7 @@ function CatalogPage() {
         setSelectedWebpageUrl(results[0].webpage_url ?? null);
         setUiState('ACTION');
       } else {
-        setUiState('PICK');
+        transitionToPick();
       }
     }
   };
@@ -1720,6 +1728,7 @@ function CatalogPage() {
 
     if (uiState === 'PICK') {
       e.preventDefault();
+      e.stopPropagation();
       if (e.key === 'Escape' || e.key === 'b') {
         setUiState('SEARCH');
         return;
@@ -1771,7 +1780,7 @@ function CatalogPage() {
         setUiState('SEARCH');
         return;
       }
-      if (e.key === 'b') { e.preventDefault(); setUiState('PICK'); return; }
+      if (e.key === 'b') { e.preventDefault(); transitionToPick(); return; }
       if (e.key === 'c') { e.preventDefault(); handleCopy(); return; }
       if (e.key === 'p') { e.preventDefault(); handlePrint(); return; }
       if (e.key === 'd') { e.preventDefault(); handleCopyDoc(); return; }
@@ -1836,6 +1845,7 @@ function CatalogPage() {
       ref={containerRef}
       className="libby-find-page"
       tabIndex={-1}
+      data-libby-catalog
       onKeyDown={handleContainerKeyDown}
     >
       <div className="libby-catalog-topbar">
@@ -2070,7 +2080,7 @@ function CatalogPage() {
               title={repeatDisplay ? `a — apply: ${repeatDisplay}` : 'a — no label set (use l first)'}
             ><span className="libby-action-key">a</span> apply</button>
             <button className="libby-action-btn"
-              onClick={() => setUiState('PICK')} title="b — back to pick">
+              onClick={transitionToPick} title="b — back to pick">
               <span className="libby-action-key">b</span> back</button>
             <button className="libby-action-btn" onClick={handleCopy} title="c — copy URL">
               <span className="libby-action-key">c</span> copy</button>

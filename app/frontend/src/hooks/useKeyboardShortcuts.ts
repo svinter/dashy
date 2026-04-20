@@ -206,6 +206,11 @@ export function useKeyboardShortcuts(opts: UseKeyboardShortcutsOptions) {
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
       if ((e.target as HTMLElement)?.isContentEditable) return;
 
+      // Guard: skip when the Libby catalog container (or a child) has focus.
+      // The catalog handles its own letter-key shortcuts (result picking, actions)
+      // and must not share the g-navigation state machine.
+      if ((e.target as HTMLElement)?.closest?.('[data-libby-catalog]')) return;
+
       // Guard: skip on Claude page (terminal captures keys)
       if (location.pathname === '/claude') return;
 
