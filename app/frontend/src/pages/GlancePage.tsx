@@ -36,13 +36,13 @@ export type CursorCell = { date: string; laneId: LaneId };
 // Constants
 // ---------------------------------------------------------------------------
 
-const LANE_CONFIG: { id: LaneId; controlLabel: string; shortLabel: string }[] = [
-  { id: 'gcal',        controlLabel: 'calendar',      shortLabel: 'calendar' },
-  { id: 'york',        controlLabel: 'york house',    shortLabel: 'york' },
-  { id: 'fam_events',  controlLabel: 'family events', shortLabel: 'family' },
-  { id: 'fam_travel',  controlLabel: 'family travel', shortLabel: 'travel' },
-  { id: 'steve_events',controlLabel: 'my events',     shortLabel: 'my events' },
-  { id: 'steve_travel',controlLabel: 'my travel',     shortLabel: 'my travel' },
+const LANE_CONFIG: { id: LaneId; controlLabel: string; shortLabel: string; shortcutHint: string }[] = [
+  { id: 'gcal',        controlLabel: 'calendar',      shortLabel: 'calendar',  shortcutHint: '1' },
+  { id: 'york',        controlLabel: 'york house',    shortLabel: 'york',      shortcutHint: '2' },
+  { id: 'fam_events',  controlLabel: 'family events', shortLabel: 'family',    shortcutHint: '3' },
+  { id: 'fam_travel',  controlLabel: 'family travel', shortLabel: 'travel',    shortcutHint: '4' },
+  { id: 'steve_events',controlLabel: 'my events',     shortLabel: 'my events', shortcutHint: '5' },
+  { id: 'steve_travel',controlLabel: 'my travel',     shortLabel: 'my travel', shortcutHint: '6' },
 ];
 
 const LANE_IDS: LaneId[] = LANE_CONFIG.map((l) => l.id);
@@ -53,10 +53,10 @@ const DEFAULT_VISIBLE_LANES: Set<LaneId> = new Set([
 
 const DEFAULT_VISIBLE_MEMBERS: Set<string> = new Set(['pgv', 'kpv', 'ovinters']);
 
-const MEMBER_SWATCHES: Record<string, { label: string; color: string }> = {
-  pgv:      { label: 'PGV',      color: '#F4C0D1' },
-  kpv:      { label: 'KPV',      color: '#9FE1CB' },
-  ovinters: { label: 'OVinters', color: '#FAC775' },
+const MEMBER_SWATCHES: Record<string, { label: string; color: string; shortcutHint: string }> = {
+  pgv:      { label: 'PGV',      color: '#F4C0D1', shortcutHint: '⌥P' },
+  kpv:      { label: 'KPV',      color: '#9FE1CB', shortcutHint: '⌥K' },
+  ovinters: { label: 'OVinters', color: '#FAC775', shortcutHint: '⌥O' },
 };
 
 const TRAVEL_LANES = new Set<LaneId>(['steve_travel', 'fam_travel']);
@@ -471,22 +471,28 @@ export function GlancePage() {
         }}
       >
         <span style={{ opacity: 0.5, marginRight: '2px' }}>lanes:</span>
-        {LANE_CONFIG.map(({ id, controlLabel }) => (
-          <label key={id} style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
-            <input type="checkbox" checked={visibleLanes.has(id)} onChange={() => toggleLane(id)} style={{ margin: 0 }} />
-            {controlLabel}
-          </label>
+        {LANE_CONFIG.map(({ id, controlLabel, shortcutHint }) => (
+          <div key={id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+              <input type="checkbox" checked={visibleLanes.has(id)} onChange={() => toggleLane(id)} style={{ margin: 0 }} />
+              {controlLabel}
+            </label>
+            <span style={{ fontSize: '10px', color: 'var(--color-text-tertiary, #bbb)', lineHeight: 1 }}>{shortcutHint}</span>
+          </div>
         ))}
 
         <span style={{ opacity: 0.3 }}>|</span>
 
         <span style={{ opacity: 0.5, marginRight: '2px' }}>show:</span>
-        {Object.entries(MEMBER_SWATCHES).map(([id, { label, color }]) => (
-          <label key={id} style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
-            <input type="checkbox" checked={visibleMembers.has(id)} onChange={() => toggleMember(id)} style={{ margin: 0 }} />
-            <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '2px', background: color, flexShrink: 0 }} />
-            {label}
-          </label>
+        {Object.entries(MEMBER_SWATCHES).map(([id, { label, color, shortcutHint }]) => (
+          <div key={id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+              <input type="checkbox" checked={visibleMembers.has(id)} onChange={() => toggleMember(id)} style={{ margin: 0 }} />
+              <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '2px', background: color, flexShrink: 0 }} />
+              {label}
+            </label>
+            <span style={{ fontSize: '10px', color: 'var(--color-text-tertiary, #bbb)', lineHeight: 1 }}>{shortcutHint}</span>
+          </div>
         ))}
 
         <span style={{ opacity: 0.3 }}>|</span>

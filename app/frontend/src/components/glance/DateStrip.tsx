@@ -146,8 +146,10 @@ export function DateStrip({ week, monthBg, monthLabel, dayData, visibleLanes }: 
             </span>
             {dots.length > 0 && (
               <div style={{
-                position: 'absolute', top: 2, right: 2,
-                display: 'flex', flexDirection: 'column', gap: '1px',
+                position: 'absolute', bottom: 2, left: '50%',
+                transform: 'translateX(-50%)',
+                display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: '3px',
+                justifyContent: 'center',
                 pointerEvents: 'none',
               }}>
                 {dots.slice(0, 3).map((lane) => (
