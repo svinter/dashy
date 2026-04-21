@@ -167,7 +167,7 @@ def get_weeks(
         trip_rows = db.execute(
             """
             SELECT t.id, t.member_id, t.location_id,
-                   t.start_date, t.end_date, t.notes,
+                   t.start_date, t.end_date, t.notes, t.color_data,
                    t.source, t.source_ref
             FROM glance_trips t
             WHERE t.start_date <= ? AND t.end_date >= ?
@@ -191,7 +191,7 @@ def get_weeks(
                 trip_day_map[(dr["trip_id"], dr["date"])] = _row_to_dict(dr)
 
         entry_rows = db.execute(
-            "SELECT e.id, e.lane, e.member_id, e.date, e.label, e.notes "
+            "SELECT e.id, e.lane, e.member_id, e.date, e.label, e.notes, e.color_data "
             "FROM glance_entries e WHERE e.date >= ? AND e.date <= ? ORDER BY e.date, e.id",
             (start, end),
         ).fetchall()
@@ -253,6 +253,7 @@ def get_weeks(
                 "trip_start": trip["start_date"],
                 "trip_end": trip["end_date"],
                 "trip_notes": trip.get("notes"),
+                "color_data": trip.get("color_data"),
                 "depart": bool(day_data.get("depart", False)),
                 "sleep": bool(day_data.get("sleep", False)),
                 "return": bool(day_data.get("return", False)),
@@ -277,6 +278,7 @@ def get_weeks(
             "member_color_text": member.get("color_text") if member else None,
             "label": entry["label"],
             "notes": entry["notes"],
+            "color_data": entry["color_data"],
         })
 
     return result
@@ -329,9 +331,9 @@ def create_trip(body: GlanceTripCreate):
 
     with get_db_connection() as db:
         cur = db.execute(
-            "INSERT INTO glance_trips (member_id, location_id, start_date, end_date, notes, source) "
-            "VALUES (?, ?, ?, ?, ?, 'manual')",
-            (body.member_id, body.location_id, body.start_date, body.end_date, body.notes),
+            "INSERT INTO glance_trips (member_id, location_id, start_date, end_date, notes, color_data, source) "
+            "VALUES (?, ?, ?, ?, ?, ?, 'manual')",
+            (body.member_id, body.location_id, body.start_date, body.end_date, body.notes, body.color_data),
         )
         trip_id = cur.lastrowid
         for m in marks:
@@ -383,6 +385,8 @@ def update_trip(trip_id: int, body: GlanceTripUpdate):
             updates.append("end_date = ?"); params.append(body.end_date)
         if body.notes is not None:
             updates.append("notes = ?"); params.append(body.notes)
+        if body.color_data is not None:
+            updates.append("color_data = ?"); params.append(body.color_data)
         updates.append("updated_at = CURRENT_TIMESTAMP")
         params.append(trip_id)
         db.execute(f"UPDATE glance_trips SET {', '.join(updates)} WHERE id = ?", params)
@@ -475,9 +479,9 @@ def create_entries(body: GlanceEntriesCreate):
     with get_db_connection() as db:
         for e in body.entries:
             cur = db.execute(
-                "INSERT INTO glance_entries (lane, member_id, date, label, notes, source) "
-                "VALUES (?, ?, ?, ?, ?, 'manual')",
-                (e.lane, e.member_id, e.date, e.label, e.notes),
+                "INSERT INTO glance_entries (lane, member_id, date, label, notes, color_data, source) "
+                "VALUES (?, ?, ?, ?, ?, ?, 'manual')",
+                (e.lane, e.member_id, e.date, e.label, e.notes, e.color_data),
             )
             entry_id = cur.lastrowid
             row = db.execute("SELECT * FROM glance_entries WHERE id = ?", (entry_id,)).fetchone()
@@ -509,6 +513,8 @@ def update_entry(entry_id: int, body: GlanceEntryUpdate):
             updates.append("label = ?"); params.append(body.label)
         if body.notes is not None:
             updates.append("notes = ?"); params.append(body.notes)
+        if body.color_data is not None:
+            updates.append("color_data = ?"); params.append(body.color_data)
         updates.append("updated_at = CURRENT_TIMESTAMP")
         params.append(entry_id)
         db.execute(f"UPDATE glance_entries SET {', '.join(updates)} WHERE id = ?", params)
