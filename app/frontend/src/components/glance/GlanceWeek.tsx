@@ -2,7 +2,6 @@ import React from 'react';
 import type { GlanceDayData } from '../../hooks/useGlanceData';
 import { DateStrip } from './DateStrip';
 import { LaneRow } from './LaneRow';
-import { HiddenLaneRow } from './HiddenLaneRow';
 import type { LaneId } from './LaneRow';
 import type { DragState, CursorCell } from '../../pages/GlancePage';
 
@@ -61,8 +60,7 @@ export function GlanceWeek({
 
   return (
     <>
-      <DateStrip week={week} monthBg={monthBg} monthLabel={monthLabel} />
-      <HiddenLaneRow week={week} dayData={dayData} visibleLanes={visibleLanes} visibleMembers={visibleMembers} monthBg={monthBg} />
+      <DateStrip week={week} monthBg={monthBg} monthLabel={monthLabel} dayData={dayData} visibleLanes={visibleLanes} />
       {ALL_LANES.filter((l) => visibleLanes.has(l.id)).map((lane) => (
         <LaneRow
           key={lane.id}

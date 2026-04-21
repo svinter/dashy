@@ -1,4 +1,6 @@
 import React from 'react';
+import type { GlanceDayData } from '../../hooks/useGlanceData';
+import type { LaneId } from './LaneRow';
 
 function isoWeekNumber(d: Date): number {
   const utc = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
@@ -22,10 +24,21 @@ function localIso(d: Date): string {
 
 const TODAY_STR = localIso(new Date());
 
+const LANE_DOT_COLOR: Record<string, string> = {
+  gcal:         '#888',
+  york:         '#97C459',
+  fam_events:   '#9FE1CB',
+  fam_travel:   '#9FE1CB',
+  steve_events: '#aaa',
+  steve_travel: '#B5D4F4',
+};
+
 interface DateStripProps {
   week: Date[];
   monthBg: string;
-  monthLabel: string | null; // e.g. "April 2026" — only on first week of month
+  monthLabel: string | null;
+  dayData?: Record<string, GlanceDayData>;
+  visibleLanes?: Set<LaneId>;
 }
 
 const DATE_STRIP_WEEKDAY_BG = '#EFEEEA';
@@ -40,17 +53,14 @@ const DATE_STRIP_FONT: React.CSSProperties = {
   boxSizing: 'border-box',
 };
 
-export function DateStrip({ week, monthBg, monthLabel }: DateStripProps) {
+export function DateStrip({ week, monthBg, monthLabel, dayData, visibleLanes }: DateStripProps) {
   const weekNum = week[0] ? isoWeekNumber(week[0]) : 0;
 
-  // Borders applied per-cell (not on <tr>) so the month column stays border-free.
   const cellBorder: React.CSSProperties = {
     borderTop: 'var(--glance-line-bold)',
     borderBottom: 'var(--glance-line-hairline)',
   };
 
-  // Month tinting: for rgba months, overlay the tint on top of the gray band.
-  // For hex months, the hex IS the tinted color — use it directly.
   const isMonthRgba = monthBg.startsWith('rgba');
   const weekdayStripBg: React.CSSProperties = isMonthRgba
     ? { backgroundColor: DATE_STRIP_WEEKDAY_BG, backgroundImage: `linear-gradient(${monthBg}, ${monthBg})` }
@@ -61,7 +71,7 @@ export function DateStrip({ week, monthBg, monthLabel }: DateStripProps) {
 
   return (
     <tr>
-      {/* Month column — gray band + month tint, bold black label */}
+      {/* Month column */}
       <td
         style={{
           ...cellBorder,
@@ -93,12 +103,31 @@ export function DateStrip({ week, monthBg, monthLabel }: DateStripProps) {
         week {weekNum}
       </td>
 
-      {/* Seven day cells + comment column */}
+      {/* Seven day cells */}
       {week.map((d) => {
         const ds = localIso(d);
         const weekend = isWeekend(d);
         const isToday = ds === TODAY_STR;
         const dayNum = d.getDate();
+
+        // Collect hidden-lane dots for this day
+        const dots: string[] = [];
+        if (dayData && visibleLanes) {
+          const data = dayData[ds];
+          if (data) {
+            for (const trip of data.trips) {
+              if (!visibleLanes.has(trip.lane as LaneId) && !dots.includes(trip.lane)) {
+                dots.push(trip.lane);
+              }
+            }
+            for (const entry of data.entries) {
+              if (!visibleLanes.has(entry.lane as LaneId) && !dots.includes(entry.lane)) {
+                dots.push(entry.lane);
+              }
+            }
+          }
+        }
+
         return (
           <td
             key={ds}
@@ -109,11 +138,32 @@ export function DateStrip({ week, monthBg, monthLabel }: DateStripProps) {
               outline: isToday ? '1.5px solid #D85A30' : undefined,
               outlineOffset: isToday ? '-1px' : undefined,
               borderLeft: dayNum === 1 ? '2px solid rgba(0,0,0,0.35)' : undefined,
+              position: 'relative',
             }}
           >
             <span style={{ opacity: isToday ? 0.4 : 1, display: 'block', textAlign: 'center' }}>
               {dayNum}
             </span>
+            {dots.length > 0 && (
+              <div style={{
+                position: 'absolute', top: 2, right: 2,
+                display: 'flex', flexDirection: 'column', gap: '1px',
+                pointerEvents: 'none',
+              }}>
+                {dots.slice(0, 3).map((lane) => (
+                  <span
+                    key={lane}
+                    title={lane}
+                    style={{
+                      display: 'block',
+                      width: 4, height: 4,
+                      borderRadius: '50%',
+                      background: LANE_DOT_COLOR[lane] ?? '#ccc',
+                    }}
+                  />
+                ))}
+              </div>
+            )}
           </td>
         );
       })}
