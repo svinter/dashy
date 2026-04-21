@@ -408,6 +408,25 @@ def update_trip(trip_id: int, body: GlanceTripUpdate):
                         "VALUES (?, ?, ?, ?, ?, ?)",
                         (trip_id, m["date"], m["depart"], m["sleep"], m["return"], None),
                     )
+            # Enforce depart=True only on new start, return=True only on new end
+            if new_start != old_start:
+                db.execute(
+                    "UPDATE glance_trip_days SET depart = 0 WHERE trip_id = ? AND date != ?",
+                    (trip_id, new_start_str),
+                )
+                db.execute(
+                    "UPDATE glance_trip_days SET depart = 1 WHERE trip_id = ? AND date = ?",
+                    (trip_id, new_start_str),
+                )
+            if new_end != old_end:
+                db.execute(
+                    'UPDATE glance_trip_days SET "return" = 0 WHERE trip_id = ? AND date != ?',
+                    (trip_id, new_end_str),
+                )
+                db.execute(
+                    'UPDATE glance_trip_days SET "return" = 1 WHERE trip_id = ? AND date = ?',
+                    (trip_id, new_end_str),
+                )
 
         if body.day_overrides:
             for o in body.day_overrides:
