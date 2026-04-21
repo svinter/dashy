@@ -117,7 +117,6 @@ export function LaneRow({
         const ds = localIso(d);
         const weekend = isWeekend(d);
         const data = dayData[ds];
-        const cellBg = weekend ? shadeColor(monthBg, -0.025) : monthBg;
 
         const trips = (data?.trips ?? []).filter((t) => t.lane === laneId);
         const entries = (data?.entries ?? []).filter((e) => {
@@ -154,7 +153,8 @@ export function LaneRow({
             data-date={ds}
             data-lane={laneId}
             style={{
-              background: cellBg,
+              background: monthBg,
+              filter: weekend ? 'brightness(0.975)' : undefined,
               verticalAlign: 'middle',
               padding: '2px 0',
               minHeight: '20px',
@@ -211,34 +211,3 @@ export function LaneRow({
   );
 }
 
-// ---------------------------------------------------------------------------
-// shadeColor — lighten or darken a hex or rgba color
-// ---------------------------------------------------------------------------
-function shadeColor(color: string, factor: number): string {
-  const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v)));
-  let r: number, g: number, b: number, a = 1;
-
-  if (color.startsWith('rgba') || color.startsWith('rgb(')) {
-    const m = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
-    if (!m) return color;
-    r = parseInt(m[1]); g = parseInt(m[2]); b = parseInt(m[3]);
-    a = m[4] !== undefined ? parseFloat(m[4]) : 1;
-  } else if (color.startsWith('#')) {
-    r = parseInt(color.slice(1, 3), 16);
-    g = parseInt(color.slice(3, 5), 16);
-    b = parseInt(color.slice(5, 7), 16);
-  } else {
-    return color;
-  }
-
-  let nr: number, ng: number, nb: number;
-  if (factor < 0) {
-    const f = 1 + factor;
-    nr = clamp(r * f); ng = clamp(g * f); nb = clamp(b * f);
-  } else {
-    nr = clamp(r + (255 - r) * factor);
-    ng = clamp(g + (255 - g) * factor);
-    nb = clamp(b + (255 - b) * factor);
-  }
-  return a < 1 ? `rgba(${nr}, ${ng}, ${nb}, ${a})` : `rgb(${nr}, ${ng}, ${nb})`;
-}
