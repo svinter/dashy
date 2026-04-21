@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import type { GlanceMember, GlanceLocation } from '../../hooks/useGlanceData';
+import { ColorPicker } from './ColorPicker';
+import type { ColorData } from './ColorPicker';
 
 export interface TripFormInitial {
   laneId: string;
@@ -14,6 +16,7 @@ interface TripFormProps {
   existingData?: {
     member_id: string; location_id: string;
     start_date: string; end_date: string; notes?: string | null;
+    color_data?: string | null;
     days?: Array<{ date: string; depart: boolean; sleep: boolean; return: boolean; notes: string | null }>;
   };
   members: GlanceMember[];
@@ -21,7 +24,7 @@ interface TripFormProps {
   onSave: (data: {
     member_id: string; location_id: string;
     start_date: string; end_date: string;
-    notes?: string; day_overrides?: object[];
+    notes?: string; color_data?: string | null; day_overrides?: object[];
   }) => void;
   onCancel: () => void;
 }
@@ -38,6 +41,10 @@ export function TripForm({ initial, editId, existingData, members, locations, on
   const [showDayMarks, setShowDayMarks] = useState(false);
   const [locationSuggestions, setLocationSuggestions] = useState<GlanceLocation[]>([]);
   const [error, setError] = useState('');
+  const [colorData, setColorData] = useState<ColorData | null>(() => {
+    if (!existingData?.color_data) return null;
+    try { return JSON.parse(existingData.color_data); } catch { return null; }
+  });
 
   // Sync locationInput display with locationId
   useEffect(() => {
@@ -68,7 +75,7 @@ export function TripForm({ initial, editId, existingData, members, locations, on
     if (!memberId) { setError('Member is required'); return; }
     if (!locationId && !locationInput.trim()) { setError('Location is required'); return; }
     const resolvedLocationId = locationId || locationInput.trim().toLowerCase().replace(/\s+/g, '_');
-    onSave({ member_id: memberId, location_id: resolvedLocationId, start_date: startDate, end_date: endDate, notes: notes || undefined });
+    onSave({ member_id: memberId, location_id: resolvedLocationId, start_date: startDate, end_date: endDate, notes: notes || undefined, color_data: colorData ? JSON.stringify(colorData) : null });
   }
 
   // Compute day range for day marks section
@@ -148,6 +155,8 @@ export function TripForm({ initial, editId, existingData, members, locations, on
             Notes
             <textarea value={notes} onChange={(e) => setNotes(e.target.value)} style={{ ...inputStyle, minHeight: '48px', resize: 'vertical' }} />
           </label>
+
+          <ColorPicker value={colorData} onChange={setColorData} />
 
           {/* Day marks toggle */}
           <div style={{ marginBottom: '12px' }}>

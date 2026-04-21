@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import type { GlanceTripDay } from '../../hooks/useGlanceData';
-
-const LANE_ROW_HEIGHT = 24;
+import { computeColor } from './ColorPicker';
 
 interface TripBarProps {
   trip: GlanceTripDay;
@@ -11,8 +10,19 @@ interface TripBarProps {
 }
 
 export function TripBar({ trip, onMouseEnter, onMouseLeave, onEdgeDragStart }: TripBarProps) {
-  const locationColorBg   = trip.location_color_bg  ?? '#ccc';
-  const locationColorText = trip.location_color_text ?? '#000';
+  let locationColorBg   = trip.location_color_bg  ?? '#ccc';
+  let locationColorText = trip.location_color_text ?? '#000';
+
+  // Override colors from color_data if present
+  if (trip.color_data) {
+    try {
+      const cd = JSON.parse(trip.color_data);
+      const computed = computeColor(cd.h, cd.s, cd.tint, cd.opacity);
+      locationColorBg   = computed.bg;
+      locationColorText = computed.text;
+    } catch { /* ignore parse errors */ }
+  }
+
   const locationDisplay   = trip.location_display   ?? trip.location_id;
   const memberColorBg     = trip.lane === 'fam_travel' ? (trip.member_color_bg ?? null) : null;
   const isDepart  = trip.depart;
@@ -49,7 +59,7 @@ export function TripBar({ trip, onMouseEnter, onMouseLeave, onEdgeDragStart }: T
 
   return (
     <div style={{
-      width: '100%', height: LANE_ROW_HEIGHT,
+      position: 'absolute', inset: 0,
       display: 'flex', flexDirection: 'row', alignItems: 'stretch',
       overflow: 'hidden',
       cursor,

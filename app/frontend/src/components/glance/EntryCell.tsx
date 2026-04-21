@@ -1,5 +1,6 @@
 import React from 'react';
 import type { GlanceEntry } from '../../hooks/useGlanceData';
+import { computeColor } from './ColorPicker';
 
 interface EntryCellProps {
   entry: GlanceEntry;
@@ -9,6 +10,18 @@ interface EntryCellProps {
 
 export function EntryCell({ entry, onMouseEnter, onMouseLeave }: EntryCellProps) {
   const hasNotes = Boolean(entry.notes);
+
+  // Parse color_data override if present
+  let colorBgOverride: string | null = null;
+  let colorTextOverride: string | null = null;
+  if (entry.color_data) {
+    try {
+      const cd = JSON.parse(entry.color_data);
+      const computed = computeColor(cd.h, cd.s, cd.tint, cd.opacity);
+      colorBgOverride   = computed.bg;
+      colorTextOverride = computed.text;
+    } catch { /* ignore */ }
+  }
   const noteMark = hasNotes ? (
     <sup style={{ fontSize: '8px', opacity: 0.5, marginLeft: '1px' }}>*</sup>
   ) : null;
@@ -21,10 +34,16 @@ export function EntryCell({ entry, onMouseEnter, onMouseLeave }: EntryCellProps)
     : {};
 
   if (entry.lane === 'steve_events') {
-    // Plain text, centered
     return (
       <div
-        style={{ fontSize: '10px', textAlign: 'center', lineHeight: '15px' }}
+        style={{
+          fontSize: '10px', textAlign: 'center', lineHeight: '15px',
+          ...(colorBgOverride ? {
+            display: 'inline-flex', alignItems: 'center',
+            background: colorBgOverride, color: colorTextOverride ?? undefined,
+            borderRadius: '3px', padding: '1px 5px', whiteSpace: 'nowrap',
+          } : {}),
+        }}
         {...handlers}
       >
         {entry.label}{noteMark}
@@ -33,8 +52,8 @@ export function EntryCell({ entry, onMouseEnter, onMouseLeave }: EntryCellProps)
   }
 
   if (entry.lane === 'fam_events') {
-    const bg = entry.member_color_bg ?? '#e0e0e0';
-    const fg = entry.member_color_text ?? '#000';
+    const bg   = colorBgOverride   ?? entry.member_color_bg  ?? '#e0e0e0';
+    const fg   = colorTextOverride ?? entry.member_color_text ?? '#000';
     const memberDisplay = entry.member_display ?? entry.member_id ?? '';
     return (
       <div
@@ -57,13 +76,15 @@ export function EntryCell({ entry, onMouseEnter, onMouseLeave }: EntryCellProps)
   }
 
   if (entry.lane === 'york') {
+    const bg = colorBgOverride   ?? '#97C459';
+    const fg = colorTextOverride ?? '#173404';
     return (
       <div
         style={{
           display: 'inline-flex',
           alignItems: 'center',
-          background: '#97C459',
-          color: '#173404',
+          background: bg,
+          color: fg,
           borderRadius: '3px',
           padding: '1px 5px',
           fontSize: '10px',
@@ -79,7 +100,17 @@ export function EntryCell({ entry, onMouseEnter, onMouseLeave }: EntryCellProps)
 
   // Fallback — generic pill
   return (
-    <div style={{ fontSize: '10px', lineHeight: '15px' }} {...handlers}>
+    <div
+      style={{
+        fontSize: '10px', lineHeight: '15px',
+        ...(colorBgOverride ? {
+          display: 'inline-flex', alignItems: 'center',
+          background: colorBgOverride, color: colorTextOverride ?? undefined,
+          borderRadius: '3px', padding: '1px 5px', whiteSpace: 'nowrap',
+        } : {}),
+      }}
+      {...handlers}
+    >
       {entry.label}{noteMark}
     </div>
   );

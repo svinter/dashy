@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import type { GlanceMember } from '../../hooks/useGlanceData';
 import { backdropStyle, modalStyle, saveBtnStyle, cancelBtnStyle } from './TripForm';
+import { ColorPicker } from './ColorPicker';
+import type { ColorData } from './ColorPicker';
 
 export interface EntryFormInitial {
   laneId: string;
@@ -11,9 +13,9 @@ export interface EntryFormInitial {
 interface EntryFormProps {
   initial: EntryFormInitial;
   editId?: number;
-  existingData?: { label: string; notes?: string | null; member_id?: string | null; date: string };
+  existingData?: { label: string; notes?: string | null; member_id?: string | null; date: string; color_data?: string | null };
   members: GlanceMember[];
-  onSave: (entries: Array<{ lane: string; member_id?: string | null; date: string; label: string; notes?: string | null }>) => void;
+  onSave: (entries: Array<{ lane: string; member_id?: string | null; date: string; label: string; notes?: string | null; color_data?: string | null }>) => void;
   onCancel: () => void;
 }
 
@@ -24,6 +26,10 @@ export function EntryForm({ initial, editId, existingData, members, onSave, onCa
   const [startDate, setStartDate] = useState(existingData?.date ?? initial.startDate);
   const [endDate, setEndDate] = useState(initial.endDate);
   const [error, setError] = useState('');
+  const [colorData, setColorData] = useState<ColorData | null>(() => {
+    if (!existingData?.color_data) return null;
+    try { return JSON.parse(existingData.color_data); } catch { return null; }
+  });
 
   const needsMember = initial.laneId === 'fam_events';
   const isRange = startDate !== endDate && !editId;
@@ -52,6 +58,7 @@ export function EntryForm({ initial, editId, existingData, members, onSave, onCa
       date,
       label: label.trim(),
       notes: notes.trim() || undefined,
+      color_data: colorData ? JSON.stringify(colorData) : null,
     })));
   }
 
@@ -95,6 +102,8 @@ export function EntryForm({ initial, editId, existingData, members, onSave, onCa
             Notes
             <textarea value={notes} onChange={(e) => setNotes(e.target.value)} style={{ ...inputStyle, minHeight: '48px', resize: 'vertical' }} />
           </label>
+
+          <ColorPicker value={colorData} onChange={setColorData} />
 
           {!editId && (
             <div style={{ display: 'flex', gap: '8px' }}>

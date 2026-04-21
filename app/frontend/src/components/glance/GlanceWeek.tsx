@@ -6,10 +6,18 @@ import type { LaneId } from './LaneRow';
 import type { DragState, CursorCell } from '../../pages/GlancePage';
 
 const MONTH_COLORS: Record<number, string> = {
-  1:  '#FDFCF8', 2:  '#FAF8FC', 3:  'rgba(210, 195, 160, 0.04)',
-  4:  'rgba(180, 175, 220, 0.04)', 5:  'rgba(195, 200, 140, 0.04)', 6:  'rgba(160, 190, 220, 0.04)',
-  7:  '#F5FAF3', 8:  '#FDF8F0', 9:  '#F5F8FC',
-  10: '#FCF7F3', 11: '#F8F5FB', 12: '#F3FCF9',
+  1:  'rgba(220, 210, 185, 0.04)',
+  2:  'rgba(200, 185, 220, 0.04)',
+  3:  'rgba(210, 195, 160, 0.04)',
+  4:  'rgba(180, 175, 220, 0.04)',
+  5:  'rgba(195, 200, 140, 0.04)',
+  6:  'rgba(160, 190, 220, 0.04)',
+  7:  'rgba(185, 215, 170, 0.04)',
+  8:  'rgba(220, 200, 160, 0.04)',
+  9:  'rgba(170, 195, 220, 0.04)',
+  10: 'rgba(220, 185, 160, 0.04)',
+  11: 'rgba(190, 175, 215, 0.04)',
+  12: 'rgba(175, 210, 205, 0.04)',
 };
 
 const ALL_LANES: { id: LaneId; label: string }[] = [

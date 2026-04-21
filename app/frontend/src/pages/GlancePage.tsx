@@ -544,6 +544,7 @@ export function GlancePage() {
             start_date:  modal.existingTrip.trip_start,
             end_date:    modal.existingTrip.trip_end,
             notes:       modal.existingTrip.trip_notes ?? undefined,
+            color_data:  modal.existingTrip.color_data ?? undefined,
           } : undefined}
           members={members}
           locations={locations}
@@ -564,10 +565,11 @@ export function GlancePage() {
           initial={modal.initial}
           editId={modal.editId}
           existingData={modal.existingEntry ? {
-            label:     modal.existingEntry.label,
-            notes:     modal.existingEntry.notes,
-            member_id: modal.existingEntry.member_id,
-            date:      modal.existingDate ?? modal.initial.startDate,
+            label:      modal.existingEntry.label,
+            notes:      modal.existingEntry.notes,
+            member_id:  modal.existingEntry.member_id,
+            date:       modal.existingDate ?? modal.initial.startDate,
+            color_data: modal.existingEntry.color_data ?? undefined,
           } : undefined}
           members={members}
           onSave={(entries) => {
