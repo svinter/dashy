@@ -93,10 +93,10 @@ export function LaneRow({
 
   return (
     <tr>
-      {/* Month column — no border */}
-      <td style={{ background: monthBg }} />
+      {/* Month column — sticky left */}
+      <td style={{ background: monthBg, position: 'sticky', left: 0, zIndex: 5 }} />
 
-      {/* Lane label */}
+      {/* Lane label — sticky left */}
       <td
         style={{
           background: monthBg,
@@ -109,6 +109,9 @@ export function LaneRow({
           verticalAlign: 'middle',
           borderBottom: cellBorderBottom,
           borderTop: cellBorderTop,
+          position: 'sticky',
+          left: 46,
+          zIndex: 4,
         }}
       >
         {laneLabel}
@@ -140,13 +143,14 @@ export function LaneRow({
 
         const dateStr = formatDate(d);
 
-        let outlineStyle: React.CSSProperties = {};
+        type CellStyle = React.CSSProperties & { '--glance-cell-bg'?: string };
+        let outlineStyle: CellStyle = {};
         if (isCursor && isDragSelected) {
-          outlineStyle = { outline: '1.5px solid #378ADD', background: `rgba(55, 138, 221, 0.06)` };
+          outlineStyle = { outline: '1.5px solid #378ADD', '--glance-cell-bg': `rgba(55, 138, 221, 0.06)` };
         } else if (isCursor) {
           outlineStyle = { outline: '1.5px solid #378ADD', outlineOffset: '-1px' };
         } else if (isDragSelected) {
-          outlineStyle = { outline: '1.5px solid rgba(55, 138, 221, 0.5)', background: `rgba(55, 138, 221, 0.06)` };
+          outlineStyle = { outline: '1.5px solid rgba(55, 138, 221, 0.5)', '--glance-cell-bg': `rgba(55, 138, 221, 0.06)` };
         }
 
         return (
@@ -155,7 +159,7 @@ export function LaneRow({
             data-date={ds}
             data-lane={laneId}
             style={{
-              background: monthBg,
+              '--glance-cell-bg': monthBg,
               filter: weekend ? 'brightness(0.975)' : undefined,
               padding: 0,
               height: LANE_ROW_HEIGHT,
@@ -168,7 +172,7 @@ export function LaneRow({
               cursor: laneId === 'gcal' ? 'default' : 'pointer',
               userSelect: 'none',
               ...outlineStyle,
-            }}
+            } as React.CSSProperties}
             onMouseDown={(e) => onCellMouseDown(ds, laneId, e)}
             onMouseEnter={() => onCellMouseEnter(ds)}
             onMouseUp={(e) => onCellMouseUp(ds, laneId)}

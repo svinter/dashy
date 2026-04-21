@@ -59,7 +59,7 @@ export function GlanceGrid({
       style={{
         tableLayout: 'fixed',
         width: '100%',
-        borderCollapse: 'collapse',
+        borderCollapse: 'separate',
         borderSpacing: 0,
       }}
     >
@@ -72,12 +72,12 @@ export function GlanceGrid({
         <col style={{ width: COMMENT_COL_W }} />
       </colgroup>
 
-      <thead>
+      <thead style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--color-bg, #fffff8)' }}>
         <tr>
-          <th style={{ fontWeight: 500, fontSize: '10px', color: 'var(--color-text-tertiary, #999)', textAlign: 'left', padding: '4px 4px' }}>
+          <th style={{ fontWeight: 500, fontSize: '10px', color: 'var(--color-text-tertiary, #999)', textAlign: 'left', padding: '4px 4px', position: 'sticky', left: 0, zIndex: 15, background: 'var(--color-bg, #fffff8)' }}>
             {headerYear}
           </th>
-          <th style={{ fontWeight: 400, fontSize: '10px', color: 'var(--color-text-tertiary, #999)', textAlign: 'right', paddingRight: '6px', ...thBorder }}>
+          <th style={{ fontWeight: 400, fontSize: '10px', color: 'var(--color-text-tertiary, #999)', textAlign: 'right', paddingRight: '6px', ...thBorder, position: 'sticky', left: 46, zIndex: 15, background: 'var(--color-bg, #fffff8)' }}>
             lane
           </th>
           {DAY_HEADERS.map((d) => (

@@ -71,7 +71,7 @@ export function DateStrip({ week, monthBg, monthLabel, dayData, visibleLanes }: 
 
   return (
     <tr>
-      {/* Month column */}
+      {/* Month column — sticky left */}
       <td
         style={{
           ...cellBorder,
@@ -83,12 +83,15 @@ export function DateStrip({ week, monthBg, monthLabel, dayData, visibleLanes }: 
           lineHeight: 1.2,
           color: 'var(--color-text, #111)',
           boxSizing: 'border-box',
+          position: 'sticky',
+          left: 0,
+          zIndex: 5,
         }}
       >
         {monthLabel}
       </td>
 
-      {/* Week-number cell */}
+      {/* Week-number cell — sticky left */}
       <td
         style={{
           ...DATE_STRIP_FONT,
@@ -98,6 +101,9 @@ export function DateStrip({ week, monthBg, monthLabel, dayData, visibleLanes }: 
           color: '#7a7870',
           paddingRight: '4px',
           textAlign: 'right',
+          position: 'sticky',
+          left: 46,
+          zIndex: 4,
         }}
       >
         week {weekNum}

@@ -11868,3 +11868,13 @@ span.news-item-title {
   border-bottom: none;
   border-top: none;
 }
+
+/* Glance cell backgrounds via CSS custom property — bypasses any global td background rules */
+.glance-table td[data-date] {
+  background-color: var(--glance-cell-bg, transparent) !important;
+}
+
+/* ColorPicker swatches */
+.cp-swatch {
+  background: var(--swatch-bg, transparent) !important;
+}

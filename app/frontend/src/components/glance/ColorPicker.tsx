@@ -88,20 +88,21 @@ export function ColorPicker({ value, onChange }: ColorPickerProps) {
 
           {/* Color swatches */}
           {SWATCHES.map(({ h, s, label }) => {
-            const { bg } = computeColor(h, s, 60, 1);
+            const { bg } = computeColor(h, s, 60, 100);
             const isActive = activeH === h && activeS === s;
             return (
               <button
                 key={label}
                 type="button"
                 title={label}
+                className="cp-swatch"
                 onClick={() => selectSwatch(h, s)}
                 style={{
+                  '--swatch-bg': bg,
                   width: SWATCH_SIZE, height: SWATCH_SIZE, borderRadius: '50%',
-                  background: bg,
                   border: isActive ? '2px solid var(--color-text-primary, #111)' : '1.5px solid rgba(0,0,0,0.1)',
                   cursor: 'pointer', padding: 0, flexShrink: 0,
-                }}
+                } as React.CSSProperties}
               />
             );
           })}
