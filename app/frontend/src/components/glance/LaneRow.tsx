@@ -159,6 +159,7 @@ export function LaneRow({
               height: '20px',
               overflow: 'hidden',
               verticalAlign: 'middle',
+              position: 'relative',
               borderBottom: cellBorderBottom,
               borderTop: cellBorderTop,
               borderLeft: d.getDate() === 1 ? '2px solid rgba(0,0,0,0.35)' : undefined,

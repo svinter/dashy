@@ -47,7 +47,7 @@ export function TripBar({ trip, onMouseEnter, onMouseLeave, onEdgeDragStart }: T
 
   return (
     <div style={{
-      width: '100%', height: '100%',
+      position: 'absolute', inset: 0,
       display: 'flex', flexDirection: 'row', alignItems: 'stretch',
       overflow: 'hidden',
       cursor,
