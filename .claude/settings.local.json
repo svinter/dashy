@@ -68,7 +68,8 @@
       "Bash(git fetch:*)",
       "Bash(awk 'NR>=1390 && NR<=1420 && /^function /' /Users/stevevinter/dashy/app/frontend/src/pages/SettingsPage.tsx)",
       "Bash(awk:*)",
-      "Bash(python -c \"import routers.libby; print\\('OK'\\)\")"
+      "Bash(python -c \"import routers.libby; print\\('OK'\\)\")",
+      "Bash(git tag:*)"
     ]
   }
 }
