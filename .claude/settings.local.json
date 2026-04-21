@@ -59,7 +59,16 @@
       "Bash(echo \"EXIT: $?\")",
       "Bash(ls:*)",
       "Bash(pkill -f \"run.py --enrich\")",
-      "Bash(pkill -f \"run.py\")"
+      "Bash(pkill -f \"run.py\")",
+      "Bash(find . -type f -name \"*.py\" -exec grep -l \"45\\\\|tolerance\\\\|late.*threshold\\\\|payment\" {} \\\\;)",
+      "Bash(python -m py_compile routers/libby.py)",
+      "Bash(make enrich-status:*)",
+      "Bash(make:*)",
+      "Bash(find:*)",
+      "Bash(git fetch:*)",
+      "Bash(awk 'NR>=1390 && NR<=1420 && /^function /' /Users/stevevinter/dashy/app/frontend/src/pages/SettingsPage.tsx)",
+      "Bash(awk:*)",
+      "Bash(python -c \"import routers.libby; print\\('OK'\\)\")"
     ]
   }
 }

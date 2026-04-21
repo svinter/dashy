@@ -1,0 +1,64 @@
+import React from 'react';
+import type { GlanceDayData } from '../../hooks/useGlanceData';
+import { DateStrip } from './DateStrip';
+import { LaneRow } from './LaneRow';
+import type { LaneId } from './LaneRow';
+
+const MONTH_COLORS: Record<number, string> = {
+  1:  '#FDFCF8', 2:  '#FAF8FC', 3:  '#FBF9F3',
+  4:  '#F7F5FB', 5:  '#FDFBF0', 6:  '#F3F7FC',
+  7:  '#F5FAF3', 8:  '#FDF8F0', 9:  '#F5F8FC',
+  10: '#FCF7F3', 11: '#F8F5FB', 12: '#F3FCF9',
+};
+
+const ALL_LANES: { id: LaneId; label: string }[] = [
+  { id: 'gcal',        label: 'gcal' },
+  { id: 'york',        label: 'york' },
+  { id: 'fam_events',  label: 'family' },
+  { id: 'fam_travel',  label: 'travel' },
+  { id: 'steve_events',label: 'my events' },
+  { id: 'steve_travel',label: 'my travel' },
+];
+
+interface GlanceWeekProps {
+  week: Date[];
+  dayData: Record<string, GlanceDayData>;
+  visibleLanes: Set<LaneId>;
+  visibleMembers: Set<string>;
+  monthLabel: string | null;
+  onNoteHover: (e: React.MouseEvent, laneLabel: string, date: string, notes: string[]) => void;
+  onNoteLeave: () => void;
+}
+
+export function GlanceWeek({
+  week,
+  dayData,
+  visibleLanes,
+  visibleMembers,
+  monthLabel,
+  onNoteHover,
+  onNoteLeave,
+}: GlanceWeekProps) {
+  const firstDay = week[0] ?? new Date();
+  const monthNum = firstDay.getMonth() + 1;
+  const monthBg = MONTH_COLORS[monthNum] ?? '#FAFAF8';
+
+  return (
+    <>
+      <DateStrip week={week} monthBg={monthBg} monthLabel={monthLabel} />
+      {ALL_LANES.filter((l) => visibleLanes.has(l.id)).map((lane) => (
+        <LaneRow
+          key={lane.id}
+          laneId={lane.id}
+          laneLabel={lane.label}
+          week={week}
+          dayData={dayData}
+          monthBg={monthBg}
+          visibleMembers={visibleMembers}
+          onNoteHover={onNoteHover}
+          onNoteLeave={onNoteLeave}
+        />
+      ))}
+    </>
+  );
+}

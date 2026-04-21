@@ -160,6 +160,7 @@ export function Sidebar() {
               Payments{unmatchedCount > 0 && <span className="nav-count-badge">{unmatchedCount}</span>}
             </NavLink>
           </>}
+          <NavLink to="/glance">Glance</NavLink>
         </nav>
 
         {(active.has('google') || active.has('slack') || active.has('notion') || active.has('github') || active.has('ramp') || active.has('news') || active.has('google_drive') || active.has('obsidian')) && (

@@ -17,10 +17,16 @@
   --color-text: #111111;
   --color-text-muted: #555555;
   --color-text-light: #888888;
+  --color-text-tertiary: #aaa9a4;
   --color-border: #e0ddd1;
   --color-accent: #a00000;
   --color-highlight: #fefaec;
   --color-sidebar-bg: #f8f5eb;
+
+  /* Glance grid line strengths */
+  --glance-line-bold: 2px solid rgba(0, 0, 0, 0.35);
+  --glance-line-hairline: 0.5px solid rgba(0, 0, 0, 0.15);
+  --glance-line-divider: 0.5px solid rgba(0, 0, 0, 0.08);
 
   --space-xs: 4px;
   --space-sm: 8px;
