@@ -5,19 +5,19 @@ import { LaneRow } from './LaneRow';
 import type { LaneId } from './LaneRow';
 import type { DragState, CursorCell } from '../../pages/GlancePage';
 
-const MONTH_COLORS: Record<number, string> = {
-  1:  'rgba(220, 210, 185, 0.07)',
-  2:  'rgba(200, 185, 220, 0.07)',
-  3:  'rgba(210, 195, 160, 0.07)',
-  4:  'rgba(180, 175, 220, 0.07)',
-  5:  'rgba(195, 200, 140, 0.07)',
-  6:  'rgba(160, 190, 220, 0.07)',
-  7:  'rgba(185, 215, 170, 0.07)',
-  8:  'rgba(220, 200, 160, 0.07)',
-  9:  'rgba(170, 195, 220, 0.07)',
-  10: 'rgba(220, 185, 160, 0.07)',
-  11: 'rgba(190, 175, 215, 0.07)',
-  12: 'rgba(175, 210, 205, 0.07)',
+const MONTH_RGB: Record<number, [number, number, number]> = {
+  1:  [220, 210, 185],
+  2:  [200, 185, 220],
+  3:  [210, 195, 160],
+  4:  [180, 175, 220],
+  5:  [195, 200, 140],
+  6:  [160, 190, 220],
+  7:  [185, 215, 170],
+  8:  [220, 200, 160],
+  9:  [170, 195, 220],
+  10: [220, 185, 160],
+  11: [190, 175, 215],
+  12: [175, 210, 205],
 };
 
 const ALL_LANES: { id: LaneId; label: string }[] = [
@@ -35,6 +35,7 @@ interface GlanceWeekProps {
   visibleLanes: Set<LaneId>;
   visibleMembers: Set<string>;
   monthLabel: string | null;
+  monthOpacity: number;
   onNoteHover: (e: React.MouseEvent, laneLabel: string, date: string, notes: string[]) => void;
   onNoteLeave: () => void;
   cursor: CursorCell | null;
@@ -52,6 +53,7 @@ export function GlanceWeek({
   visibleLanes,
   visibleMembers,
   monthLabel,
+  monthOpacity,
   onNoteHover,
   onNoteLeave,
   cursor,
@@ -64,7 +66,8 @@ export function GlanceWeek({
 }: GlanceWeekProps) {
   const firstDay = week[0] ?? new Date();
   const monthNum = firstDay.getMonth() + 1;
-  const monthBg = MONTH_COLORS[monthNum] ?? '#FAFAF8';
+  const rgb = MONTH_RGB[monthNum] ?? [250, 250, 248];
+  const monthBg = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${monthOpacity / 100})`;
 
   return (
     <>

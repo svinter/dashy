@@ -25,6 +25,7 @@ export interface GlanceTripDay {
   trip_start: string;
   trip_end: string;
   trip_notes: string | null;
+  color_data: string | null;
   depart: boolean;
   sleep: boolean;
   return: boolean;
@@ -40,6 +41,7 @@ export interface GlanceEntry {
   member_color_text: string | null;
   label: string;
   notes: string | null;
+  color_data: string | null;
 }
 
 export interface GlanceDayData {
@@ -217,7 +219,7 @@ export function useCreateGlanceTrip() {
     mutationFn: async (body: {
       member_id: string; location_id: string;
       start_date: string; end_date: string;
-      notes?: string; day_overrides?: object[];
+      notes?: string; color_data?: string | null; day_overrides?: object[];
     }) => {
       const res = await fetch('/api/glance/trips', {
         method: 'POST',
@@ -236,7 +238,7 @@ export function useUpdateGlanceTrip() {
   return useMutation({
     mutationFn: async ({ id, ...body }: {
       id: number; member_id?: string; location_id?: string;
-      start_date?: string; end_date?: string;
+      start_date?: string; end_date?: string; color_data?: string | null;
       notes?: string; day_overrides?: object[];
     }) => {
       const res = await fetch(`/api/glance/trips/${id}`, {
@@ -267,7 +269,7 @@ export function useCreateGlanceEntries() {
   return useMutation({
     mutationFn: async (entries: Array<{
       lane: string; member_id?: string | null;
-      date: string; label: string; notes?: string | null;
+      date: string; label: string; notes?: string | null; color_data?: string | null;
     }>) => {
       const res = await fetch('/api/glance/entries', {
         method: 'POST',
@@ -286,7 +288,7 @@ export function useUpdateGlanceEntry() {
   return useMutation({
     mutationFn: async ({ id, ...body }: {
       id: number; lane?: string; member_id?: string | null;
-      date?: string; label?: string; notes?: string | null;
+      date?: string; label?: string; notes?: string | null; color_data?: string | null;
     }) => {
       const res = await fetch(`/api/glance/entries/${id}`, {
         method: 'PUT',

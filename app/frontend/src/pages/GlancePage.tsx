@@ -111,6 +111,10 @@ export function GlancePage() {
   const [modal,          setModal]          = useState<ModalState | null>(null);
   const [gMode,          setGMode]          = useState(false);
   const [gInput,         setGInput]         = useState('');
+  const [monthOpacity,   setMonthOpacity]   = useState<number>(() => {
+    const stored = localStorage.getItem('glance_month_opacity');
+    return stored !== null ? Number(stored) : 7;
+  });
 
   const containerRef   = useRef<HTMLDivElement>(null);
   const gridScrollRef  = useRef<HTMLDivElement>(null);
@@ -242,6 +246,10 @@ export function GlancePage() {
     document.addEventListener('mouseup', onGlobalMouseUp);
     return () => document.removeEventListener('mouseup', onGlobalMouseUp);
   }, []);
+
+  useEffect(() => {
+    localStorage.setItem('glance_month_opacity', String(monthOpacity));
+  }, [monthOpacity]);
 
   // --- Edit handlers invoked from ViewEditPopover ---
 
@@ -498,6 +506,21 @@ export function GlancePage() {
 
         <span style={{ opacity: 0.3 }}>|</span>
 
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{ opacity: 0.5 }}>month tint</span>
+          <input
+            type="range"
+            min={0}
+            max={20}
+            value={monthOpacity}
+            onChange={(e) => setMonthOpacity(Number(e.target.value))}
+            style={{ width: '80px', margin: 0 }}
+          />
+          <span style={{ opacity: 0.7, minWidth: '22px' }}>{monthOpacity}%</span>
+        </div>
+
+        <span style={{ opacity: 0.3 }}>|</span>
+
         <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
           <input type="radio" name="glance-mode" checked={mode === 'vertical'}   onChange={() => setMode('vertical')}   style={{ margin: 0 }} />
           vertical
@@ -524,6 +547,7 @@ export function GlancePage() {
             weeksData={weeksData}
             visibleLanes={visibleLanes}
             visibleMembers={visibleMembers}
+            monthOpacity={monthOpacity}
             onNoteHover={handleNoteHover}
             onNoteLeave={handleNoteLeave}
             cursor={cursor}
