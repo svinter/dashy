@@ -5,16 +5,17 @@ interface TripBarProps {
   trip: GlanceTripDay;
   onMouseEnter?: (e: React.MouseEvent) => void;
   onMouseLeave?: () => void;
-  /** Called when mousedown near the left/right edge of a departure/return-day cell. */
   onEdgeDragStart?: (edge: 'start' | 'end', e: React.MouseEvent) => void;
 }
 
 export function TripBar({ trip, onMouseEnter, onMouseLeave, onEdgeDragStart }: TripBarProps) {
-  const bg = trip.location_color_bg ?? '#ccc';
-  const fg = trip.location_color_text ?? '#000';
-  const loc = trip.location_display ?? trip.location_id;
-  const isFam = trip.lane === 'fam_travel';
-  const hasNotes = Boolean(trip.day_notes || trip.trip_notes);
+  const locationColorBg   = trip.location_color_bg  ?? '#ccc';
+  const locationColorText = trip.location_color_text ?? '#000';
+  const locationDisplay   = trip.location_display   ?? trip.location_id;
+  const memberColorBg     = trip.lane === 'fam_travel' ? (trip.member_color_bg ?? null) : null;
+  const isDepart  = trip.depart;
+  const isReturn  = trip.return;
+  const hasNotes  = Boolean(trip.day_notes || trip.trip_notes);
 
   function handleMouseDown(e: React.MouseEvent) {
     if (!onEdgeDragStart) return;
@@ -22,10 +23,10 @@ export function TripBar({ trip, onMouseEnter, onMouseLeave, onEdgeDragStart }: T
     if (!cell) return;
     const rect = cell.getBoundingClientRect();
     const x = e.clientX - rect.left;
-    if (trip.depart && x < 8) {
+    if (isDepart && x < 8) {
       e.stopPropagation();
       onEdgeDragStart('start', e);
-    } else if (trip.return && x > rect.width - 8) {
+    } else if (isReturn && x > rect.width - 8) {
       e.stopPropagation();
       onEdgeDragStart('end', e);
     }
@@ -38,72 +39,54 @@ export function TripBar({ trip, onMouseEnter, onMouseLeave, onEdgeDragStart }: T
         height: '100%',
         display: 'flex',
         flexDirection: 'row',
-        alignItems: 'center',
-        cursor: 'pointer',
+        alignItems: 'stretch',
+        overflow: 'hidden',
       }}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
       onMouseDown={handleMouseDown}
     >
-      {/* Left zone — 25%: departure arrow, right-aligned */}
-      <div
-        style={{
-          width: '25%',
-          height: '100%',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'flex-end',
-          paddingRight: '3px',
-          color: fg,
-          fontSize: '11px',
-          opacity: trip.depart ? 0.7 : 0,
-          userSelect: 'none',
-        }}
-      >
-        →
-      </div>
-
-      {/* Center zone — 50%: colored bar with location name */}
-      <div
-        style={{
-          width: '50%',
-          height: '100%',
-          background: bg,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          borderLeft: isFam ? `3px solid ${trip.member_color_bg ?? '#ccc'}` : undefined,
-          borderRadius: 0,
-          fontSize: '10px',
-          fontWeight: 500,
-          color: fg,
-          whiteSpace: 'nowrap',
-          overflow: 'hidden',
-          userSelect: 'none',
-        }}
-      >
-        {loc}
-        {hasNotes && (
-          <sup style={{ fontSize: '8px', opacity: 0.5, marginLeft: '1px' }}>*</sup>
+      <div style={{
+        width: '25%',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'flex-end',
+        paddingRight: '3px',
+      }}>
+        {isDepart && (
+          <span style={{ fontSize: '11px', color: locationColorText, opacity: 0.7 }}>→</span>
         )}
       </div>
-
-      {/* Right zone — 25%: return arrow, left-aligned */}
-      <div
-        style={{
-          width: '25%',
-          height: '100%',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'flex-start',
-          paddingLeft: '3px',
-          color: fg,
-          fontSize: '11px',
-          opacity: trip.return ? 0.7 : 0,
-          userSelect: 'none',
-        }}
-      >
-        ←
+      <div style={{
+        width: '50%',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: locationColorBg,
+        borderRadius: 0,
+        borderLeft: memberColorBg ? `3px solid ${memberColorBg}` : undefined,
+      }}>
+        <span style={{
+          fontSize: '10px',
+          fontWeight: 500,
+          color: locationColorText,
+          overflow: 'hidden',
+          whiteSpace: 'nowrap',
+          textOverflow: 'ellipsis',
+        }}>
+          {locationDisplay}{hasNotes && <sup style={{ fontSize: '8px', opacity: 0.5 }}>*</sup>}
+        </span>
+      </div>
+      <div style={{
+        width: '25%',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'flex-start',
+        paddingLeft: '3px',
+      }}>
+        {isReturn && (
+          <span style={{ fontSize: '11px', color: locationColorText, opacity: 0.7 }}>←</span>
+        )}
       </div>
     </div>
   );

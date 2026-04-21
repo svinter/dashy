@@ -155,11 +155,10 @@ export function LaneRow({
             style={{
               background: monthBg,
               filter: weekend ? 'brightness(0.975)' : undefined,
-              verticalAlign: 'middle',
               padding: 0,
               height: '20px',
               overflow: 'hidden',
-              textAlign: 'center',
+              verticalAlign: 'middle',
               borderBottom: cellBorderBottom,
               borderTop: cellBorderTop,
               borderLeft: d.getDate() === 1 ? '2px solid rgba(0,0,0,0.35)' : undefined,
@@ -172,18 +171,16 @@ export function LaneRow({
             onMouseUp={(e) => onCellMouseUp(ds, laneId)}
             onClick={(e) => onCellClick(ds, laneId, e)}
           >
-            {filteredTrips.map((trip, i) => (
-              <div key={`trip-${trip.trip_id}-${i}`} style={{ marginBottom: filteredTrips.length > 1 ? '1px' : 0 }}>
-                <TripBar
-                  trip={trip}
-                  onMouseEnter={trip.day_notes || trip.trip_notes
-                    ? (e) => onNoteHover(e, laneLabel, dateStr, [trip.day_notes || trip.trip_notes || ''].filter(Boolean))
-                    : undefined}
-                  onMouseLeave={onNoteLeave}
-                  onEdgeDragStart={(edge, e) => onEdgeDragStart(trip.trip_id, edge, e)}
-                />
-              </div>
-            ))}
+            {filteredTrips.length > 0 && (
+              <TripBar
+                trip={filteredTrips[0]}
+                onMouseEnter={filteredTrips[0].day_notes || filteredTrips[0].trip_notes
+                  ? (e) => onNoteHover(e, laneLabel, dateStr, [filteredTrips[0].day_notes || filteredTrips[0].trip_notes || ''].filter(Boolean))
+                  : undefined}
+                onMouseLeave={onNoteLeave}
+                onEdgeDragStart={(edge, e) => onEdgeDragStart(filteredTrips[0].trip_id, edge, e)}
+              />
+            )}
             {entries.map((entry, i) => (
               <div key={`entry-${entry.id}-${i}`} style={{ marginBottom: entries.length > 1 ? '2px' : 0 }}>
                 <EntryCell
