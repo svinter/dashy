@@ -3,10 +3,16 @@ import type { GlanceWeeksData } from '../../hooks/useGlanceData';
 import { useGlanceWeeks } from '../../hooks/useGlanceData';
 import { GlanceWeek } from './GlanceWeek';
 import type { LaneId } from './LaneRow';
+import type { DragState, CursorCell } from '../../pages/GlancePage';
 
 const DAY_HEADERS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const MONTH_FULL = ['January','February','March','April','May','June',
                     'July','August','September','October','November','December'];
+
+// 10 columns: month(46) + lane(66) + 7 day cols + 1 comment col (2× day width)
+// day_col = (100% - 112px) / 9   comment_col = (100% - 112px) / 9 * 2
+const DAY_COL_W = 'calc((100% - 112px) / 9)';
+const COMMENT_COL_W = 'calc((100% - 112px) / 9 * 2)';
 
 interface GlanceGridProps {
   weeksData: GlanceWeeksData;
@@ -14,6 +20,13 @@ interface GlanceGridProps {
   visibleMembers: Set<string>;
   onNoteHover: (e: React.MouseEvent, laneLabel: string, date: string, notes: string[]) => void;
   onNoteLeave: () => void;
+  cursor: CursorCell | null;
+  dragState: DragState | null;
+  onCellMouseDown: (date: string, laneId: LaneId, e: React.MouseEvent) => void;
+  onCellMouseEnter: (date: string) => void;
+  onCellMouseUp: (date: string, laneId: LaneId) => void;
+  onCellClick: (date: string, laneId: LaneId, e: React.MouseEvent) => void;
+  onEdgeDragStart: (tripId: number, edge: 'start' | 'end', e: React.MouseEvent) => void;
 }
 
 export function GlanceGrid({
@@ -22,16 +35,23 @@ export function GlanceGrid({
   visibleMembers,
   onNoteHover,
   onNoteLeave,
+  cursor,
+  dragState,
+  onCellMouseDown,
+  onCellMouseEnter,
+  onCellMouseUp,
+  onCellClick,
+  onEdgeDragStart,
 }: GlanceGridProps) {
   const weeks = useGlanceWeeks(weeksData);
 
-  // Year shown in column-1 header: year of the first week's Thursday
   const headerYear = weeks.length > 0
     ? (weeks[0][3] ?? weeks[0][0]).getFullYear()
     : new Date().getFullYear();
 
-  // Track which months have already shown their label
   const seenMonths = new Set<string>();
+
+  const thBorder: React.CSSProperties = { borderBottom: 'var(--glance-line-bold)' };
 
   return (
     <table
@@ -44,23 +64,20 @@ export function GlanceGrid({
       }}
     >
       <colgroup>
-        {/* Month column */}
         <col style={{ width: '46px' }} />
-        {/* Lane-label column */}
         <col style={{ width: '66px' }} />
-        {/* Seven day columns */}
         {DAY_HEADERS.map((d) => (
-          <col key={d} style={{ width: 'calc((100% - 112px) / 7)' }} />
+          <col key={d} style={{ width: DAY_COL_W }} />
         ))}
+        <col style={{ width: COMMENT_COL_W }} />
       </colgroup>
 
       <thead>
         <tr>
-          {/* Month column header — no border */}
-          <th style={{ fontWeight: 400, fontSize: '10px', color: 'var(--color-text-tertiary, #999)', textAlign: 'left', padding: '4px 4px' }}>
+          <th style={{ fontWeight: 500, fontSize: '10px', color: 'var(--color-text-tertiary, #999)', textAlign: 'left', padding: '4px 4px' }}>
             {headerYear}
           </th>
-          <th style={{ fontWeight: 400, fontSize: '10px', color: 'var(--color-text-tertiary, #999)', textAlign: 'right', paddingRight: '6px', borderBottom: 'var(--glance-line-bold)' }}>
+          <th style={{ fontWeight: 400, fontSize: '10px', color: 'var(--color-text-tertiary, #999)', textAlign: 'right', paddingRight: '6px', ...thBorder }}>
             lane
           </th>
           {DAY_HEADERS.map((d) => (
@@ -72,12 +89,15 @@ export function GlanceGrid({
                 color: '#4a4944',
                 textAlign: 'center',
                 padding: '4px 0',
-                borderBottom: 'var(--glance-line-bold)',
+                ...thBorder,
               }}
             >
               {d}
             </th>
           ))}
+          <th style={{ fontWeight: 400, fontSize: '10px', color: 'var(--color-text-tertiary, #999)', textAlign: 'left', paddingLeft: '6px', ...thBorder }}>
+            notes
+          </th>
         </tr>
       </thead>
 
@@ -86,7 +106,6 @@ export function GlanceGrid({
           const firstDay = week[0];
           const monthKey = `${firstDay.getFullYear()}-${firstDay.getMonth()}`;
           let monthLabel: string | null = null;
-
           if (!seenMonths.has(monthKey)) {
             seenMonths.add(monthKey);
             monthLabel = MONTH_FULL[firstDay.getMonth()];
@@ -102,6 +121,13 @@ export function GlanceGrid({
               monthLabel={monthLabel}
               onNoteHover={onNoteHover}
               onNoteLeave={onNoteLeave}
+              cursor={cursor}
+              dragState={dragState}
+              onCellMouseDown={onCellMouseDown}
+              onCellMouseEnter={onCellMouseEnter}
+              onCellMouseUp={onCellMouseUp}
+              onCellClick={onCellClick}
+              onEdgeDragStart={onEdgeDragStart}
             />
           );
         })}

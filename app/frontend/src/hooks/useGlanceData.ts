@@ -1,10 +1,10 @@
 /**
- * useGlanceData — all Glance data fetching lives here.
- * Never fetch Glance data inside page or component files.
+ * useGlanceData — all Glance data fetching and mutations live here.
+ * Never fetch/mutate Glance data inside page or component files.
  */
 
 import { useState, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -46,6 +46,7 @@ export interface GlanceDayData {
   trips: GlanceTripDay[];
   entries: GlanceEntry[];
   gcal: unknown[];
+  week_comment?: Record<string, string>;  // present only on Mondays
 }
 
 export type GlanceWeeksData = Record<string, GlanceDayData>;
@@ -69,6 +70,24 @@ export interface GlanceLocation {
   is_york: boolean;
 }
 
+export interface GlanceTripFull {
+  id: number;
+  member_id: string;
+  location_id: string;
+  start_date: string;
+  end_date: string;
+  notes: string | null;
+  days: Array<{
+    id: number;
+    trip_id: number;
+    date: string;
+    depart: boolean;
+    sleep: boolean;
+    return: boolean;
+    notes: string | null;
+  }>;
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -80,12 +99,14 @@ function addDays(d: Date, n: number): Date {
 }
 
 function toIso(d: Date): string {
-  return d.toISOString().slice(0, 10);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
-/** Return the Monday that starts the ISO week containing d. */
 function isoWeekStart(d: Date): Date {
-  const day = d.getDay(); // 0=Sun, 1=Mon, ...
+  const day = d.getDay();
   const diff = day === 0 ? -6 : 1 - day;
   return addDays(d, diff);
 }
@@ -93,7 +114,6 @@ function isoWeekStart(d: Date): Date {
 function defaultRange(weeksCount = 12): { start: string; end: string } {
   const today = new Date();
   const monday = isoWeekStart(today);
-  // Go back to start of first week in range
   const startMonday = addDays(monday, -Math.floor(weeksCount / 2) * 7);
   const end = addDays(startMonday, weeksCount * 7 - 1);
   return { start: toIso(startMonday), end: toIso(end) };
@@ -122,7 +142,7 @@ async function fetchLocations(): Promise<GlanceLocation[]> {
 }
 
 // ---------------------------------------------------------------------------
-// Hooks
+// Read hooks
 // ---------------------------------------------------------------------------
 
 export function useGlanceData(initialWeeks = 12) {
@@ -163,20 +183,16 @@ export function useGlanceLocations() {
   });
 }
 
-/** Compute the list of ISO week-starting Mondays from the weeksData keys. */
 export function useGlanceWeeks(weeksData: GlanceWeeksData): Date[][] {
   return useMemo(() => {
     const dates = Object.keys(weeksData).sort();
     if (dates.length === 0) return [];
-
     const weeks: Date[][] = [];
     let current: Date[] = [];
-
     for (const ds of dates) {
       const d = new Date(ds + 'T00:00:00');
-      const dow = d.getDay(); // 0=Sun
+      const dow = d.getDay();
       if (dow === 1 && current.length > 0) {
-        // new Monday — flush
         while (current.length < 7) current.push(addDays(current[current.length - 1], 1));
         weeks.push(current);
         current = [];
@@ -187,7 +203,110 @@ export function useGlanceWeeks(weeksData: GlanceWeeksData): Date[][] {
       while (current.length < 7) current.push(addDays(current[current.length - 1], 1));
       weeks.push(current);
     }
-
     return weeks;
   }, [weeksData]);
+}
+
+// ---------------------------------------------------------------------------
+// Mutation hooks
+// ---------------------------------------------------------------------------
+
+export function useCreateGlanceTrip() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: {
+      member_id: string; location_id: string;
+      start_date: string; end_date: string;
+      notes?: string; day_overrides?: object[];
+    }) => {
+      const res = await fetch('/api/glance/trips', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error('Failed to create trip');
+      return res.json() as Promise<GlanceTripFull>;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['glance-weeks'] }),
+  });
+}
+
+export function useUpdateGlanceTrip() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...body }: {
+      id: number; member_id?: string; location_id?: string;
+      start_date?: string; end_date?: string;
+      notes?: string; day_overrides?: object[];
+    }) => {
+      const res = await fetch(`/api/glance/trips/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error('Failed to update trip');
+      return res.json() as Promise<GlanceTripFull>;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['glance-weeks'] }),
+  });
+}
+
+export function useDeleteGlanceTrip() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const res = await fetch(`/api/glance/trips/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Failed to delete trip');
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['glance-weeks'] }),
+  });
+}
+
+export function useCreateGlanceEntries() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (entries: Array<{
+      lane: string; member_id?: string | null;
+      date: string; label: string; notes?: string | null;
+    }>) => {
+      const res = await fetch('/api/glance/entries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entries }),
+      });
+      if (!res.ok) throw new Error('Failed to create entries');
+      return res.json();
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['glance-weeks'] }),
+  });
+}
+
+export function useUpdateGlanceEntry() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...body }: {
+      id: number; lane?: string; member_id?: string | null;
+      date?: string; label?: string; notes?: string | null;
+    }) => {
+      const res = await fetch(`/api/glance/entries/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error('Failed to update entry');
+      return res.json();
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['glance-weeks'] }),
+  });
+}
+
+export function useDeleteGlanceEntry() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const res = await fetch(`/api/glance/entries/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Failed to delete entry');
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['glance-weeks'] }),
+  });
 }

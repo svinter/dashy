@@ -1,7 +1,9 @@
 import React from 'react';
 import type { GlanceDayData } from '../../hooks/useGlanceData';
-import { TripPill } from './TripPill';
+import { TripBar } from './TripBar';
 import { EntryCell } from './EntryCell';
+import { CommentCell } from './CommentCell';
+import type { DragState, CursorCell } from '../../pages/GlancePage';
 
 export type LaneId = 'gcal' | 'york' | 'fam_events' | 'fam_travel' | 'steve_events' | 'steve_travel';
 
@@ -14,6 +16,13 @@ interface LaneRowProps {
   visibleMembers: Set<string>;
   onNoteHover: (e: React.MouseEvent, laneLabel: string, date: string, notes: string[]) => void;
   onNoteLeave: () => void;
+  cursor: CursorCell | null;
+  dragState: DragState | null;
+  onCellMouseDown: (date: string, laneId: LaneId, e: React.MouseEvent) => void;
+  onCellMouseEnter: (date: string) => void;
+  onCellMouseUp: (date: string, laneId: LaneId) => void;
+  onCellClick: (date: string, laneId: LaneId, e: React.MouseEvent) => void;
+  onEdgeDragStart: (tripId: number, edge: 'start' | 'end', e: React.MouseEvent) => void;
 }
 
 function localIso(d: Date): string {
@@ -33,6 +42,22 @@ function formatDate(d: Date): string {
   return `${MONTH_ABBR[d.getMonth()]} ${d.getDate()}`;
 }
 
+/** Returns selected dates for the current drag (creation type only). */
+function dragSelectedDates(drag: DragState | null): Set<string> {
+  if (!drag || drag.type !== 'create') return new Set();
+  const a = drag.startDate < drag.currentDate ? drag.startDate : drag.currentDate;
+  const b = drag.startDate > drag.currentDate ? drag.startDate : drag.currentDate;
+  const set = new Set<string>();
+  const start = new Date(a + 'T00:00:00');
+  const end = new Date(b + 'T00:00:00');
+  const d = new Date(start);
+  while (d <= end) {
+    set.add(localIso(d));
+    d.setDate(d.getDate() + 1);
+  }
+  return set;
+}
+
 export function LaneRow({
   laneId,
   laneLabel,
@@ -42,6 +67,13 @@ export function LaneRow({
   visibleMembers,
   onNoteHover,
   onNoteLeave,
+  cursor,
+  dragState,
+  onCellMouseDown,
+  onCellMouseEnter,
+  onCellMouseUp,
+  onCellClick,
+  onEdgeDragStart,
 }: LaneRowProps) {
   const cellBorderBottom =
     laneId === 'york' || laneId === 'fam_travel'
@@ -52,9 +84,14 @@ export function LaneRow({
       ? 'var(--glance-line-hairline)'
       : undefined;
 
+  const weekStartIso = localIso(week[0]);
+  const comment = dayData[weekStartIso]?.week_comment?.[laneId] ?? '';
+
+  const selected = dragSelectedDates(dragState);
+
   return (
     <tr>
-      {/* Month column — tinted, no horizontal border */}
+      {/* Month column — no border */}
       <td style={{ background: monthBg }} />
 
       {/* Lane label */}
@@ -80,20 +117,16 @@ export function LaneRow({
         const ds = localIso(d);
         const weekend = isWeekend(d);
         const data = dayData[ds];
-        const cellBg = weekend
-          ? shadeColor(monthBg, -0.025)
-          : monthBg;
+        const cellBg = weekend ? shadeColor(monthBg, -0.025) : monthBg;
 
         const trips = (data?.trips ?? []).filter((t) => t.lane === laneId);
         const entries = (data?.entries ?? []).filter((e) => {
           if (e.lane !== laneId) return false;
-          // Filter by member visibility for fam lanes
           if (laneId === 'fam_events' || laneId === 'fam_travel') {
             if (e.member_id && !visibleMembers.has(e.member_id)) return false;
           }
           return true;
         });
-
         const filteredTrips = trips.filter((t) => {
           if (laneId === 'fam_travel') {
             return !t.member_id || visibleMembers.has(t.member_id);
@@ -101,29 +134,52 @@ export function LaneRow({
           return true;
         });
 
+        const isCursor = cursor?.date === ds && cursor?.laneId === laneId;
+        const isDragSelected = selected.has(ds) && (dragState?.type === 'create' ? dragState.laneId === laneId : false);
+
         const dateStr = formatDate(d);
+
+        let outlineStyle: React.CSSProperties = {};
+        if (isCursor && isDragSelected) {
+          outlineStyle = { outline: '1.5px solid #378ADD', background: `rgba(55, 138, 221, 0.06)` };
+        } else if (isCursor) {
+          outlineStyle = { outline: '1.5px solid #378ADD', outlineOffset: '-1px' };
+        } else if (isDragSelected) {
+          outlineStyle = { outline: '1.5px solid rgba(55, 138, 221, 0.5)', background: `rgba(55, 138, 221, 0.06)` };
+        }
+
         return (
           <td
             key={ds}
+            data-date={ds}
+            data-lane={laneId}
             style={{
               background: cellBg,
               verticalAlign: 'middle',
-              padding: '2px 3px',
+              padding: '2px 0',
               minHeight: '20px',
               textAlign: 'center',
               borderBottom: cellBorderBottom,
               borderTop: cellBorderTop,
               borderLeft: d.getDate() === 1 ? '2px solid rgba(0,0,0,0.35)' : undefined,
+              cursor: laneId === 'gcal' ? 'default' : 'pointer',
+              userSelect: 'none',
+              ...outlineStyle,
             }}
+            onMouseDown={(e) => onCellMouseDown(ds, laneId, e)}
+            onMouseEnter={() => onCellMouseEnter(ds)}
+            onMouseUp={(e) => onCellMouseUp(ds, laneId)}
+            onClick={(e) => onCellClick(ds, laneId, e)}
           >
             {filteredTrips.map((trip, i) => (
-              <div key={`trip-${trip.trip_id}-${i}`} style={{ marginBottom: filteredTrips.length > 1 ? '2px' : 0 }}>
-                <TripPill
+              <div key={`trip-${trip.trip_id}-${i}`} style={{ marginBottom: filteredTrips.length > 1 ? '1px' : 0 }}>
+                <TripBar
                   trip={trip}
-                  onMouseEnter={trip.day_notes
-                    ? (e) => onNoteHover(e, laneLabel, dateStr, [trip.day_notes!])
+                  onMouseEnter={trip.day_notes || trip.trip_notes
+                    ? (e) => onNoteHover(e, laneLabel, dateStr, [trip.day_notes || trip.trip_notes || ''].filter(Boolean))
                     : undefined}
                   onMouseLeave={onNoteLeave}
+                  onEdgeDragStart={(edge, e) => onEdgeDragStart(trip.trip_id, edge, e)}
                 />
               </div>
             ))}
@@ -141,28 +197,38 @@ export function LaneRow({
           </td>
         );
       })}
+
+      {/* Comment column */}
+      <CommentCell
+        weekStart={weekStartIso}
+        laneId={laneId}
+        comment={comment}
+        cellBg={monthBg}
+        borderBottom={cellBorderBottom}
+        borderTop={cellBorderTop}
+      />
     </tr>
   );
 }
 
-/**
- * Lighten or darken a color by a factor (-1 to 1).
- * Handles both hex (#RRGGBB) and rgba(...) inputs.
- * factor < 0 = darker, factor > 0 = lighter.
- */
+// ---------------------------------------------------------------------------
+// shadeColor — lighten or darken a hex or rgba color
+// ---------------------------------------------------------------------------
 function shadeColor(color: string, factor: number): string {
   const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v)));
   let r: number, g: number, b: number, a = 1;
 
-  if (color.startsWith('rgba')) {
+  if (color.startsWith('rgba') || color.startsWith('rgb(')) {
     const m = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
     if (!m) return color;
     r = parseInt(m[1]); g = parseInt(m[2]); b = parseInt(m[3]);
     a = m[4] !== undefined ? parseFloat(m[4]) : 1;
-  } else {
+  } else if (color.startsWith('#')) {
     r = parseInt(color.slice(1, 3), 16);
     g = parseInt(color.slice(3, 5), 16);
     b = parseInt(color.slice(5, 7), 16);
+  } else {
+    return color;
   }
 
   let nr: number, ng: number, nb: number;

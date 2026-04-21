@@ -2,7 +2,9 @@ import React from 'react';
 import type { GlanceDayData } from '../../hooks/useGlanceData';
 import { DateStrip } from './DateStrip';
 import { LaneRow } from './LaneRow';
+import { HiddenLaneRow } from './HiddenLaneRow';
 import type { LaneId } from './LaneRow';
+import type { DragState, CursorCell } from '../../pages/GlancePage';
 
 const MONTH_COLORS: Record<number, string> = {
   1:  '#FDFCF8', 2:  '#FAF8FC', 3:  'rgba(210, 195, 160, 0.04)',
@@ -28,6 +30,13 @@ interface GlanceWeekProps {
   monthLabel: string | null;
   onNoteHover: (e: React.MouseEvent, laneLabel: string, date: string, notes: string[]) => void;
   onNoteLeave: () => void;
+  cursor: CursorCell | null;
+  dragState: DragState | null;
+  onCellMouseDown: (date: string, laneId: LaneId, e: React.MouseEvent) => void;
+  onCellMouseEnter: (date: string) => void;
+  onCellMouseUp: (date: string, laneId: LaneId) => void;
+  onCellClick: (date: string, laneId: LaneId, e: React.MouseEvent) => void;
+  onEdgeDragStart: (tripId: number, edge: 'start' | 'end', e: React.MouseEvent) => void;
 }
 
 export function GlanceWeek({
@@ -38,6 +47,13 @@ export function GlanceWeek({
   monthLabel,
   onNoteHover,
   onNoteLeave,
+  cursor,
+  dragState,
+  onCellMouseDown,
+  onCellMouseEnter,
+  onCellMouseUp,
+  onCellClick,
+  onEdgeDragStart,
 }: GlanceWeekProps) {
   const firstDay = week[0] ?? new Date();
   const monthNum = firstDay.getMonth() + 1;
@@ -46,6 +62,7 @@ export function GlanceWeek({
   return (
     <>
       <DateStrip week={week} monthBg={monthBg} monthLabel={monthLabel} />
+      <HiddenLaneRow week={week} dayData={dayData} visibleLanes={visibleLanes} visibleMembers={visibleMembers} monthBg={monthBg} />
       {ALL_LANES.filter((l) => visibleLanes.has(l.id)).map((lane) => (
         <LaneRow
           key={lane.id}
@@ -57,6 +74,13 @@ export function GlanceWeek({
           visibleMembers={visibleMembers}
           onNoteHover={onNoteHover}
           onNoteLeave={onNoteLeave}
+          cursor={cursor}
+          dragState={dragState}
+          onCellMouseDown={onCellMouseDown}
+          onCellMouseEnter={onCellMouseEnter}
+          onCellMouseUp={onCellMouseUp}
+          onCellClick={onCellClick}
+          onEdgeDragStart={onEdgeDragStart}
         />
       ))}
     </>

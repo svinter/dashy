@@ -93,7 +93,7 @@ export function DateStrip({ week, monthBg, monthLabel }: DateStripProps) {
         week {weekNum}
       </td>
 
-      {/* Seven day cells */}
+      {/* Seven day cells + comment column */}
       {week.map((d) => {
         const ds = localIso(d);
         const weekend = isWeekend(d);
@@ -117,6 +117,15 @@ export function DateStrip({ week, monthBg, monthLabel }: DateStripProps) {
           </td>
         );
       })}
+
+      {/* Comment column — empty in date strip */}
+      <td
+        style={{
+          ...cellBorder,
+          ...weekdayStripBg,
+          boxSizing: 'border-box',
+        }}
+      />
     </tr>
   );
 }
