@@ -25,8 +25,8 @@ export function TripBar({ trip, onMouseEnter, onMouseLeave, onEdgeDragStart }: T
     } catch { /* ignore parse errors */ }
   }
 
-  const locationDisplay   = trip.location_display   ?? trip.location_id;
-  const memberColorBg     = trip.lane === 'fam_travel' ? (trip.member_color_bg ?? null) : null;
+  const locationDisplay = trip.location_display ?? trip.location_id;
+  const memberColorBg   = trip.lane === 'fam_travel' ? (trip.member_color_bg ?? null) : null;
   const isDepart  = trip.depart;
   const isReturn  = trip.return;
   const hasNotes  = Boolean(trip.day_notes || trip.trip_notes);
@@ -60,39 +60,39 @@ export function TripBar({ trip, onMouseEnter, onMouseLeave, onEdgeDragStart }: T
   }
 
   return (
-    <div className="glance-trip-bar" style={{
-      width: '100%', height: LANE_ROW_HEIGHT,
-      display: 'flex', flexDirection: 'row', alignItems: 'stretch',
-      overflow: 'hidden',
-      cursor,
-    }}
+    <div
+      className="glance-trip-bar"
+      style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        width: '100%', height: LANE_ROW_HEIGHT,
+        cursor,
+      }}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
       onMouseMove={handleMouseMove}
       onMouseDown={handleMouseDown}
     >
-      <div style={{
-        width: '25%', display: 'flex',
-        alignItems: 'center', justifyContent: 'flex-end', paddingRight: '3px',
-      }}>
-        {isDepart && <span style={{ fontSize: '11px', color: locationColorText, opacity: 0.7 }}>→</span>}
-      </div>
-      <div style={{
-        width: '50%', display: 'flex',
-        alignItems: 'center', justifyContent: 'center',
-        background: locationColorBg, borderRadius: 0,
+      {isDepart && (
+        <span style={{ fontSize: '11px', color: locationColorText, opacity: 0.7, marginRight: '3px' }}>→</span>
+      )}
+      <span style={{
+        display: 'inline-block',
+        padding: '1px 6px',
+        borderRadius: '3px',
+        fontSize: '10px',
+        fontWeight: 500,
+        background: locationColorBg,
+        color: locationColorText,
+        whiteSpace: 'nowrap',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
         borderLeft: memberColorBg ? `3px solid ${memberColorBg}` : undefined,
       }}>
-        <span style={{ fontSize: '10px', fontWeight: 500, color: locationColorText, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
-          {locationDisplay}{hasNotes && <sup style={{ fontSize: '8px', opacity: 0.5 }}>*</sup>}
-        </span>
-      </div>
-      <div style={{
-        width: '25%', display: 'flex',
-        alignItems: 'center', justifyContent: 'flex-start', paddingLeft: '3px',
-      }}>
-        {isReturn && <span style={{ fontSize: '11px', color: locationColorText, opacity: 0.7 }}>←</span>}
-      </div>
+        {locationDisplay}{hasNotes && <sup style={{ fontSize: '8px', opacity: 0.5 }}>*</sup>}
+      </span>
+      {isReturn && (
+        <span style={{ fontSize: '11px', color: locationColorText, opacity: 0.7, marginLeft: '3px' }}>←</span>
+      )}
     </div>
   );
 }
