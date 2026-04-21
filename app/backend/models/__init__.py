@@ -321,3 +321,50 @@ class WhatsAppIncoming(BaseModel):
     group_name: Optional[str] = None
     group_jid: Optional[str] = None
     sender_jid: Optional[str] = None  # actual sender in group chats
+
+
+# --- Glance write models ---
+
+
+class GlanceCommentUpsert(BaseModel):
+    week_start: str  # YYYY-MM-DD, must be the Monday of the week
+    lane_id: str
+    comment: str  # empty string clears the comment
+
+
+class GlanceTripCreate(BaseModel):
+    member_id: str
+    location_id: str
+    start_date: str   # YYYY-MM-DD
+    end_date: str     # YYYY-MM-DD
+    notes: Optional[str] = None
+    day_overrides: Optional[list[dict]] = None  # list of {date, depart?, sleep?, return?, notes?}
+
+
+class GlanceTripUpdate(BaseModel):
+    member_id: Optional[str] = None
+    location_id: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    notes: Optional[str] = None
+    day_overrides: Optional[list[dict]] = None
+
+
+class GlanceEntryCreate(BaseModel):
+    lane: str
+    member_id: Optional[str] = None
+    date: str         # YYYY-MM-DD
+    label: str
+    notes: Optional[str] = None
+
+
+class GlanceEntriesCreate(BaseModel):
+    entries: list[GlanceEntryCreate]
+
+
+class GlanceEntryUpdate(BaseModel):
+    lane: Optional[str] = None
+    member_id: Optional[str] = None
+    date: Optional[str] = None
+    label: Optional[str] = None
+    notes: Optional[str] = None
