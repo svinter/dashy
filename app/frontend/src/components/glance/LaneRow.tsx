@@ -110,6 +110,7 @@ export function LaneRow({
               verticalAlign: 'middle',
               padding: '2px 3px',
               minHeight: '20px',
+              textAlign: 'center',
               borderBottom: cellBorderBottom,
               borderTop: cellBorderTop,
               borderLeft: d.getDate() === 1 ? '2px solid rgba(0,0,0,0.35)' : undefined,

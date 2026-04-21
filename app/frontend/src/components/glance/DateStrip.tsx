@@ -51,15 +51,17 @@ export function DateStrip({ week, monthBg, monthLabel }: DateStripProps) {
 
   return (
     <tr>
-      {/* Month column — no horizontal borders */}
+      {/* Month column — same gray band as week-num cell */}
       <td
         style={{
-          background: monthBg,
+          ...cellBorder,
+          background: DATE_STRIP_WEEKDAY_BG,
           verticalAlign: 'middle',
           padding: '0 4px',
           fontSize: '9px',
           lineHeight: 1.2,
           color: 'var(--color-text-tertiary, #999)',
+          boxSizing: 'border-box',
         }}
       >
         {monthLabel}
