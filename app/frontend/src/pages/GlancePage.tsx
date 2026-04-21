@@ -112,8 +112,9 @@ export function GlancePage() {
   const [gMode,          setGMode]          = useState(false);
   const [gInput,         setGInput]         = useState('');
 
-  const containerRef  = useRef<HTMLDivElement>(null);
-  const gInputRef     = useRef<HTMLInputElement>(null);
+  const containerRef   = useRef<HTMLDivElement>(null);
+  const gridScrollRef  = useRef<HTMLDivElement>(null);
+  const gInputRef      = useRef<HTMLInputElement>(null);
   const didDragRef    = useRef(false);
   // Ref mirror of dragState so callbacks can read latest without stale closures
   const dragStateRef  = useRef<DragState | null>(null);
@@ -319,10 +320,10 @@ export function GlancePage() {
       const { key } = e;
 
       // Scroll / navigation
-      if (key === 'j') { e.preventDefault(); window.scrollBy({ top: 260,  behavior: 'smooth' }); return; }
-      if (key === 'k') { e.preventDefault(); window.scrollBy({ top: -260, behavior: 'smooth' }); return; }
-      if (key === 'J') { e.preventDefault(); window.scrollBy({ top: 520,  behavior: 'smooth' }); return; }
-      if (key === 'K') { e.preventDefault(); window.scrollBy({ top: -520, behavior: 'smooth' }); return; }
+      if (key === 'j') { e.preventDefault(); gridScrollRef.current?.scrollBy({ top: 260,  behavior: 'smooth' }); return; }
+      if (key === 'k') { e.preventDefault(); gridScrollRef.current?.scrollBy({ top: -260, behavior: 'smooth' }); return; }
+      if (key === 'J') { e.preventDefault(); gridScrollRef.current?.scrollBy({ top: 520,  behavior: 'smooth' }); return; }
+      if (key === 'K') { e.preventDefault(); gridScrollRef.current?.scrollBy({ top: -520, behavior: 'smooth' }); return; }
       if (key === 't') {
         e.preventDefault();
         const el = document.querySelector(`[data-date="${localIso(new Date())}"]`) as HTMLElement | null;
@@ -515,20 +516,25 @@ export function GlancePage() {
           visibleMembers={visibleMembers}
         />
       ) : (
-        <GlanceGrid
-          weeksData={weeksData}
-          visibleLanes={visibleLanes}
-          visibleMembers={visibleMembers}
-          onNoteHover={handleNoteHover}
-          onNoteLeave={handleNoteLeave}
-          cursor={cursor}
-          dragState={dragState}
-          onCellMouseDown={handleCellMouseDown}
-          onCellMouseEnter={handleCellMouseEnter}
-          onCellMouseUp={handleCellMouseUp}
-          onCellClick={handleCellClick}
-          onEdgeDragStart={handleEdgeDragStart}
-        />
+        <div
+          ref={gridScrollRef}
+          style={{ overflowY: 'auto', height: 'calc(100vh - 152px)' }}
+        >
+          <GlanceGrid
+            weeksData={weeksData}
+            visibleLanes={visibleLanes}
+            visibleMembers={visibleMembers}
+            onNoteHover={handleNoteHover}
+            onNoteLeave={handleNoteLeave}
+            cursor={cursor}
+            dragState={dragState}
+            onCellMouseDown={handleCellMouseDown}
+            onCellMouseEnter={handleCellMouseEnter}
+            onCellMouseUp={handleCellMouseUp}
+            onCellClick={handleCellClick}
+            onEdgeDragStart={handleEdgeDragStart}
+          />
+        </div>
       )}
 
       <GlanceTooltip tooltip={tooltip} />

@@ -60,7 +60,7 @@ export function TripBar({ trip, onMouseEnter, onMouseLeave, onEdgeDragStart }: T
   }
 
   return (
-    <div style={{
+    <div className="glance-trip-bar" style={{
       width: '100%', height: LANE_ROW_HEIGHT,
       display: 'flex', flexDirection: 'row', alignItems: 'stretch',
       overflow: 'hidden',
