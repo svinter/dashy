@@ -5,7 +5,7 @@ interface TripBarProps {
   trip: GlanceTripDay;
   onMouseEnter?: (e: React.MouseEvent) => void;
   onMouseLeave?: () => void;
-  /** Called when mousedown near the left edge of a departure-day cell. */
+  /** Called when mousedown near the left/right edge of a departure/return-day cell. */
   onEdgeDragStart?: (edge: 'start' | 'end', e: React.MouseEvent) => void;
 }
 
@@ -15,10 +15,6 @@ export function TripBar({ trip, onMouseEnter, onMouseLeave, onEdgeDragStart }: T
   const loc = trip.location_display ?? trip.location_id;
   const isFam = trip.lane === 'fam_travel';
   const hasNotes = Boolean(trip.day_notes || trip.trip_notes);
-
-  const centerBorderLeft = isFam
-    ? `3px solid ${trip.member_color_bg ?? '#ccc'}`
-    : undefined;
 
   function handleMouseDown(e: React.MouseEvent) {
     if (!onEdgeDragStart) return;
@@ -37,18 +33,27 @@ export function TripBar({ trip, onMouseEnter, onMouseLeave, onEdgeDragStart }: T
 
   return (
     <div
-      style={{ display: 'flex', width: '100%', height: '17px', cursor: 'pointer' }}
+      style={{
+        width: '100%',
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'row',
+        alignItems: 'center',
+        cursor: 'pointer',
+      }}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
       onMouseDown={handleMouseDown}
     >
-      {/* Left zone — 25%: departure arrow */}
+      {/* Left zone — 25%: departure arrow, right-aligned */}
       <div
         style={{
           width: '25%',
+          height: '100%',
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'center',
+          justifyContent: 'flex-end',
+          paddingRight: '3px',
           color: fg,
           fontSize: '11px',
           opacity: trip.depart ? 0.7 : 0,
@@ -58,15 +63,17 @@ export function TripBar({ trip, onMouseEnter, onMouseLeave, onEdgeDragStart }: T
         →
       </div>
 
-      {/* Center zone — 50%: colored label */}
+      {/* Center zone — 50%: colored bar with location name */}
       <div
         style={{
           width: '50%',
+          height: '100%',
           background: bg,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          borderLeft: centerBorderLeft,
+          borderLeft: isFam ? `3px solid ${trip.member_color_bg ?? '#ccc'}` : undefined,
+          borderRadius: 0,
           fontSize: '10px',
           fontWeight: 500,
           color: fg,
@@ -81,13 +88,15 @@ export function TripBar({ trip, onMouseEnter, onMouseLeave, onEdgeDragStart }: T
         )}
       </div>
 
-      {/* Right zone — 25%: return arrow */}
+      {/* Right zone — 25%: return arrow, left-aligned */}
       <div
         style={{
           width: '25%',
+          height: '100%',
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'center',
+          justifyContent: 'flex-start',
+          paddingLeft: '3px',
           color: fg,
           fontSize: '11px',
           opacity: trip.return ? 0.7 : 0,
