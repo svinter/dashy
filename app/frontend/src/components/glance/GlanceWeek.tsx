@@ -5,8 +5,8 @@ import { LaneRow } from './LaneRow';
 import type { LaneId } from './LaneRow';
 
 const MONTH_COLORS: Record<number, string> = {
-  1:  '#FDFCF8', 2:  '#FAF8FC', 3:  '#FBF9F3',
-  4:  '#F7F5FB', 5:  '#FDFBF0', 6:  '#F3F7FC',
+  1:  '#FDFCF8', 2:  '#FAF8FC', 3:  'rgba(210, 195, 160, 0.04)',
+  4:  'rgba(180, 175, 220, 0.04)', 5:  'rgba(195, 200, 140, 0.04)', 6:  'rgba(160, 190, 220, 0.04)',
   7:  '#F5FAF3', 8:  '#FDF8F0', 9:  '#F5F8FC',
   10: '#FCF7F3', 11: '#F8F5FB', 12: '#F3FCF9',
 };

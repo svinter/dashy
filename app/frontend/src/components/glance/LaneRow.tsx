@@ -46,7 +46,10 @@ export function LaneRow({
   // Border rules
   const rowStyle: React.CSSProperties = {};
   if (laneId === 'york') {
-    rowStyle.borderBottom = 'var(--glance-line-hairline)';
+    rowStyle.borderBottom = '0.5px solid rgba(0,0,0,0.22)';
+  }
+  if (laneId === 'fam_travel') {
+    rowStyle.borderBottom = '0.5px solid rgba(0,0,0,0.22)';
   }
   if (laneId === 'steve_events') {
     rowStyle.borderTop = 'var(--glance-line-hairline)';
@@ -140,18 +143,33 @@ export function LaneRow({
 }
 
 /**
- * Lighten or darken a hex color by a factor (-1 to 1).
+ * Lighten or darken a color by a factor (-1 to 1).
+ * Handles both hex (#RRGGBB) and rgba(...) inputs.
  * factor < 0 = darker, factor > 0 = lighter.
  */
-function shadeColor(hex: string, factor: number): string {
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
+function shadeColor(color: string, factor: number): string {
   const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v)));
+  let r: number, g: number, b: number, a = 1;
+
+  if (color.startsWith('rgba')) {
+    const m = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
+    if (!m) return color;
+    r = parseInt(m[1]); g = parseInt(m[2]); b = parseInt(m[3]);
+    a = m[4] !== undefined ? parseFloat(m[4]) : 1;
+  } else {
+    r = parseInt(color.slice(1, 3), 16);
+    g = parseInt(color.slice(3, 5), 16);
+    b = parseInt(color.slice(5, 7), 16);
+  }
+
+  let nr: number, ng: number, nb: number;
   if (factor < 0) {
     const f = 1 + factor;
-    return `rgb(${clamp(r * f)}, ${clamp(g * f)}, ${clamp(b * f)})`;
+    nr = clamp(r * f); ng = clamp(g * f); nb = clamp(b * f);
+  } else {
+    nr = clamp(r + (255 - r) * factor);
+    ng = clamp(g + (255 - g) * factor);
+    nb = clamp(b + (255 - b) * factor);
   }
-  const f = factor;
-  return `rgb(${clamp(r + (255 - r) * f)}, ${clamp(g + (255 - g) * f)}, ${clamp(b + (255 - b) * f)})`;
+  return a < 1 ? `rgba(${nr}, ${ng}, ${nb}, ${a})` : `rgb(${nr}, ${ng}, ${nb})`;
 }

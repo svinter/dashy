@@ -5,7 +5,8 @@ import { GlanceWeek } from './GlanceWeek';
 import type { LaneId } from './LaneRow';
 
 const DAY_HEADERS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const MONTH_FULL = ['January','February','March','April','May','June',
+                    'July','August','September','October','November','December'];
 
 interface GlanceGridProps {
   weeksData: GlanceWeeksData;
@@ -80,7 +81,7 @@ export function GlanceGrid({
 
           if (!seenMonths.has(monthKey)) {
             seenMonths.add(monthKey);
-            monthLabel = `${MONTH_ABBR[firstDay.getMonth()]} ${firstDay.getDate()}`;
+            monthLabel = `${MONTH_FULL[firstDay.getMonth()]} ${firstDay.getFullYear()}`;
           }
 
           return (

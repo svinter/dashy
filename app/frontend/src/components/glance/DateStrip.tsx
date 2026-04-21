@@ -1,8 +1,5 @@
 import React from 'react';
 
-const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-                    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
 function isoWeekNumber(d: Date): number {
   const utc = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
   const dayNum = utc.getUTCDay() || 7;
@@ -28,7 +25,7 @@ const TODAY_STR = localIso(new Date());
 interface DateStripProps {
   week: Date[];
   monthBg: string;
-  monthLabel: string | null; // e.g. "Apr 26" — only on first week of month
+  monthLabel: string | null; // e.g. "April 2026" — only on first week of month
 }
 
 const DATE_STRIP_WEEKDAY_BG = '#EFEEEA';
@@ -54,9 +51,9 @@ export function DateStrip({ week, monthBg, monthLabel }: DateStripProps) {
           background: monthBg,
           verticalAlign: 'middle',
           padding: '0 4px',
-          fontSize: '10px',
+          fontSize: '9px',
+          lineHeight: 1.2,
           color: 'var(--color-text-tertiary, #999)',
-          whiteSpace: 'nowrap',
         }}
       >
         {monthLabel}
@@ -73,7 +70,7 @@ export function DateStrip({ week, monthBg, monthLabel }: DateStripProps) {
           textAlign: 'right',
         }}
       >
-        wk {weekNum}
+        week {weekNum}
       </td>
 
       {/* Seven day cells */}
@@ -82,7 +79,6 @@ export function DateStrip({ week, monthBg, monthLabel }: DateStripProps) {
         const weekend = isWeekend(d);
         const isToday = ds === TODAY_STR;
         const dayNum = d.getDate();
-        const monthAbbr = MONTH_ABBR[d.getMonth()];
         return (
           <td
             key={ds}
@@ -93,11 +89,8 @@ export function DateStrip({ week, monthBg, monthLabel }: DateStripProps) {
               outlineOffset: isToday ? '-1px' : undefined,
             }}
           >
-            <span style={{ opacity: isToday ? 0.4 : 1 }}>
+            <span style={{ opacity: isToday ? 0.4 : 1, display: 'block', textAlign: 'center' }}>
               {dayNum}
-            </span>
-            <span style={{ fontSize: '9px', opacity: 0.55, marginLeft: '1px' }}>
-              {monthAbbr}
             </span>
           </td>
         );
