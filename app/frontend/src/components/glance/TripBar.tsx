@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import type { GlanceTripDay } from '../../hooks/useGlanceData';
 
+const LANE_ROW_HEIGHT = 24;
+
 interface TripBarProps {
   trip: GlanceTripDay;
   onMouseEnter?: (e: React.MouseEvent) => void;
@@ -47,7 +49,7 @@ export function TripBar({ trip, onMouseEnter, onMouseLeave, onEdgeDragStart }: T
 
   return (
     <div style={{
-      position: 'absolute', inset: 0,
+      width: '100%', height: LANE_ROW_HEIGHT,
       display: 'flex', flexDirection: 'row', alignItems: 'stretch',
       overflow: 'hidden',
       cursor,

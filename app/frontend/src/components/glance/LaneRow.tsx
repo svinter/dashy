@@ -7,6 +7,8 @@ import type { DragState, CursorCell } from '../../pages/GlancePage';
 
 export type LaneId = 'gcal' | 'york' | 'fam_events' | 'fam_travel' | 'steve_events' | 'steve_travel';
 
+const LANE_ROW_HEIGHT = 24;
+
 interface LaneRowProps {
   laneId: LaneId;
   laneLabel: string;
@@ -156,7 +158,7 @@ export function LaneRow({
               background: monthBg,
               filter: weekend ? 'brightness(0.975)' : undefined,
               padding: 0,
-              height: '20px',
+              height: LANE_ROW_HEIGHT,
               overflow: 'hidden',
               verticalAlign: 'middle',
               position: 'relative',
@@ -183,7 +185,7 @@ export function LaneRow({
               />
             )}
             {entries.map((entry, i) => (
-              <div key={`entry-${entry.id}-${i}`} style={{ marginBottom: entries.length > 1 ? '2px' : 0 }}>
+              <div key={`entry-${entry.id}-${i}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: LANE_ROW_HEIGHT, marginBottom: entries.length > 1 ? '2px' : 0 }}>
                 <EntryCell
                   entry={entry}
                   onMouseEnter={entry.notes

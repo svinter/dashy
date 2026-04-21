@@ -28,6 +28,7 @@ const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct',
 
 const CELL_W = 28;
 const LABEL_W = 100;
+const LANE_ROW_HEIGHT = 24;
 
 function localIso(d: Date): string {
   const y = d.getFullYear();
@@ -159,8 +160,8 @@ export function HorizontalGlance({ weeksData, visibleLanes, visibleMembers }: Ho
                 color: 'var(--color-text-tertiary, #999)',
                 textAlign: 'right',
                 paddingRight: '8px',
-                lineHeight: '20px',
-                height: '20px',
+                lineHeight: LANE_ROW_HEIGHT + 'px',
+                height: LANE_ROW_HEIGHT,
                 position: 'sticky',
                 left: 0,
                 background: '#fff',
@@ -210,7 +211,7 @@ export function HorizontalGlance({ weeksData, visibleLanes, visibleMembers }: Ho
                   key={ds}
                   style={{
                     width: CELL_W,
-                    height: '20px',
+                    height: LANE_ROW_HEIGHT,
                     flexShrink: 0,
                     background: isWeekend(d) ? 'rgba(0,0,0,0.025)' : undefined,
                     borderLeft: d.getDate() === 1 ? '2px solid rgba(0,0,0,0.35)' : undefined,
