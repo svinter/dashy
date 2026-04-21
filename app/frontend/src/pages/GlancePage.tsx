@@ -37,7 +37,7 @@ export type CursorCell = { date: string; laneId: LaneId };
 // ---------------------------------------------------------------------------
 
 const LANE_CONFIG: { id: LaneId; controlLabel: string; shortLabel: string }[] = [
-  { id: 'gcal',        controlLabel: 'gcal overlay',  shortLabel: 'gcal' },
+  { id: 'gcal',        controlLabel: 'calendar',      shortLabel: 'calendar' },
   { id: 'york',        controlLabel: 'york house',    shortLabel: 'york' },
   { id: 'fam_events',  controlLabel: 'family events', shortLabel: 'family' },
   { id: 'fam_travel',  controlLabel: 'family travel', shortLabel: 'travel' },
@@ -69,7 +69,7 @@ const EVENT_LANES  = new Set<LaneId>(['steve_events', 'fam_events', 'york']);
 type ModalState =
   | { type: 'trip-form';   initial: TripFormInitial;  editId?: number; existingTrip?: GlanceTripDay }
   | { type: 'entry-form';  initial: EntryFormInitial; editId?: number; existingEntry?: GlanceEntry; existingDate?: string }
-  | { type: 'view-edit';   date: string; laneId: LaneId; laneLabel: string; trips: GlanceTripDay[]; entries: GlanceEntry[] };
+  | { type: 'view-edit';   date: string; laneId: LaneId; laneLabel: string; trips: GlanceTripDay[]; entries: GlanceEntry[]; anchorPos?: { top: number; left: number } };
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -200,7 +200,7 @@ export function GlancePage() {
     setDragState(null);
   }, [updateTrip]);
 
-  const handleCellClick = useCallback((date: string, laneId: LaneId, _e: React.MouseEvent) => {
+  const handleCellClick = useCallback((date: string, laneId: LaneId, e: React.MouseEvent) => {
     if (didDragRef.current) return;
     if (laneId === 'gcal') return;
 
@@ -209,7 +209,11 @@ export function GlancePage() {
     const entries = (data?.entries ?? []).filter((en) => en.lane === laneId);
 
     if (trips.length > 0 || entries.length > 0) {
-      setModal({ type: 'view-edit', date, laneId, laneLabel: getLaneShortLabel(laneId), trips, entries });
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      const popoverH = 200;
+      const top = rect.bottom + 4 + popoverH > window.innerHeight ? rect.top - popoverH - 4 : rect.bottom + 4;
+      const left = Math.min(rect.left, window.innerWidth - 300);
+      setModal({ type: 'view-edit', date, laneId, laneLabel: getLaneShortLabel(laneId), trips, entries, anchorPos: { top, left } });
     } else if (TRAVEL_LANES.has(laneId)) {
       setModal({ type: 'trip-form', initial: { laneId, startDate: date, endDate: date } });
     } else if (EVENT_LANES.has(laneId)) {
@@ -315,8 +319,8 @@ export function GlancePage() {
       const { key } = e;
 
       // Scroll / navigation
-      if (key === 'j') { e.preventDefault(); window.scrollBy({ top: 130,  behavior: 'smooth' }); return; }
-      if (key === 'k') { e.preventDefault(); window.scrollBy({ top: -130, behavior: 'smooth' }); return; }
+      if (key === 'j') { e.preventDefault(); window.scrollBy({ top: 260,  behavior: 'smooth' }); return; }
+      if (key === 'k') { e.preventDefault(); window.scrollBy({ top: -260, behavior: 'smooth' }); return; }
       if (key === 'J') { e.preventDefault(); window.scrollBy({ top: 520,  behavior: 'smooth' }); return; }
       if (key === 'K') { e.preventDefault(); window.scrollBy({ top: -520, behavior: 'smooth' }); return; }
       if (key === 't') {
@@ -572,7 +576,26 @@ export function GlancePage() {
         />
       )}
 
-      {modal?.type === 'view-edit' && (
+      {modal?.type === 'view-edit' && modal.anchorPos ? (
+        <>
+          <div style={{ position: 'fixed', inset: 0, zIndex: 498 }} onClick={() => setModal(null)} />
+          <div style={{ position: 'fixed', top: modal.anchorPos.top, left: modal.anchorPos.left, zIndex: 499 }}>
+            <ViewEditPopover
+              date={modal.date}
+              laneId={modal.laneId}
+              laneLabel={modal.laneLabel}
+              trips={modal.trips}
+              entries={modal.entries}
+              onEditTrip={handleEditTrip}
+              onEditEntry={handleEditEntry}
+              onDeleteTrip={(id) => { deleteTrip.mutate(id); setModal(null); }}
+              onDeleteEntry={(id) => { deleteEntry.mutate(id); setModal(null); }}
+              onClose={() => setModal(null)}
+              noBackdrop
+            />
+          </div>
+        </>
+      ) : modal?.type === 'view-edit' ? (
         <ViewEditPopover
           date={modal.date}
           laneId={modal.laneId}
@@ -585,7 +608,7 @@ export function GlancePage() {
           onDeleteEntry={(id) => { deleteEntry.mutate(id); setModal(null); }}
           onClose={() => setModal(null)}
         />
-      )}
+      ) : null}
     </div>
   );
 }

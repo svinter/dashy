@@ -14,7 +14,7 @@ const MONTH_COLORS: Record<number, string> = {
 };
 
 const ALL_LANES: { id: LaneId; label: string }[] = [
-  { id: 'gcal',        label: 'gcal' },
+  { id: 'gcal',        label: 'calendar' },
   { id: 'york',        label: 'york' },
   { id: 'fam_events',  label: 'family' },
   { id: 'fam_travel',  label: 'travel' },

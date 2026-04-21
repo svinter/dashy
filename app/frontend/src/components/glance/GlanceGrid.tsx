@@ -10,9 +10,8 @@ const MONTH_FULL = ['January','February','March','April','May','June',
                     'July','August','September','October','November','December'];
 
 // 10 columns: month(46) + lane(66) + 7 day cols + 1 comment col (2× day width)
-// day_col = (100% - 112px) / 9   comment_col = (100% - 112px) / 9 * 2
 const DAY_COL_W = 'calc((100% - 112px) / 9)';
-const COMMENT_COL_W = 'calc((100% - 112px) / 9 * 2)';
+const COMMENT_COL_W = 'calc((100% - 112px) / 7 * 2)';
 
 interface GlanceGridProps {
   weeksData: GlanceWeeksData;
@@ -95,7 +94,7 @@ export function GlanceGrid({
               {d}
             </th>
           ))}
-          <th style={{ fontWeight: 400, fontSize: '10px', color: 'var(--color-text-tertiary, #999)', textAlign: 'left', paddingLeft: '6px', ...thBorder }}>
+          <th style={{ fontWeight: 400, fontSize: '10px', color: 'var(--color-text-tertiary, #999)', textAlign: 'left', paddingLeft: '6px', width: COMMENT_COL_W, ...thBorder }}>
             notes
           </th>
         </tr>
