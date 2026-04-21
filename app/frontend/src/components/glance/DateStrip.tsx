@@ -49,18 +49,29 @@ export function DateStrip({ week, monthBg, monthLabel }: DateStripProps) {
     borderBottom: 'var(--glance-line-hairline)',
   };
 
+  // Month tinting: for rgba months, overlay the tint on top of the gray band.
+  // For hex months, the hex IS the tinted color — use it directly.
+  const isMonthRgba = monthBg.startsWith('rgba');
+  const weekdayStripBg: React.CSSProperties = isMonthRgba
+    ? { backgroundColor: DATE_STRIP_WEEKDAY_BG, backgroundImage: `linear-gradient(${monthBg}, ${monthBg})` }
+    : { backgroundColor: monthBg };
+  const weekendStripBg: React.CSSProperties = isMonthRgba
+    ? { backgroundColor: DATE_STRIP_WEEKEND_BG, backgroundImage: `linear-gradient(${monthBg}, ${monthBg})` }
+    : { backgroundColor: DATE_STRIP_WEEKEND_BG };
+
   return (
     <tr>
-      {/* Month column — same gray band as week-num cell */}
+      {/* Month column — gray band + month tint, bold black label */}
       <td
         style={{
           ...cellBorder,
-          background: DATE_STRIP_WEEKDAY_BG,
+          ...weekdayStripBg,
           verticalAlign: 'middle',
           padding: '0 4px',
           fontSize: '9px',
+          fontWeight: 500,
           lineHeight: 1.2,
-          color: 'var(--color-text-tertiary, #999)',
+          color: 'var(--color-text, #111)',
           boxSizing: 'border-box',
         }}
       >
@@ -72,7 +83,7 @@ export function DateStrip({ week, monthBg, monthLabel }: DateStripProps) {
         style={{
           ...DATE_STRIP_FONT,
           ...cellBorder,
-          background: DATE_STRIP_WEEKDAY_BG,
+          ...weekdayStripBg,
           fontSize: '10px',
           color: '#7a7870',
           paddingRight: '4px',
@@ -94,7 +105,7 @@ export function DateStrip({ week, monthBg, monthLabel }: DateStripProps) {
             style={{
               ...DATE_STRIP_FONT,
               ...cellBorder,
-              background: weekend ? DATE_STRIP_WEEKEND_BG : DATE_STRIP_WEEKDAY_BG,
+              ...(weekend ? weekendStripBg : weekdayStripBg),
               outline: isToday ? '1.5px solid #D85A30' : undefined,
               outlineOffset: isToday ? '-1px' : undefined,
               borderLeft: dayNum === 1 ? '2px solid rgba(0,0,0,0.35)' : undefined,
