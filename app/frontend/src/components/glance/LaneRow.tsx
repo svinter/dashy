@@ -16,6 +16,13 @@ interface LaneRowProps {
   onNoteLeave: () => void;
 }
 
+function localIso(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 function isWeekend(d: Date): boolean {
   const dow = d.getDay();
   return dow === 0 || dow === 6;
@@ -68,7 +75,7 @@ export function LaneRow({
 
       {/* Seven day cells */}
       {week.map((d) => {
-        const ds = d.toISOString().slice(0, 10);
+        const ds = localIso(d);
         const weekend = isWeekend(d);
         const data = dayData[ds];
         const cellBg = weekend

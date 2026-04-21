@@ -16,7 +16,14 @@ function isWeekend(d: Date): boolean {
   return dow === 0 || dow === 6;
 }
 
-const TODAY_STR = new Date().toISOString().slice(0, 10);
+function localIso(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+const TODAY_STR = localIso(new Date());
 
 interface DateStripProps {
   week: Date[];
@@ -71,7 +78,7 @@ export function DateStrip({ week, monthBg, monthLabel }: DateStripProps) {
 
       {/* Seven day cells */}
       {week.map((d) => {
-        const ds = d.toISOString().slice(0, 10);
+        const ds = localIso(d);
         const weekend = isWeekend(d);
         const isToday = ds === TODAY_STR;
         const dayNum = d.getDate();
