@@ -43,9 +43,15 @@ const DATE_STRIP_FONT: React.CSSProperties = {
 export function DateStrip({ week, monthBg, monthLabel }: DateStripProps) {
   const weekNum = week[0] ? isoWeekNumber(week[0]) : 0;
 
+  // Borders applied per-cell (not on <tr>) so the month column stays border-free.
+  const cellBorder: React.CSSProperties = {
+    borderTop: 'var(--glance-line-bold)',
+    borderBottom: 'var(--glance-line-hairline)',
+  };
+
   return (
-    <tr style={{ borderTop: 'var(--glance-line-bold)', borderBottom: 'var(--glance-line-hairline)' }}>
-      {/* Month column */}
+    <tr>
+      {/* Month column — no horizontal borders */}
       <td
         style={{
           background: monthBg,
@@ -59,10 +65,11 @@ export function DateStrip({ week, monthBg, monthLabel }: DateStripProps) {
         {monthLabel}
       </td>
 
-      {/* Week-number / lane-label column — same styling as date strip */}
+      {/* Week-number cell */}
       <td
         style={{
           ...DATE_STRIP_FONT,
+          ...cellBorder,
           background: DATE_STRIP_WEEKDAY_BG,
           fontSize: '10px',
           color: '#7a7870',
@@ -84,9 +91,11 @@ export function DateStrip({ week, monthBg, monthLabel }: DateStripProps) {
             key={ds}
             style={{
               ...DATE_STRIP_FONT,
+              ...cellBorder,
               background: weekend ? DATE_STRIP_WEEKEND_BG : DATE_STRIP_WEEKDAY_BG,
               outline: isToday ? '1.5px solid #D85A30' : undefined,
               outlineOffset: isToday ? '-1px' : undefined,
+              borderLeft: dayNum === 1 ? '2px solid rgba(0,0,0,0.35)' : undefined,
             }}
           >
             <span style={{ opacity: isToday ? 0.4 : 1, display: 'block', textAlign: 'center' }}>

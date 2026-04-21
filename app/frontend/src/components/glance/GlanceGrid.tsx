@@ -25,11 +25,17 @@ export function GlanceGrid({
 }: GlanceGridProps) {
   const weeks = useGlanceWeeks(weeksData);
 
+  // Year shown in column-1 header: year of the first week's Thursday
+  const headerYear = weeks.length > 0
+    ? (weeks[0][3] ?? weeks[0][0]).getFullYear()
+    : new Date().getFullYear();
+
   // Track which months have already shown their label
   const seenMonths = new Set<string>();
 
   return (
     <table
+      className="glance-table"
       style={{
         tableLayout: 'fixed',
         width: '100%',
@@ -49,11 +55,12 @@ export function GlanceGrid({
       </colgroup>
 
       <thead>
-        <tr style={{ borderBottom: 'var(--glance-line-bold)' }}>
+        <tr>
+          {/* Month column header — no border */}
           <th style={{ fontWeight: 400, fontSize: '10px', color: 'var(--color-text-tertiary, #999)', textAlign: 'left', padding: '4px 4px' }}>
-            month
+            {headerYear}
           </th>
-          <th style={{ fontWeight: 400, fontSize: '10px', color: 'var(--color-text-tertiary, #999)', textAlign: 'right', paddingRight: '6px' }}>
+          <th style={{ fontWeight: 400, fontSize: '10px', color: 'var(--color-text-tertiary, #999)', textAlign: 'right', paddingRight: '6px', borderBottom: 'var(--glance-line-bold)' }}>
             lane
           </th>
           {DAY_HEADERS.map((d) => (
@@ -65,6 +72,7 @@ export function GlanceGrid({
                 color: '#4a4944',
                 textAlign: 'center',
                 padding: '4px 0',
+                borderBottom: 'var(--glance-line-bold)',
               }}
             >
               {d}
@@ -81,7 +89,7 @@ export function GlanceGrid({
 
           if (!seenMonths.has(monthKey)) {
             seenMonths.add(monthKey);
-            monthLabel = `${MONTH_FULL[firstDay.getMonth()]} ${firstDay.getFullYear()}`;
+            monthLabel = MONTH_FULL[firstDay.getMonth()];
           }
 
           return (

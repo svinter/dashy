@@ -43,20 +43,17 @@ export function LaneRow({
   onNoteHover,
   onNoteLeave,
 }: LaneRowProps) {
-  // Border rules
-  const rowStyle: React.CSSProperties = {};
-  if (laneId === 'york') {
-    rowStyle.borderBottom = '0.5px solid rgba(0,0,0,0.22)';
-  }
-  if (laneId === 'fam_travel') {
-    rowStyle.borderBottom = '0.5px solid rgba(0,0,0,0.22)';
-  }
-  if (laneId === 'steve_events') {
-    rowStyle.borderTop = 'var(--glance-line-hairline)';
-  }
+  const cellBorderBottom =
+    laneId === 'york' || laneId === 'fam_travel'
+      ? '0.5px solid rgba(0,0,0,0.22)'
+      : undefined;
+  const cellBorderTop =
+    laneId === 'steve_events'
+      ? 'var(--glance-line-hairline)'
+      : undefined;
 
   return (
-    <tr style={rowStyle}>
+    <tr>
       {/* Month column — tinted, no horizontal border */}
       <td style={{ background: monthBg }} />
 
@@ -71,6 +68,8 @@ export function LaneRow({
           paddingRight: '6px',
           whiteSpace: 'nowrap',
           verticalAlign: 'middle',
+          borderBottom: cellBorderBottom,
+          borderTop: cellBorderTop,
         }}
       >
         {laneLabel}
@@ -111,6 +110,9 @@ export function LaneRow({
               verticalAlign: 'middle',
               padding: '2px 3px',
               minHeight: '20px',
+              borderBottom: cellBorderBottom,
+              borderTop: cellBorderTop,
+              borderLeft: d.getDate() === 1 ? '2px solid rgba(0,0,0,0.35)' : undefined,
             }}
           >
             {filteredTrips.map((trip, i) => (

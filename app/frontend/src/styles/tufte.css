@@ -11861,3 +11861,10 @@ span.news-item-title {
 .libby-result-quick-link:hover {
   color: var(--color-accent);
 }
+
+/* Glance grid — reset global table border rules; all borders applied per-cell via inline styles */
+.glance-table tbody td,
+.glance-table thead th {
+  border-bottom: none;
+  border-top: none;
+}
