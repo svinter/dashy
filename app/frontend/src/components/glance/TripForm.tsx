@@ -124,19 +124,6 @@ export function TripForm({ initial, editId, existingData, members, locations, on
         <form onSubmit={handleSubmit}>
           {error && <p style={{ color: 'var(--color-danger, #c00)', fontSize: '12px', marginBottom: '8px' }}>{error}</p>}
 
-          {/* Member */}
-          {(initial.laneId === 'fam_travel' || editId) && (
-            <label style={labelStyle}>
-              Member
-              <select value={memberId} onChange={(e) => setMemberId(e.target.value)} style={inputStyle} required>
-                <option value="">— select —</option>
-                {members.map((m) => (
-                  <option key={m.id} value={m.id}>{m.display}</option>
-                ))}
-              </select>
-            </label>
-          )}
-
           {/* Location */}
           <label style={labelStyle}>
             Location
@@ -162,6 +149,29 @@ export function TripForm({ initial, editId, existingData, members, locations, on
             </div>
           </label>
 
+          <TextColorPicker value={textColor} onChange={setTextColor} />
+
+          {/* Member */}
+          {(initial.laneId === 'fam_travel' || editId) && (
+            <label style={labelStyle}>
+              Member
+              <select value={memberId} onChange={(e) => setMemberId(e.target.value)} style={inputStyle} required>
+                <option value="">— select —</option>
+                {members.map((m) => (
+                  <option key={m.id} value={m.id}>{m.display}</option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          {/* Notes */}
+          <label style={labelStyle}>
+            Notes
+            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} style={{ ...inputStyle, minHeight: '48px', resize: 'vertical' }} />
+          </label>
+
+          <ColorPicker value={colorData} onChange={setColorData} />
+
           {/* Dates */}
           <div style={{ display: 'flex', gap: '8px' }}>
             <label style={{ ...labelStyle, flex: 1 }}>
@@ -173,15 +183,6 @@ export function TripForm({ initial, editId, existingData, members, locations, on
               <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} style={inputStyle} required />
             </label>
           </div>
-
-          {/* Notes */}
-          <label style={labelStyle}>
-            Notes
-            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} style={{ ...inputStyle, minHeight: '48px', resize: 'vertical' }} />
-          </label>
-
-          <ColorPicker value={colorData} onChange={setColorData} />
-          <TextColorPicker value={textColor} onChange={setTextColor} />
 
           {/* Day marks toggle */}
           <div style={{ marginBottom: '12px' }}>

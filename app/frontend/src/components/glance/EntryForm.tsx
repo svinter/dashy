@@ -99,6 +99,8 @@ export function EntryForm({ initial, editId, existingData, members, onSave, onCa
             />
           </label>
 
+          <TextColorPicker value={textColor} onChange={setTextColor} />
+
           {needsMember && (
             <label style={labelStyle}>
               Member *
@@ -117,7 +119,6 @@ export function EntryForm({ initial, editId, existingData, members, onSave, onCa
           </label>
 
           <ColorPicker value={colorData} onChange={setColorData} />
-          <TextColorPicker value={textColor} onChange={setTextColor} />
 
           {editId ? (
             <label style={labelStyle}>
