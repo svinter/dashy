@@ -24,7 +24,7 @@ function localIso(d: Date): string {
 
 const LANE_DOT_COLOR: Record<string, string> = {
   gcal:         '#888',
-  york:         '#97C459',
+  york:         '#97C35B',
   fam_events:   '#9FE1CB',
   fam_travel:   '#9FE1CB',
   steve_events: '#aaa',

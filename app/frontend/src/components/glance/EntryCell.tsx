@@ -76,7 +76,7 @@ export function EntryCell({ entry, onMouseEnter, onMouseLeave }: EntryCellProps)
   }
 
   if (entry.lane === 'york') {
-    const bg = colorBgOverride   ?? '#97C459';
+    const bg = colorBgOverride   ?? '#97C35B';
     const fg = colorTextOverride ?? '#173404';
     return (
       <div

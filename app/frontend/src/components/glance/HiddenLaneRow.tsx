@@ -5,7 +5,7 @@ import type { LaneId } from './LaneRow';
 // Per-lane canonical dot colors
 const LANE_DOT_COLOR: Record<string, string> = {
   gcal:        '#888',
-  york:        '#97C459',
+  york:        '#97C35B',
   fam_events:  '#F4C0D1',
   fam_travel:  '#B5D4F4',
   steve_events:'#aaa',

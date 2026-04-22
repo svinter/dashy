@@ -198,7 +198,7 @@ export function HorizontalGlance({ weeksData, visibleLanes, visibleMembers }: Ho
                 );
               } else if (entries.length > 0) {
                 const e = entries[0];
-                const bg = e.member_color_bg ?? (lane.id === 'york' ? '#97C459' : undefined);
+                const bg = e.member_color_bg ?? (lane.id === 'york' ? '#97C35B' : undefined);
                 cellContent = (
                   <span style={{ display: 'block', background: bg, textAlign: 'center', lineHeight: '18px', height: '18px', fontSize: '8px' }} title={e.label + (e.notes ? '\n' + e.notes : '')}>
                     •
