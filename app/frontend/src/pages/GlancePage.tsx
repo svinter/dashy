@@ -37,12 +37,12 @@ export type CursorCell = { date: string; laneId: LaneId };
 // ---------------------------------------------------------------------------
 
 const LANE_CONFIG: { id: LaneId; controlLabel: string; shortLabel: string; shortcutHint: string }[] = [
-  { id: 'gcal',        controlLabel: 'calendar',      shortLabel: 'calendar',  shortcutHint: ''   },
-  { id: 'york',        controlLabel: 'york house',    shortLabel: 'york',      shortcutHint: '⌥2' },
-  { id: 'fam_events',  controlLabel: 'family events', shortLabel: 'family',    shortcutHint: '⌥3' },
-  { id: 'fam_travel',  controlLabel: 'family travel', shortLabel: 'travel',    shortcutHint: '⌥4' },
-  { id: 'steve_events',controlLabel: 'my events',     shortLabel: 'my events', shortcutHint: '⌥5' },
-  { id: 'steve_travel',controlLabel: 'my travel',     shortLabel: 'my travel', shortcutHint: '⌥6' },
+  { id: 'gcal',        controlLabel: 'calendar',      shortLabel: 'calendar',  shortcutHint: '1' },
+  { id: 'york',        controlLabel: 'york house',    shortLabel: 'york',      shortcutHint: '2' },
+  { id: 'fam_events',  controlLabel: 'family events', shortLabel: 'family',    shortcutHint: '3' },
+  { id: 'fam_travel',  controlLabel: 'family travel', shortLabel: 'travel',    shortcutHint: '4' },
+  { id: 'steve_events',controlLabel: 'my events',     shortLabel: 'my events', shortcutHint: '5' },
+  { id: 'steve_travel',controlLabel: 'my travel',     shortLabel: 'my travel', shortcutHint: '6' },
 ];
 
 const LANE_IDS: LaneId[] = LANE_CONFIG.map((l) => l.id);
@@ -397,10 +397,8 @@ export function GlancePage() {
     }
 
     function handler(e: KeyboardEvent) {
-      const { code } = e;
-
       // Escape is always handled regardless of focus
-      if (code === 'Escape') {
+      if (e.key === 'Escape') {
         if (modalRef.current) { setModal(null); return; }
         if (gMode) { setGMode(false); return; }
         if (dragStateRef.current) { setDragState(null); return; }
@@ -411,44 +409,47 @@ export function GlancePage() {
       if (modalRef.current || gMode) return;
       if (isInputActive()) return;
 
-      // Option (alt) key shortcuts — checked first to avoid conflicts with plain keys
-      if (e.altKey) {
-        // Page navigation
-        if (code === 'Digit0') { e.preventDefault(); goToPage(0); return; }
-        if (code === 'Digit1') { e.preventDefault(); goToPage(1); return; }
-        if (code === 'BracketRight') { e.preventDefault(); goToPage(currentPageRef.current + 1); return; }
-        if (code === 'BracketLeft')  { e.preventDefault(); goToPage(currentPageRef.current - 1); return; }
-        // Lane toggles (⌥2–⌥6; gcal has no shortcut, ⌥1 is reserved for today page)
-        if (code === 'Digit2') { toggleLane('york');         return; }
-        if (code === 'Digit3') { toggleLane('fam_events');   return; }
-        if (code === 'Digit4') { toggleLane('fam_travel');   return; }
-        if (code === 'Digit5') { toggleLane('steve_events'); return; }
-        if (code === 'Digit6') { toggleLane('steve_travel'); return; }
-        // Member filters
-        if (code === 'KeyP') { toggleMember('pgv');      return; }
-        if (code === 'KeyK') { toggleMember('kpv');      return; }
-        if (code === 'KeyO') { toggleMember('ovinters'); return; }
-        return; // consume all unhandled alt combos
-      }
+      const { key } = e;
 
       // Scroll / navigation
-      if (!e.shiftKey && code === 'KeyJ') { e.preventDefault(); gridScrollRef.current?.scrollBy({ top:  260, behavior: 'smooth' }); return; }
-      if (!e.shiftKey && code === 'KeyK') { e.preventDefault(); gridScrollRef.current?.scrollBy({ top: -260, behavior: 'smooth' }); return; }
-      if ( e.shiftKey && code === 'KeyJ') { e.preventDefault(); gridScrollRef.current?.scrollBy({ top:  520, behavior: 'smooth' }); return; }
-      if ( e.shiftKey && code === 'KeyK') { e.preventDefault(); gridScrollRef.current?.scrollBy({ top: -520, behavior: 'smooth' }); return; }
-      if (code === 'KeyT') {
+      if (key === 'j') { e.preventDefault(); gridScrollRef.current?.scrollBy({ top: 260,  behavior: 'smooth' }); return; }
+      if (key === 'k') { e.preventDefault(); gridScrollRef.current?.scrollBy({ top: -260, behavior: 'smooth' }); return; }
+      if (key === 'J') { e.preventDefault(); gridScrollRef.current?.scrollBy({ top: 520,  behavior: 'smooth' }); return; }
+      if (key === 'K') { e.preventDefault(); gridScrollRef.current?.scrollBy({ top: -520, behavior: 'smooth' }); return; }
+      if (key === 't') {
         e.preventDefault();
         const el = document.querySelector(`[data-date="${localIso(new Date())}"]`) as HTMLElement | null;
         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
         return;
       }
-      if (code === 'KeyG') { e.preventDefault(); setGMode(true); setGInput(''); return; }
+      if (key === 'g') { e.preventDefault(); setGMode(true); setGInput(''); return; }
 
       // View toggle
-      if (code === 'KeyV') { e.preventDefault(); setMode((m) => m === 'vertical' ? 'horizontal' : 'vertical'); return; }
+      if (key === 'v') { e.preventDefault(); setMode((m) => m === 'vertical' ? 'horizontal' : 'vertical'); return; }
+
+      // Lane toggles (1–6)
+      if (key >= '1' && key <= '6') {
+        const idx = parseInt(key) - 1;
+        if (idx < LANE_IDS.length) toggleLane(LANE_IDS[idx]);
+        return;
+      }
+
+      // Option key shortcuts
+      if (e.altKey) {
+        // Member filters
+        if (key === 'p') { toggleMember('pgv');      return; }
+        if (key === 'k') { toggleMember('kpv');      return; }
+        if (key === 'o') { toggleMember('ovinters'); return; }
+        // Page navigation
+        if (key === '0') { e.preventDefault(); goToPage(0); return; }
+        if (key === '1') { e.preventDefault(); goToPage(1); return; }
+        // ⌥] on US Mac produces "'" and ⌥[ produces """
+        if (key === ']' || key === "'") { e.preventDefault(); goToPage(currentPageRef.current + 1); return; }
+        if (key === '[' || key === '"') { e.preventDefault(); goToPage(currentPageRef.current - 1); return; }
+      }
 
       // Cursor movement
-      if (code === 'ArrowRight') {
+      if (key === 'ArrowRight') {
         e.preventDefault();
         setCursor((prev) => {
           if (!prev) return null;
@@ -458,7 +459,7 @@ export function GlancePage() {
         });
         return;
       }
-      if (code === 'ArrowLeft') {
+      if (key === 'ArrowLeft') {
         e.preventDefault();
         setCursor((prev) => {
           if (!prev) return null;
@@ -468,7 +469,7 @@ export function GlancePage() {
         });
         return;
       }
-      if (code === 'ArrowDown') {
+      if (key === 'ArrowDown') {
         e.preventDefault();
         setCursor((prev) => {
           if (!prev) return null;
@@ -477,7 +478,7 @@ export function GlancePage() {
         });
         return;
       }
-      if (code === 'ArrowUp') {
+      if (key === 'ArrowUp') {
         e.preventDefault();
         setCursor((prev) => {
           if (!prev) return null;
@@ -491,7 +492,7 @@ export function GlancePage() {
       const cur = cursorRef.current;
       if (cur) {
         const { date, laneId } = cur;
-        if (code === 'KeyN') {
+        if (key === 'n') {
           e.preventDefault();
           if (TRAVEL_LANES.has(laneId)) {
             setModal({ type: 'trip-form', initial: { laneId, startDate: date, endDate: date } });
@@ -500,7 +501,7 @@ export function GlancePage() {
           }
           return;
         }
-        if (code === 'KeyE' || code === 'KeyX') {
+        if (key === 'e' || key === 'x') {
           e.preventDefault();
           const data    = weeksDataRef.current[date];
           const trips   = (data?.trips   ?? []).filter((t)  => t.lane  === laneId);
@@ -513,7 +514,7 @@ export function GlancePage() {
       }
 
       // R — Phase 3 GCal refresh (no-op placeholder)
-      if (e.shiftKey && code === 'KeyR') { return; }
+      if (key === 'R') { return; }
     }
 
     document.addEventListener('keydown', handler);
@@ -561,82 +562,83 @@ export function GlancePage() {
         )}
       </div>
 
-      {/* Control bar — two rows */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '10px', fontSize: '11px', color: 'var(--color-text-secondary)' }}>
+      {/* Control bar */}
+      <div
+        style={{
+          display: 'flex', flexWrap: 'wrap', gap: '8px 16px',
+          alignItems: 'center', marginBottom: '10px',
+          fontSize: '11px', color: 'var(--color-text-secondary)',
+        }}
+      >
+        <span style={{ opacity: 0.5, marginRight: '2px' }}>lanes:</span>
+        {LANE_CONFIG.map(({ id, controlLabel, shortcutHint }) => (
+          <div key={id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+              <input type="checkbox" checked={visibleLanes.has(id)} onChange={() => toggleLane(id)} style={{ margin: 0 }} />
+              {controlLabel}
+            </label>
+            <span style={{ fontSize: '10px', color: 'var(--color-text-tertiary, #bbb)', lineHeight: 1 }}>{shortcutHint}</span>
+          </div>
+        ))}
 
-        {/* Row 1: lanes | show */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 16px', alignItems: 'center' }}>
-          <span style={{ opacity: 0.5, marginRight: '2px' }}>lanes:</span>
-          {LANE_CONFIG.map(({ id, controlLabel, shortcutHint }) => (
-            <div key={id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1px' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
-                <input type="checkbox" checked={visibleLanes.has(id)} onChange={() => toggleLane(id)} style={{ margin: 0 }} />
-                {controlLabel}
-              </label>
-              {shortcutHint && <span style={{ fontSize: '10px', color: 'var(--color-text-tertiary, #bbb)', lineHeight: 1 }}>{shortcutHint}</span>}
-            </div>
-          ))}
+        <span style={{ opacity: 0.3 }}>|</span>
 
-          <span style={{ opacity: 0.3 }}>|</span>
-
-          <span style={{ opacity: 0.5, marginRight: '2px' }}>show:</span>
-          {Object.entries(MEMBER_SWATCHES).map(([id, { label, color, shortcutHint }]) => (
-            <div key={id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1px' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
-                <input type="checkbox" checked={visibleMembers.has(id)} onChange={() => toggleMember(id)} style={{ margin: 0 }} />
-                <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '2px', background: color, flexShrink: 0 }} />
-                {label}
-              </label>
-              <span style={{ fontSize: '10px', color: 'var(--color-text-tertiary, #bbb)', lineHeight: 1 }}>{shortcutHint}</span>
-            </div>
-          ))}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <button
+            onClick={pageBackward}
+            disabled={currentPage === 0}
+            style={{ background: 'none', border: 'none', padding: '0 3px', cursor: currentPage === 0 ? 'default' : 'pointer', opacity: currentPage === 0 ? 0.25 : 0.6, fontSize: '11px', lineHeight: 1 }}
+          >←</button>
+          <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>
+            {formatPageLabel(pageStart, clampedEnd)}
+            {currentPage === 0 && <span style={{ opacity: 0.55, marginLeft: '4px' }}>· start</span>}
+            {currentPage === 1 && <span style={{ opacity: 0.55, marginLeft: '4px' }}>· today</span>}
+          </span>
+          <button
+            onClick={pageForward}
+            style={{ background: 'none', border: 'none', padding: '0 3px', cursor: 'pointer', opacity: 0.6, fontSize: '11px', lineHeight: 1 }}
+          >→</button>
         </div>
 
-        {/* Row 2: page indicator | vertical/horizontal | month tint */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 16px', alignItems: 'center' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <button
-              onClick={pageBackward}
-              disabled={currentPage === 0}
-              style={{ background: 'none', border: 'none', padding: '0 3px', cursor: currentPage === 0 ? 'default' : 'pointer', opacity: currentPage === 0 ? 0.25 : 0.6, fontSize: '11px', lineHeight: 1 }}
-            >←</button>
-            <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>
-              {formatPageLabel(pageStart, clampedEnd)}
-              {currentPage === 0 && <span style={{ opacity: 0.55, marginLeft: '4px' }}>· start</span>}
-              {currentPage === 1 && <span style={{ opacity: 0.55, marginLeft: '4px' }}>· today</span>}
-            </span>
-            <button
-              onClick={pageForward}
-              style={{ background: 'none', border: 'none', padding: '0 3px', cursor: 'pointer', opacity: 0.6, fontSize: '11px', lineHeight: 1 }}
-            >→</button>
+        <span style={{ opacity: 0.3 }}>|</span>
+
+        <span style={{ opacity: 0.5, marginRight: '2px' }}>show:</span>
+        {Object.entries(MEMBER_SWATCHES).map(([id, { label, color, shortcutHint }]) => (
+          <div key={id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+              <input type="checkbox" checked={visibleMembers.has(id)} onChange={() => toggleMember(id)} style={{ margin: 0 }} />
+              <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '2px', background: color, flexShrink: 0 }} />
+              {label}
+            </label>
+            <span style={{ fontSize: '10px', color: 'var(--color-text-tertiary, #bbb)', lineHeight: 1 }}>{shortcutHint}</span>
           </div>
+        ))}
 
-          <span style={{ opacity: 0.3 }}>|</span>
+        <span style={{ opacity: 0.3 }}>|</span>
 
-          <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
-            <input type="radio" name="glance-mode" checked={mode === 'vertical'}   onChange={() => setMode('vertical')}   style={{ margin: 0 }} />
-            vertical
-          </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
-            <input type="radio" name="glance-mode" checked={mode === 'horizontal'} onChange={() => setMode('horizontal')} style={{ margin: 0 }} />
-            horizontal
-          </label>
-
-          <span style={{ opacity: 0.3 }}>|</span>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ opacity: 0.5 }}>month tint</span>
-            <input
-              type="range"
-              min={0}
-              max={20}
-              value={monthOpacity}
-              onChange={(e) => setMonthOpacity(Number(e.target.value))}
-              style={{ width: '80px', margin: 0 }}
-            />
-            <span style={{ opacity: 0.7, minWidth: '22px' }}>{monthOpacity}%</span>
-          </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{ opacity: 0.5 }}>month tint</span>
+          <input
+            type="range"
+            min={0}
+            max={20}
+            value={monthOpacity}
+            onChange={(e) => setMonthOpacity(Number(e.target.value))}
+            style={{ width: '80px', margin: 0 }}
+          />
+          <span style={{ opacity: 0.7, minWidth: '22px' }}>{monthOpacity}%</span>
         </div>
+
+        <span style={{ opacity: 0.3 }}>|</span>
+
+        <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+          <input type="radio" name="glance-mode" checked={mode === 'vertical'}   onChange={() => setMode('vertical')}   style={{ margin: 0 }} />
+          vertical
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+          <input type="radio" name="glance-mode" checked={mode === 'horizontal'} onChange={() => setMode('horizontal')} style={{ margin: 0 }} />
+          horizontal
+        </label>
       </div>
 
       {/* Grid */}
