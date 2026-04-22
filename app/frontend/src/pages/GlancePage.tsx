@@ -94,6 +94,24 @@ const CALENDAR_START = new Date(2026, 3, 1); // Apr 1, 2026 — immutable
 const CALENDAR_END   = new Date(2030, 3, 1); // Apr 1, 2030 — immutable
 const PAGE_MONTHS    = 6;
 
+/** Returns the Monday on or before `d`. */
+function getMondayOnOrBefore(d: Date): Date {
+  const result = new Date(d);
+  const day = result.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+  const diff = day === 0 ? -6 : 1 - day;
+  result.setDate(result.getDate() + diff);
+  return result;
+}
+
+/** Returns the Sunday on or after `d`. */
+function getSundayOnOrAfter(d: Date): Date {
+  const result = new Date(d);
+  const day = result.getDay();
+  const diff = day === 0 ? 0 : 7 - day;
+  result.setDate(result.getDate() + diff);
+  return result;
+}
+
 const MONTH_ABBR_LONG = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
 function getPage1Start(): Date {
@@ -132,7 +150,15 @@ export function GlancePage() {
   pageEnd.setMonth(pageEnd.getMonth() + PAGE_MONTHS);
   const clampedEnd = pageEnd > CALENDAR_END ? new Date(CALENDAR_END) : pageEnd;
 
-  const { weeksData, isLoading, error } = useGlanceData(localIso(pageStart), localIso(clampedEnd));
+  // Extend query to full Mon–Sun week boundaries so the grid always starts on
+  // Monday and ends on Sunday. This prevents a partial first week (Bug: grid
+  // starts on a Wednesday instead of the Monday before) and ensures trips that
+  // straddle the last week are stored and displayed with their full date range
+  // (Bug: trip end_date in synthetic padding days appeared truncated).
+  const queryStart = getMondayOnOrBefore(pageStart);
+  const queryEnd   = getSundayOnOrAfter(clampedEnd);
+
+  const { weeksData, isLoading, error } = useGlanceData(localIso(queryStart), localIso(queryEnd));
   const { data: members = [] } = useGlanceMembers();
   const { data: locations = [] } = useGlanceLocations();
 
