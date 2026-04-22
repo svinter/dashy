@@ -1897,6 +1897,232 @@ def _create_manifest_doc(doc_title: str, coaching_docs_folder_id: str, files: li
 
 
 # ---------------------------------------------------------------------------
+# Email template helpers + GET /api/coaching/email-templates
+# ---------------------------------------------------------------------------
+
+import time as _time
+
+_EMAIL_TEMPLATES_CACHE: list[dict] | None = None
+_EMAIL_TEMPLATES_CACHE_TS: float = 0.0
+_EMAIL_TEMPLATES_CACHE_TTL: float = 300.0  # 5 minutes
+
+_WELCOME_TEMPLATE = """\
+# Welcome
+
+Subject: Welcome to your coaching program with %CoachName%!
+
+<p>Hi %ClientFirstName%,</p>
+
+<p>I'm so excited to begin our coaching journey together at %Company%.</p>
+
+<p>Your coaching documents are ready here: <a href="%CoachingDocsUrl%">Coaching Docs</a></p>
+
+<p>Looking forward to our first session in %MonthYear%!</p>
+
+<p>Warm regards,<br>
+%CoachName%<br>
+<a href="mailto:%CoachEmail%">%CoachEmail%</a></p>
+"""
+
+
+def _get_email_templates_doc_id() -> str | None:
+    from app_config import get_install_config
+    val = get_install_config().get("google_drive", {}).get("email_templates_doc_id", "")
+    return val or None
+
+
+def _parse_email_templates(text: str) -> list[dict]:
+    """Parse # sections from plain-text exported Google Doc.
+
+    Expected format per section::
+
+        # Template Name
+        Subject: subject line here
+
+        body text (may contain HTML)
+
+    Sections separated by the next ``# `` heading or ``---`` line.
+    """
+    templates: list[dict] = []
+    # Split on lines that start a new section heading
+    sections = re.split(r'\n(?=# )', text.strip())
+    for section in sections:
+        lines = section.strip().splitlines()
+        if not lines:
+            continue
+        first = lines[0]
+        if not first.startswith('# '):
+            continue
+        name = first[2:].strip()
+        if not name:
+            continue
+        subject_raw = ""
+        body_lines: list[str] = []
+        in_body = False
+        for line in lines[1:]:
+            if not in_body:
+                if line.startswith('Subject:'):
+                    subject_raw = line[len('Subject:'):].strip()
+                    in_body = True
+                elif line.strip():
+                    in_body = True
+                    body_lines.append(line)
+            else:
+                if line.strip() == '---':
+                    break
+                body_lines.append(line)
+        # Strip leading/trailing blank lines from body
+        while body_lines and not body_lines[0].strip():
+            body_lines.pop(0)
+        while body_lines and not body_lines[-1].strip():
+            body_lines.pop()
+        templates.append({
+            'name': name,
+            'subject_raw': subject_raw,
+            'body_raw': '\n'.join(body_lines),
+        })
+    return templates
+
+
+def _fetch_email_templates() -> list[dict]:
+    global _EMAIL_TEMPLATES_CACHE, _EMAIL_TEMPLATES_CACHE_TS
+    now = _time.time()
+    if _EMAIL_TEMPLATES_CACHE is not None and now - _EMAIL_TEMPLATES_CACHE_TS < _EMAIL_TEMPLATES_CACHE_TTL:
+        return _EMAIL_TEMPLATES_CACHE
+
+    doc_id = _get_email_templates_doc_id()
+    if not doc_id:
+        return []
+
+    from connectors.google_auth import get_google_credentials
+    from googleapiclient.discovery import build
+
+    creds = get_google_credentials()
+    drive_svc = build('drive', 'v3', credentials=creds)
+    content_bytes = drive_svc.files().export(fileId=doc_id, mimeType='text/plain').execute()
+    text = content_bytes.decode('utf-8-sig', errors='replace') if isinstance(content_bytes, bytes) else str(content_bytes)
+
+    templates = _parse_email_templates(text)
+    _EMAIL_TEMPLATES_CACHE = templates
+    _EMAIL_TEMPLATES_CACHE_TS = now
+    return templates
+
+
+def _substitute_placeholders(text: str, **subs: str) -> str:
+    """Replace %Placeholder% tokens."""
+    mapping = {
+        '%ClientFirstName%': subs.get('first_name', ''),
+        '%ClientFullName%': subs.get('full_name', ''),
+        '%Company%': subs.get('company', ''),
+        '%CoachingDocsUrl%': subs.get('coaching_docs_url', ''),
+        '%ManifestUrl%': subs.get('manifest_url', ''),
+        '%CoachEmail%': subs.get('coach_email', ''),
+        '%CoachName%': subs.get('coach_name', ''),
+        '%MonthYear%': subs.get('month_year', ''),
+    }
+    for placeholder, value in mapping.items():
+        text = text.replace(placeholder, value)
+    return text
+
+
+def _create_gmail_draft_html(to: str, subject: str, html_body: str) -> dict:
+    """Create a Gmail draft with an HTML body. Returns {id, message_id}."""
+    import base64 as _b64
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText as _MIMEText
+    from connectors.google_auth import get_google_credentials
+    from googleapiclient.discovery import build
+
+    creds = get_google_credentials()
+    service = build('gmail', 'v1', credentials=creds)
+
+    message = MIMEMultipart('alternative')
+    message['to'] = to
+    message['subject'] = subject
+    message.attach(_MIMEText(html_body, 'html'))
+
+    raw = _b64.urlsafe_b64encode(message.as_bytes()).decode()
+    result = service.users().drafts().create(userId='me', body={'message': {'raw': raw}}).execute()
+    return {
+        'id': result.get('id', ''),
+        'message_id': result.get('message', {}).get('id', ''),
+    }
+
+
+@router.get("/email-templates")
+def get_email_templates():
+    """Return parsed templates from the Email Templates Google Doc."""
+    doc_id = _get_email_templates_doc_id()
+    if not doc_id:
+        return {'templates': [], 'configured': False}
+    try:
+        templates = _fetch_email_templates()
+        return {'templates': templates, 'configured': True}
+    except Exception as exc:
+        logger.warning('Failed to fetch email templates: %s', exc)
+        return {'templates': [], 'configured': True, 'error': str(exc)}
+
+
+@router.post("/setup/email-templates/init")
+def init_email_templates_doc():
+    """Create the Email Templates Google Doc in the coaching root folder.
+
+    Idempotent — returns existing doc_id if already configured.
+    After running, ``dashy_install.json`` is updated with the new doc_id
+    and the in-process config cache is cleared.
+    """
+    import json as _json
+    import app_config
+    from connectors.google_auth import get_google_credentials
+    from googleapiclient.discovery import build
+
+    existing_id = _get_email_templates_doc_id()
+    if existing_id:
+        return {'status': 'already_configured', 'doc_id': existing_id}
+
+    folder_id = '1NU2M79IKQ7P-6Laebh286wLcJfoJXKcz'
+
+    creds = get_google_credentials()
+    docs_svc = build('docs', 'v1', credentials=creds)
+    drive_svc = build('drive', 'v3', credentials=creds)
+
+    # Create doc
+    doc = docs_svc.documents().create(body={'title': 'Email Templates'}).execute()
+    doc_id = doc['documentId']
+
+    # Move into coaching root folder
+    drive_svc.files().update(
+        fileId=doc_id,
+        addParents=folder_id,
+        removeParents='root',
+        fields='id, webViewLink',
+    ).execute()
+
+    # Insert initial welcome template content
+    docs_svc.documents().batchUpdate(
+        documentId=doc_id,
+        body={'requests': [{'insertText': {'location': {'index': 1}, 'text': _WELCOME_TEMPLATE.strip()}}]},
+    ).execute()
+
+    # Persist to dashy_install.json
+    install_path = app_config._REPO_ROOT / 'dashy_install.json'
+    install_data = _json.loads(install_path.read_text())
+    install_data.setdefault('google_drive', {})['email_templates_doc_id'] = doc_id
+    install_path.write_text(_json.dumps(install_data, indent=2, ensure_ascii=False))
+
+    # Bust the in-process cache so GET /email-templates picks up the new ID
+    with app_config._file_lock:
+        app_config._install_cache = None
+
+    logger.info('Created Email Templates doc %s in folder %s', doc_id, folder_id)
+    return {
+        'status': 'created',
+        'doc_id': doc_id,
+        'web_url': f'https://docs.google.com/document/d/{doc_id}/edit',
+    }
+
+
+# ---------------------------------------------------------------------------
 # POST /api/coaching/setup/client
 # ---------------------------------------------------------------------------
 
@@ -1907,6 +2133,7 @@ class ClientCreateRequest(BaseModel):
     email: str | None = None
     rate_override: float | None = None
     prepaid: bool = False
+    email_template: str | None = None
 
 
 @router.post("/setup/client")
@@ -2110,6 +2337,45 @@ def setup_create_client(body: ClientCreateRequest):
     except Exception as exc:
         logger.warning("billing_seed.json update failed for client %r: %s", name, exc)
 
+    # 8 — Gmail draft from email template (non-fatal)
+    draft_id: str | None = None
+    draft_url: str | None = None
+    if body.email_template and body.email:
+        try:
+            from app_config import get_install_config
+            from datetime import date as _date
+            _cfg = get_install_config()
+            coach_name = _cfg.get("user", {}).get("name", "Your Coach")
+            coach_email = _cfg.get("user", {}).get("coach_email", "")
+            month_year = _date.today().strftime("%B %Y")
+            client_first_name = name.split()[0]
+
+            templates = _fetch_email_templates()
+            matched = next((t for t in templates if t["name"].lower() == body.email_template.lower()), None)
+            if matched:
+                subject = _substitute_placeholders(
+                    matched["subject_raw"],
+                    first_name=client_first_name, full_name=name,
+                    company=company_name, coaching_docs_url=coaching_docs_url,
+                    manifest_url=manifest_gdoc_url or "", coach_email=coach_email,
+                    coach_name=coach_name, month_year=month_year,
+                )
+                body_html = _substitute_placeholders(
+                    matched["body_raw"],
+                    first_name=client_first_name, full_name=name,
+                    company=company_name, coaching_docs_url=coaching_docs_url,
+                    manifest_url=manifest_gdoc_url or "", coach_email=coach_email,
+                    coach_name=coach_name, month_year=month_year,
+                )
+                draft = _create_gmail_draft_html(body.email, subject, body_html)
+                draft_id = draft["id"]
+                draft_url = f"https://mail.google.com/mail/#drafts/{draft_id}"
+                logger.info("Created email draft %s for client %r (%s)", draft_id, name, body.email)
+            else:
+                logger.warning("Email template %r not found for client %r", body.email_template, name)
+        except Exception as exc:
+            logger.warning("Email draft creation failed for client %r: %s", name, exc)
+
     logger.info(
         "Created client %r (id=%d) company=%r coaching_docs=%s client_type=%s",
         name, client_id, company_name, coaching_docs_url, new_type,
@@ -2127,6 +2393,8 @@ def setup_create_client(body: ClientCreateRequest):
         "folder_shared_with": folder_shared_with,
         "folder_share_error": folder_share_error,
         "obsidian": obsidian_result,
+        "draft_id": draft_id,
+        "draft_url": draft_url,
     }
 
 

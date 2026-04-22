@@ -1044,6 +1044,20 @@ function useSetupCompanies() {
   });
 }
 
+interface EmailTemplate {
+  name: string;
+  subject_raw: string;
+  body_raw: string;
+}
+
+function useEmailTemplates() {
+  return useQuery({
+    queryKey: ['coaching-email-templates'],
+    queryFn: () => api.get<{ templates: EmailTemplate[]; configured: boolean }>('/coaching/email-templates'),
+    staleTime: 300_000,
+  });
+}
+
 type SetupType = 'company' | 'client' | 'project';
 
 interface SetupConfirmation {
@@ -1167,8 +1181,13 @@ function ClientForm({ companies, onSuccess }: { companies: SetupCompany[]; onSuc
   const [email, setEmail] = useState('');
   const [rateOverride, setRateOverride] = useState('');
   const [prepaid, setPrepaid] = useState(false);
+  const [emailTemplate, setEmailTemplate] = useState<string>('Welcome');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const { data: templatesData } = useEmailTemplates();
+  const templates = templatesData?.templates ?? [];
+  const templatesConfigured = templatesData?.configured ?? false;
 
   const handleNameChange = (val: string) => {
     setName(val);
@@ -1182,7 +1201,7 @@ function ClientForm({ companies, onSuccess }: { companies: SetupCompany[]; onSuc
     setSubmitting(true);
     setError(null);
     try {
-      const result = await api.post<{ status: string; client_id: number; name: string; company_name: string; client_type: string; gdrive_coaching_docs_url: string; copied_files: string[]; manifest_gdoc_url: string | null; agreement_edited: boolean; folder_shared_with: string | null; folder_share_error: string | null; obsidian: { action: string } }>(
+      const result = await api.post<{ status: string; client_id: number; name: string; company_name: string; client_type: string; gdrive_coaching_docs_url: string; copied_files: string[]; manifest_gdoc_url: string | null; agreement_edited: boolean; folder_shared_with: string | null; folder_share_error: string | null; obsidian: { action: string }; draft_id: string | null; draft_url: string | null }>(
         '/coaching/setup/client',
         {
           company_id: parseInt(companyId, 10),
@@ -1191,6 +1210,7 @@ function ClientForm({ companies, onSuccess }: { companies: SetupCompany[]; onSuc
           email: email.trim() || null,
           rate_override: rateOverride ? parseFloat(rateOverride) : null,
           prepaid,
+          email_template: email.trim() && emailTemplate ? emailTemplate : null,
         },
       );
       const details: Record<string, string> = {
@@ -1202,6 +1222,7 @@ function ClientForm({ companies, onSuccess }: { companies: SetupCompany[]; onSuc
         ...(result.folder_share_error ? { 'Folder sharing failed': result.folder_share_error } : {}),
         'Coaching Agreement': result.agreement_edited ? 'edited' : 'skipped',
         'Obsidian': result.obsidian.action,
+        ...(result.draft_url ? { 'Email draft': result.draft_url } : {}),
       };
       if (result.manifest_gdoc_url) {
         details['Manifest'] = result.manifest_gdoc_url;
@@ -1254,6 +1275,23 @@ function ClientForm({ companies, onSuccess }: { companies: SetupCompany[]; onSuc
         <input type="checkbox" checked={prepaid} onChange={e => setPrepaid(e.target.checked)} style={{ margin: 0 }} />
         <span style={{ fontSize: 'var(--text-sm)', cursor: 'pointer', position: 'relative', top: '1px' }} onClick={() => setPrepaid(v => !v)}>{prepaid ? 'Yes' : 'No'}</span>
       </FieldRow>
+      {templatesConfigured && (
+        <FieldRow label="Email template">
+          <select
+            className="setup-select"
+            value={emailTemplate}
+            onChange={e => setEmailTemplate(e.target.value)}
+          >
+            <option value="">— none —</option>
+            {templates.map(t => (
+              <option key={t.name} value={t.name}>{t.name}</option>
+            ))}
+          </select>
+          {emailTemplate && !email.trim() && (
+            <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-tertiary)', marginLeft: 6 }}>needs email address</span>
+          )}
+        </FieldRow>
+      )}
       {error && <div className="setup-error">{error}</div>}
       <div className="setup-actions">
         <button className="setup-submit-btn" type="submit" disabled={submitting}>
@@ -1428,7 +1466,7 @@ function SetupPage() {
                 <dt>{k}</dt>
                 <dd>
                   {v.startsWith('https://') || v.startsWith('http://')
-                    ? <a href={v} target="_blank" rel="noreferrer">link</a>
+                    ? <a href={v} target="_blank" rel="noreferrer">{k === 'Email draft' ? 'Open in Gmail →' : 'link'}</a>
                     : v}
                 </dd>
               </div>

@@ -16,7 +16,30 @@ const COMMENT_COL_W = 'calc((100% - 112px) / 9 * 2)';
 
 const TH_BG = 'var(--color-bg, #fffff8)';
 
+// Shared colgroup for both the header table and the body table.
+// Both tables have identical colgroup so their columns align pixel-perfectly.
+function Colgroup() {
+  return (
+    <colgroup>
+      <col style={{ width: '46px' }} />
+      <col style={{ width: '66px' }} />
+      {DAY_HEADERS.map((d) => (
+        <col key={d} style={{ width: DAY_COL_W }} />
+      ))}
+      <col style={{ width: COMMENT_COL_W }} />
+    </colgroup>
+  );
+}
+
+const TABLE_STYLE: React.CSSProperties = {
+  tableLayout: 'fixed',
+  width: '100%',
+  borderCollapse: 'separate',
+  borderSpacing: 0,
+};
+
 interface GlanceGridProps {
+  scrollRef: React.RefObject<HTMLDivElement>;
   weeksData: GlanceWeeksData;
   visibleLanes: Set<LaneId>;
   visibleMembers: Set<string>;
@@ -33,6 +56,7 @@ interface GlanceGridProps {
 }
 
 export function GlanceGrid({
+  scrollRef,
   weeksData,
   visibleLanes,
   visibleMembers,
@@ -58,86 +82,112 @@ export function GlanceGrid({
   const thBorder: React.CSSProperties = { borderBottom: 'var(--glance-line-bold)' };
 
   return (
-    <table
-      className="glance-table"
-      style={{
-        tableLayout: 'fixed',
-        width: '100%',
-        borderCollapse: 'separate',
-        borderSpacing: 0,
-      }}
-    >
-      <colgroup>
-        <col style={{ width: '46px' }} />
-        <col style={{ width: '66px' }} />
-        {DAY_HEADERS.map((d) => (
-          <col key={d} style={{ width: DAY_COL_W }} />
-        ))}
-        <col style={{ width: COMMENT_COL_W }} />
-      </colgroup>
+    // Flex column: fixed header + scrollable body below it.
+    // overflowY: 'scroll' (not 'auto') ensures the scrollbar is always reserved,
+    // keeping the body table the same width as the header table.
+    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 152px)' }}>
 
-      <thead style={{ position: 'sticky', top: 0, zIndex: 10, background: TH_BG }}>
-        <tr>
-          <th style={{ fontWeight: 500, fontSize: '10px', color: 'var(--color-text-tertiary, #999)', textAlign: 'left', padding: '4px 4px', position: 'sticky', left: 0, zIndex: 15, background: TH_BG }}>
-            {headerYear}
-          </th>
-          <th style={{ fontWeight: 400, fontSize: '10px', color: 'var(--color-text-tertiary, #999)', textAlign: 'right', paddingRight: '6px', ...thBorder, position: 'sticky', left: 46, zIndex: 15, background: TH_BG }}>
-            lane
-          </th>
-          {DAY_HEADERS.map((d) => (
-            <th
-              key={d}
-              style={{
-                fontWeight: 500,
-                fontSize: '11px',
-                color: '#4a4944',
-                textAlign: 'center',
-                padding: '4px 0',
-                background: TH_BG,
-                ...thBorder,
-              }}
-            >
-              {d}
+      {/* ── Fixed header table — never scrolls ── */}
+      <table className="glance-table" style={TABLE_STYLE}>
+        <Colgroup />
+        <thead>
+          <tr>
+            <th style={{
+              fontWeight: 500,
+              fontSize: '10px',
+              color: 'var(--color-text-primary, #111)',
+              textAlign: 'left',
+              padding: '4px 4px',
+              position: 'sticky',
+              left: 0,
+              zIndex: 5,
+              background: TH_BG,
+            }}>
+              {headerYear}
             </th>
-          ))}
-          <th style={{ fontWeight: 400, fontSize: '10px', color: 'var(--color-text-tertiary, #999)', textAlign: 'left', paddingLeft: '6px', background: TH_BG, ...thBorder }}>
-            notes
-          </th>
-        </tr>
-      </thead>
+            <th style={{
+              fontWeight: 400,
+              fontSize: '10px',
+              color: 'var(--color-text-tertiary, #999)',
+              textAlign: 'right',
+              paddingRight: '6px',
+              ...thBorder,
+              position: 'sticky',
+              left: 46,
+              zIndex: 5,
+              background: TH_BG,
+            }}>
+              lane
+            </th>
+            {DAY_HEADERS.map((d) => (
+              <th
+                key={d}
+                style={{
+                  fontWeight: 500,
+                  fontSize: '11px',
+                  color: '#4a4944',
+                  textAlign: 'center',
+                  padding: '4px 0',
+                  background: TH_BG,
+                  ...thBorder,
+                }}
+              >
+                {d}
+              </th>
+            ))}
+            <th style={{
+              fontWeight: 400,
+              fontSize: '10px',
+              color: 'var(--color-text-tertiary, #999)',
+              textAlign: 'left',
+              paddingLeft: '6px',
+              background: TH_BG,
+              ...thBorder,
+            }}>
+              notes
+            </th>
+          </tr>
+        </thead>
+      </table>
 
-      <tbody>
-        {weeks.map((week, wi) => {
-          const firstDay = week[0];
-          const monthKey = `${firstDay.getFullYear()}-${firstDay.getMonth()}`;
-          let monthLabel: string | null = null;
-          if (!seenMonths.has(monthKey)) {
-            seenMonths.add(monthKey);
-            monthLabel = MONTH_ABBR[firstDay.getMonth()];
-          }
+      {/* ── Scrollable body ── */}
+      <div ref={scrollRef} style={{ flex: 1, overflowY: 'scroll' }}>
+        <table className="glance-table" style={TABLE_STYLE}>
+          <Colgroup />
+          <tbody>
+            {weeks.map((week, wi) => {
+              const firstDay = week[0];
+              const monthKey = `${firstDay.getFullYear()}-${firstDay.getMonth()}`;
+              let monthLabel: string | null = null;
+              if (!seenMonths.has(monthKey)) {
+                seenMonths.add(monthKey);
+                monthLabel = MONTH_ABBR[firstDay.getMonth()];
+              }
 
-          return (
-            <GlanceWeek
-              key={wi}
-              week={week}
-              dayData={weeksData}
-              visibleLanes={visibleLanes}
-              visibleMembers={visibleMembers}
-              monthLabel={monthLabel}
-              monthOpacity={monthOpacity}
-              onNoteHover={onNoteHover}
-              onNoteLeave={onNoteLeave}
-              cursor={cursor}
-              dragState={dragState}
-              onCellMouseDown={onCellMouseDown}
-              onCellMouseEnter={onCellMouseEnter}
-              onCellMouseUp={onCellMouseUp}
-              onCellClick={onCellClick}
-              onEdgeDragStart={onEdgeDragStart}
-            />
-          );
-        })}
-      </tbody>
-    </table>
+              return (
+                <GlanceWeek
+                  key={wi}
+                  week={week}
+                  dayData={weeksData}
+                  visibleLanes={visibleLanes}
+                  visibleMembers={visibleMembers}
+                  monthLabel={monthLabel}
+                  monthOpacity={monthOpacity}
+                  onNoteHover={onNoteHover}
+                  onNoteLeave={onNoteLeave}
+                  cursor={cursor}
+                  dragState={dragState}
+                  onCellMouseDown={onCellMouseDown}
+                  onCellMouseEnter={onCellMouseEnter}
+                  onCellMouseUp={onCellMouseUp}
+                  onCellClick={onCellClick}
+                  onEdgeDragStart={onEdgeDragStart}
+                />
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }

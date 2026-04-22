@@ -125,6 +125,7 @@ export function TripForm({ initial, editId, existingData, members, locations, on
                 style={inputStyle}
                 placeholder="Type to search…"
                 autoComplete="off"
+                autoFocus
               />
               {locationSuggestions.length > 0 && (
                 <div style={suggestionListStyle}>

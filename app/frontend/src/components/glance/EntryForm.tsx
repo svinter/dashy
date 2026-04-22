@@ -34,14 +34,24 @@ export function EntryForm({ initial, editId, existingData, members, onSave, onCa
   const needsMember = initial.laneId === 'fam_events';
   const isRange = startDate !== endDate && !editId;
 
-  // Build dates in range
+  // Build dates in range using local-timezone parsing to avoid UTC offset bugs
   function buildDates(): string[] {
+    function parseLocal(s: string): Date {
+      const [y, m, day] = s.split('-').map(Number);
+      return new Date(y, m - 1, day);
+    }
+    function toLocalIso(d: Date): string {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    }
     const dates: string[] = [];
-    const s = new Date(startDate + 'T00:00:00');
-    const e = new Date(endDate + 'T00:00:00');
+    const s = parseLocal(startDate);
+    const e = parseLocal(endDate);
     const d = new Date(s);
     while (d <= e) {
-      dates.push(d.toISOString().slice(0, 10));
+      dates.push(toLocalIso(d));
       d.setDate(d.getDate() + 1);
     }
     return dates;
@@ -51,7 +61,7 @@ export function EntryForm({ initial, editId, existingData, members, onSave, onCa
     e.preventDefault();
     if (!label.trim()) { setError('Label is required'); return; }
     if (needsMember && !memberId) { setError('Member is required'); return; }
-    const dates = editId ? [existingData?.date ?? startDate] : buildDates();
+    const dates = editId ? [startDate] : buildDates();
     onSave(dates.map((date) => ({
       lane: initial.laneId,
       member_id: needsMember ? memberId : undefined,
@@ -105,7 +115,12 @@ export function EntryForm({ initial, editId, existingData, members, onSave, onCa
 
           <ColorPicker value={colorData} onChange={setColorData} />
 
-          {!editId && (
+          {editId ? (
+            <label style={labelStyle}>
+              Date
+              <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} style={inputStyle} />
+            </label>
+          ) : (
             <div style={{ display: 'flex', gap: '8px' }}>
               <label style={{ ...labelStyle, flex: 1 }}>
                 Start

@@ -91,7 +91,7 @@ function getLaneShortLabel(id: LaneId): string {
 // ---------------------------------------------------------------------------
 
 export function GlancePage() {
-  const { weeksData, isLoading, error } = useGlanceData(12);
+  const { weeksData, isLoading, error } = useGlanceData(52);
   const { data: members = [] } = useGlanceMembers();
   const { data: locations = [] } = useGlanceLocations();
 
@@ -539,26 +539,22 @@ export function GlancePage() {
           visibleMembers={visibleMembers}
         />
       ) : (
-        <div
-          ref={gridScrollRef}
-          style={{ overflowY: 'auto', height: 'calc(100vh - 152px)' }}
-        >
-          <GlanceGrid
-            weeksData={weeksData}
-            visibleLanes={visibleLanes}
-            visibleMembers={visibleMembers}
-            monthOpacity={monthOpacity}
-            onNoteHover={handleNoteHover}
-            onNoteLeave={handleNoteLeave}
-            cursor={cursor}
-            dragState={dragState}
-            onCellMouseDown={handleCellMouseDown}
-            onCellMouseEnter={handleCellMouseEnter}
-            onCellMouseUp={handleCellMouseUp}
-            onCellClick={handleCellClick}
-            onEdgeDragStart={handleEdgeDragStart}
-          />
-        </div>
+        <GlanceGrid
+          scrollRef={gridScrollRef}
+          weeksData={weeksData}
+          visibleLanes={visibleLanes}
+          visibleMembers={visibleMembers}
+          monthOpacity={monthOpacity}
+          onNoteHover={handleNoteHover}
+          onNoteLeave={handleNoteLeave}
+          cursor={cursor}
+          dragState={dragState}
+          onCellMouseDown={handleCellMouseDown}
+          onCellMouseEnter={handleCellMouseEnter}
+          onCellMouseUp={handleCellMouseUp}
+          onCellClick={handleCellClick}
+          onEdgeDragStart={handleEdgeDragStart}
+        />
       )}
 
       <GlanceTooltip tooltip={tooltip} />

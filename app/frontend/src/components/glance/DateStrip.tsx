@@ -35,12 +35,12 @@ const LANE_DOT_COLOR: Record<string, string> = {
 
 interface DateStripProps {
   week: Date[];
-  monthBg: string;
   monthLabel: string | null;
   dayData?: Record<string, GlanceDayData>;
   visibleLanes?: Set<LaneId>;
 }
 
+// Date strip always uses fixed grays — never month tint
 const DATE_STRIP_WEEKDAY_BG = '#EFEEEA';
 const DATE_STRIP_WEEKEND_BG = '#E8E6E0';
 export const DATE_STRIP_HEIGHT = 20;
@@ -54,21 +54,13 @@ const DATE_STRIP_FONT: React.CSSProperties = {
   boxSizing: 'border-box',
 };
 
-export function DateStrip({ week, monthBg, monthLabel, dayData, visibleLanes }: DateStripProps) {
+const cellBorder: React.CSSProperties = {
+  borderTop: 'var(--glance-line-bold)',
+  borderBottom: 'var(--glance-line-hairline)',
+};
+
+export function DateStrip({ week, monthLabel, dayData, visibleLanes }: DateStripProps) {
   const weekNum = week[0] ? isoWeekNumber(week[0]) : 0;
-
-  const cellBorder: React.CSSProperties = {
-    borderTop: 'var(--glance-line-bold)',
-    borderBottom: 'var(--glance-line-hairline)',
-  };
-
-  const isMonthRgba = monthBg.startsWith('rgba');
-  const weekdayStripBg: React.CSSProperties = isMonthRgba
-    ? { backgroundColor: DATE_STRIP_WEEKDAY_BG, backgroundImage: `linear-gradient(${monthBg}, ${monthBg})` }
-    : { backgroundColor: monthBg };
-  const weekendStripBg: React.CSSProperties = isMonthRgba
-    ? { backgroundColor: DATE_STRIP_WEEKEND_BG, backgroundImage: `linear-gradient(${monthBg}, ${monthBg})` }
-    : { backgroundColor: DATE_STRIP_WEEKEND_BG };
 
   return (
     <tr>
@@ -76,7 +68,7 @@ export function DateStrip({ week, monthBg, monthLabel, dayData, visibleLanes }: 
       <td
         style={{
           ...cellBorder,
-          ...weekdayStripBg,
+          backgroundColor: DATE_STRIP_WEEKDAY_BG,
           padding: 0,
           height: DATE_STRIP_HEIGHT,
           overflow: 'hidden',
@@ -107,7 +99,7 @@ export function DateStrip({ week, monthBg, monthLabel, dayData, visibleLanes }: 
         style={{
           ...DATE_STRIP_FONT,
           ...cellBorder,
-          ...weekdayStripBg,
+          backgroundColor: DATE_STRIP_WEEKDAY_BG,
           fontSize: '10px',
           color: '#7a7870',
           paddingRight: '4px',
@@ -151,14 +143,19 @@ export function DateStrip({ week, monthBg, monthLabel, dayData, visibleLanes }: 
             style={{
               ...DATE_STRIP_FONT,
               ...cellBorder,
-              ...(weekend ? weekendStripBg : weekdayStripBg),
+              backgroundColor: weekend ? DATE_STRIP_WEEKEND_BG : DATE_STRIP_WEEKDAY_BG,
               outline: isToday ? '1.5px solid #D85A30' : undefined,
               outlineOffset: isToday ? '-1px' : undefined,
               borderLeft: dayNum === 1 ? '2px solid rgba(0,0,0,0.35)' : undefined,
               position: 'relative',
             }}
           >
-            <span style={{ opacity: isToday ? 0.4 : 1, display: 'block', textAlign: 'center' }}>
+            <span style={{
+              opacity: isToday ? 0.4 : 1,
+              display: 'block',
+              textAlign: 'center',
+              color: isToday ? '#D85A30' : undefined,
+            }}>
               {dayNum}
             </span>
             {dots.length > 0 && (
@@ -191,7 +188,7 @@ export function DateStrip({ week, monthBg, monthLabel, dayData, visibleLanes }: 
       <td
         style={{
           ...cellBorder,
-          ...weekdayStripBg,
+          backgroundColor: DATE_STRIP_WEEKDAY_BG,
           boxSizing: 'border-box',
         }}
       />
