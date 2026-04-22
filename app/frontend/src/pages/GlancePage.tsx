@@ -415,6 +415,106 @@ export function GlancePage() {
       if (modalRef.current || gMode) return;
       if (isInputActive()) return;
 
+      // ── Single-key shortcuts (only when not in filter mode) ────────────────
+      if (!filterModeRef.current) {
+        // Page navigation: digits 0–9 map directly to page index
+        if (key >= '0' && key <= '9') {
+          e.preventDefault();
+          goToPage(parseInt(key));
+          return;
+        }
+        if (key === '[') { e.preventDefault(); goToPage(currentPageRef.current - 1); return; }
+        if (key === ']') { e.preventDefault(); goToPage(currentPageRef.current + 1); return; }
+
+        // Enter filter mode
+        if (key === 'f') { e.preventDefault(); setFilterMode(true); return; }
+
+        // Scroll
+        if (key === 'j') { e.preventDefault(); gridScrollRef.current?.scrollBy({ top:  260, behavior: 'smooth' }); return; }
+        if (key === 'k') { e.preventDefault(); gridScrollRef.current?.scrollBy({ top: -260, behavior: 'smooth' }); return; }
+        if (key === 'J') { e.preventDefault(); gridScrollRef.current?.scrollBy({ top:  520, behavior: 'smooth' }); return; }
+        if (key === 'K') { e.preventDefault(); gridScrollRef.current?.scrollBy({ top: -520, behavior: 'smooth' }); return; }
+        if (key === 't') {
+          e.preventDefault();
+          const el = document.querySelector(`[data-date="${localIso(new Date())}"]`) as HTMLElement | null;
+          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          return;
+        }
+
+        // Go-to-month input mode
+        if (key === 'g') { e.preventDefault(); setGMode(true); setGInput(''); return; }
+
+        // View toggle
+        if (key === 'v') { e.preventDefault(); setMode((m) => m === 'vertical' ? 'horizontal' : 'vertical'); return; }
+
+        // Cursor movement
+        if (key === 'ArrowRight') {
+          e.preventDefault();
+          setCursor((prev) => {
+            if (!prev) return null;
+            const d = new Date(prev.date + 'T00:00:00');
+            d.setDate(d.getDate() + 1);
+            return { date: localIso(d), laneId: prev.laneId };
+          });
+          return;
+        }
+        if (key === 'ArrowLeft') {
+          e.preventDefault();
+          setCursor((prev) => {
+            if (!prev) return null;
+            const d = new Date(prev.date + 'T00:00:00');
+            d.setDate(d.getDate() - 1);
+            return { date: localIso(d), laneId: prev.laneId };
+          });
+          return;
+        }
+        if (key === 'ArrowDown') {
+          e.preventDefault();
+          setCursor((prev) => {
+            if (!prev) return null;
+            const idx = LANE_IDS.indexOf(prev.laneId);
+            return { date: prev.date, laneId: LANE_IDS[(idx + 1) % LANE_IDS.length] };
+          });
+          return;
+        }
+        if (key === 'ArrowUp') {
+          e.preventDefault();
+          setCursor((prev) => {
+            if (!prev) return null;
+            const idx = LANE_IDS.indexOf(prev.laneId);
+            return { date: prev.date, laneId: LANE_IDS[(idx - 1 + LANE_IDS.length) % LANE_IDS.length] };
+          });
+          return;
+        }
+
+        // Entry actions at cursor
+        const cur = cursorRef.current;
+        if (cur) {
+          const { date, laneId } = cur;
+          if (key === 'n') {
+            e.preventDefault();
+            if (TRAVEL_LANES.has(laneId)) {
+              setModal({ type: 'trip-form', initial: { laneId, startDate: date, endDate: date } });
+            } else if (EVENT_LANES.has(laneId)) {
+              setModal({ type: 'entry-form', initial: { laneId, startDate: date, endDate: date } });
+            }
+            return;
+          }
+          if (key === 'e' || key === 'x') {
+            e.preventDefault();
+            const data    = weeksDataRef.current[date];
+            const trips   = (data?.trips   ?? []).filter((t)  => t.lane  === laneId);
+            const entries = (data?.entries ?? []).filter((en) => en.lane === laneId);
+            if (trips.length > 0 || entries.length > 0) {
+              setModal({ type: 'view-edit', date, laneId, laneLabel: getLaneShortLabel(laneId), trips, entries });
+            }
+            return;
+          }
+        }
+
+        return;
+      }
+
       // ── Filter mode: waiting for second key after 'f' ──────────────────────
       if (filterModeRef.current) {
         setFilterMode(false);
@@ -428,102 +528,8 @@ export function GlancePage() {
         if (key === 'p') { toggleMember('pgv');        return; }
         if (key === 'k') { toggleMember('kpv');        return; }
         if (key === 'o') { toggleMember('ovinters');   return; }
-        // Unrecognized key — filter mode already cancelled above
+        // Unrecognized key — filter mode already cancelled, consume silently
         return;
-      }
-
-      // ── Single-key shortcuts ───────────────────────────────────────────────
-
-      // Enter filter mode
-      if (key === 'f') { e.preventDefault(); setFilterMode(true); return; }
-
-      // Page navigation
-      if (key === '1') { e.preventDefault(); goToPage(1); return; }
-      if (key === '0') { e.preventDefault(); goToPage(0); return; }
-      if (key === '[') { e.preventDefault(); goToPage(currentPageRef.current - 1); return; }
-      if (key === ']') { e.preventDefault(); goToPage(currentPageRef.current + 1); return; }
-
-      // Scroll
-      if (key === 'j') { e.preventDefault(); gridScrollRef.current?.scrollBy({ top:  260, behavior: 'smooth' }); return; }
-      if (key === 'k') { e.preventDefault(); gridScrollRef.current?.scrollBy({ top: -260, behavior: 'smooth' }); return; }
-      if (key === 'J') { e.preventDefault(); gridScrollRef.current?.scrollBy({ top:  520, behavior: 'smooth' }); return; }
-      if (key === 'K') { e.preventDefault(); gridScrollRef.current?.scrollBy({ top: -520, behavior: 'smooth' }); return; }
-      if (key === 't') {
-        e.preventDefault();
-        const el = document.querySelector(`[data-date="${localIso(new Date())}"]`) as HTMLElement | null;
-        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        return;
-      }
-
-      // Go-to-month input mode
-      if (key === 'g') { e.preventDefault(); setGMode(true); setGInput(''); return; }
-
-      // View toggle
-      if (key === 'v') { e.preventDefault(); setMode((m) => m === 'vertical' ? 'horizontal' : 'vertical'); return; }
-
-      // Cursor movement
-      if (key === 'ArrowRight') {
-        e.preventDefault();
-        setCursor((prev) => {
-          if (!prev) return null;
-          const d = new Date(prev.date + 'T00:00:00');
-          d.setDate(d.getDate() + 1);
-          return { date: localIso(d), laneId: prev.laneId };
-        });
-        return;
-      }
-      if (key === 'ArrowLeft') {
-        e.preventDefault();
-        setCursor((prev) => {
-          if (!prev) return null;
-          const d = new Date(prev.date + 'T00:00:00');
-          d.setDate(d.getDate() - 1);
-          return { date: localIso(d), laneId: prev.laneId };
-        });
-        return;
-      }
-      if (key === 'ArrowDown') {
-        e.preventDefault();
-        setCursor((prev) => {
-          if (!prev) return null;
-          const idx = LANE_IDS.indexOf(prev.laneId);
-          return { date: prev.date, laneId: LANE_IDS[(idx + 1) % LANE_IDS.length] };
-        });
-        return;
-      }
-      if (key === 'ArrowUp') {
-        e.preventDefault();
-        setCursor((prev) => {
-          if (!prev) return null;
-          const idx = LANE_IDS.indexOf(prev.laneId);
-          return { date: prev.date, laneId: LANE_IDS[(idx - 1 + LANE_IDS.length) % LANE_IDS.length] };
-        });
-        return;
-      }
-
-      // Entry actions at cursor
-      const cur = cursorRef.current;
-      if (cur) {
-        const { date, laneId } = cur;
-        if (key === 'n') {
-          e.preventDefault();
-          if (TRAVEL_LANES.has(laneId)) {
-            setModal({ type: 'trip-form', initial: { laneId, startDate: date, endDate: date } });
-          } else if (EVENT_LANES.has(laneId)) {
-            setModal({ type: 'entry-form', initial: { laneId, startDate: date, endDate: date } });
-          }
-          return;
-        }
-        if (key === 'e' || key === 'x') {
-          e.preventDefault();
-          const data    = weeksDataRef.current[date];
-          const trips   = (data?.trips   ?? []).filter((t)  => t.lane  === laneId);
-          const entries = (data?.entries ?? []).filter((en) => en.lane === laneId);
-          if (trips.length > 0 || entries.length > 0) {
-            setModal({ type: 'view-edit', date, laneId, laneLabel: getLaneShortLabel(laneId), trips, entries });
-          }
-          return;
-        }
       }
     }
 
@@ -603,21 +609,26 @@ export function GlancePage() {
           }}>f…</span>
         )}
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <button
-            onClick={pageBackward}
-            disabled={currentPage === 0}
-            style={{ background: 'none', border: 'none', padding: '0 3px', cursor: currentPage === 0 ? 'default' : 'pointer', opacity: currentPage === 0 ? 0.25 : 0.6, fontSize: '11px', lineHeight: 1 }}
-          >←</button>
-          <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>
-            {formatPageLabel(pageStart, clampedEnd)}
-            {currentPage === 0 && <span style={{ opacity: 0.55, marginLeft: '4px' }}>· start</span>}
-            {currentPage === 1 && <span style={{ opacity: 0.55, marginLeft: '4px' }}>· today</span>}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <button
+              onClick={pageBackward}
+              disabled={currentPage === 0}
+              style={{ background: 'none', border: 'none', padding: '0 3px', cursor: currentPage === 0 ? 'default' : 'pointer', opacity: currentPage === 0 ? 0.25 : 0.6, fontSize: '11px', lineHeight: 1 }}
+            >←</button>
+            <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>
+              {formatPageLabel(pageStart, clampedEnd)}
+              {currentPage === 0 && <span style={{ opacity: 0.55, marginLeft: '4px' }}>· start</span>}
+              {currentPage === 1 && <span style={{ opacity: 0.55, marginLeft: '4px' }}>· today</span>}
+            </span>
+            <button
+              onClick={pageForward}
+              style={{ background: 'none', border: 'none', padding: '0 3px', cursor: 'pointer', opacity: 0.6, fontSize: '11px', lineHeight: 1 }}
+            >→</button>
+          </div>
+          <span style={{ fontSize: '10px', color: 'var(--color-text-tertiary, #bbb)', textAlign: 'center', marginTop: '2px', lineHeight: 1 }}>
+            page {currentPage}{currentPage === 1 ? ' · today' : ''}
           </span>
-          <button
-            onClick={pageForward}
-            style={{ background: 'none', border: 'none', padding: '0 3px', cursor: 'pointer', opacity: 0.6, fontSize: '11px', lineHeight: 1 }}
-          >→</button>
         </div>
 
         <span style={{ opacity: 0.3 }}>|</span>
@@ -634,9 +645,22 @@ export function GlancePage() {
           </div>
         ))}
 
-        <span style={{ opacity: 0.3 }}>|</span>
+        <button
+          onClick={() => setMode((m) => m === 'vertical' ? 'horizontal' : 'vertical')}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--color-background-secondary, #f0efeb)'; }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
+          style={{
+            fontSize: '11px', padding: '2px 8px',
+            border: '0.5px solid var(--color-border-secondary, #d8d6ce)',
+            borderRadius: '3px', cursor: 'pointer',
+            background: 'transparent', fontFamily: 'inherit',
+            color: 'var(--color-text-secondary)',
+          }}
+        >
+          {mode === 'vertical' ? 'horizontal' : 'vertical'}
+        </button>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '6px' }}>
           <span style={{ opacity: 0.5 }}>month tint</span>
           <input
             type="range"
@@ -648,17 +672,6 @@ export function GlancePage() {
           />
           <span style={{ opacity: 0.7, minWidth: '22px' }}>{monthOpacity}%</span>
         </div>
-
-        <span style={{ opacity: 0.3 }}>|</span>
-
-        <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
-          <input type="radio" name="glance-mode" checked={mode === 'vertical'}   onChange={() => setMode('vertical')}   style={{ margin: 0 }} />
-          vertical
-        </label>
-        <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
-          <input type="radio" name="glance-mode" checked={mode === 'horizontal'} onChange={() => setMode('horizontal')} style={{ margin: 0 }} />
-          horizontal
-        </label>
       </div>
 
       {/* Grid */}
