@@ -85,7 +85,10 @@ export function TripForm({ initial, editId, existingData, members, locations, on
     const e = new Date(endDate + 'T00:00:00');
     const d = new Date(s);
     while (d <= e) {
-      dayDates.push(d.toISOString().slice(0, 10));
+      const y = d.getFullYear();
+      const mo = String(d.getMonth() + 1).padStart(2, '0');
+      const dy = String(d.getDate()).padStart(2, '0');
+      dayDates.push(`${y}-${mo}-${dy}`);
       d.setDate(d.getDate() + 1);
     }
   }
