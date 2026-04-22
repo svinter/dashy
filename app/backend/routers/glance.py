@@ -18,6 +18,7 @@ Write endpoints (Phase 2):
 """
 
 import logging
+import sqlite3
 from datetime import date, timedelta
 from typing import Optional
 
@@ -329,21 +330,24 @@ def create_trip(body: GlanceTripCreate):
                     if key in o:
                         m[key] = o[key]
 
-    with get_db_connection() as db:
-        cur = db.execute(
-            "INSERT INTO glance_trips (member_id, location_id, start_date, end_date, notes, color_data, source) "
-            "VALUES (?, ?, ?, ?, ?, ?, 'manual')",
-            (body.member_id, body.location_id, body.start_date, body.end_date, body.notes, body.color_data),
-        )
-        trip_id = cur.lastrowid
-        for m in marks:
-            db.execute(
-                'INSERT INTO glance_trip_days (trip_id, date, depart, sleep, "return", notes) '
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (trip_id, m["date"], m["depart"], m["sleep"], m["return"], m.get("notes")),
+    try:
+        with get_db_connection() as db:
+            cur = db.execute(
+                "INSERT INTO glance_trips (member_id, location_id, start_date, end_date, notes, color_data, source) "
+                "VALUES (?, ?, ?, ?, ?, ?, 'manual')",
+                (body.member_id, body.location_id, body.start_date, body.end_date, body.notes, body.color_data),
             )
-        db.commit()
-        result = _build_trip_response(db, trip_id)
+            trip_id = cur.lastrowid
+            for m in marks:
+                db.execute(
+                    'INSERT INTO glance_trip_days (trip_id, date, depart, sleep, "return", notes) '
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (trip_id, m["date"], m["depart"], m["sleep"], m["return"], m.get("notes")),
+                )
+            db.commit()
+            result = _build_trip_response(db, trip_id)
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid member_id or location_id: {exc}") from exc
     return result
 
 

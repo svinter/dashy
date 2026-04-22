@@ -78,6 +78,10 @@ export function TripForm({ initial, editId, existingData, members, locations, on
     if (!memberId) { setError('Member is required'); return; }
     if (!locationId && !locationInput.trim()) { setError('Location is required'); return; }
     const resolvedLocationId = locationId || locationInput.trim().toLowerCase().replace(/\s+/g, '_');
+    if (locations.length > 0 && !locations.find((l) => l.id === resolvedLocationId)) {
+      setError(`"${locationInput.trim()}" not found — select a location from the list`);
+      return;
+    }
     onSave({ member_id: memberId, location_id: resolvedLocationId, start_date: startDate, end_date: endDate, notes: notes || undefined, color_data: colorData ? JSON.stringify(colorData) : null });
   }
 
