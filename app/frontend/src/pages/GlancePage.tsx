@@ -143,9 +143,9 @@ function formatPageLabel(start: Date, end: Date): string {
 // ---------------------------------------------------------------------------
 
 export function GlancePage() {
-  const [currentPage, setCurrentPage] = useState(1);
+  const [pageStart, setPageStart] = useState<Date>(() => pageStartForIndex(1));
+  const [isTodayWindow, setIsTodayWindow] = useState(true);
 
-  const pageStart = pageStartForIndex(currentPage);
   const pageEnd   = new Date(pageStart);
   pageEnd.setMonth(pageEnd.getMonth() + PAGE_MONTHS);
   const clampedEnd = pageEnd > CALENDAR_END ? new Date(CALENDAR_END) : pageEnd;
@@ -197,8 +197,7 @@ export function GlancePage() {
   cursorRef.current   = cursor;
   const modalRef      = useRef(modal);
   modalRef.current    = modal;
-  const currentPageRef = useRef(currentPage);
-  currentPageRef.current = currentPage;
+  // (currentPageRef removed — page navigation now uses functional state updaters)
   const [filterMode, setFilterMode] = useState(false);
   const filterModeRef = useRef(false);
   filterModeRef.current = filterMode;
@@ -341,24 +340,58 @@ export function GlancePage() {
     el.scrollTop = Math.max(0, weeksFromStart * weekHeight);
   }
 
+  // goToPage: index-based jump (used by digit keyboard shortcuts)
   function goToPage(n: number) {
     const maxPage = Math.ceil(
       (CALENDAR_END.getTime() - getPage1Start().getTime())
       / (1000 * 60 * 60 * 24 * 30 * PAGE_MONTHS)
     ) + 1;
     const clamped = Math.max(0, Math.min(n, maxPage));
-    setCurrentPage(clamped);
+    setPageStart(pageStartForIndex(clamped));
+    setIsTodayWindow(clamped === 1);
   }
 
-  function pageForward()  { goToPage(currentPage + 1); }
-  function pageBackward() { goToPage(currentPage - 1); }
+  // Full-page navigation ([ and ]): step by PAGE_MONTHS
+  function pageForward() {
+    setPageStart((prev) => {
+      const next = new Date(prev.getFullYear(), prev.getMonth() + PAGE_MONTHS, 1);
+      return next >= CALENDAR_END ? prev : next;
+    });
+    setIsTodayWindow(false);
+  }
 
-  // When navigating to page 1 (today window), scroll to current week
+  function pageBackward() {
+    setPageStart((prev) => {
+      if (prev.getTime() <= CALENDAR_START.getTime()) return prev;
+      const candidate = new Date(prev.getFullYear(), prev.getMonth() - PAGE_MONTHS, 1);
+      return candidate.getTime() <= CALENDAR_START.getTime() ? new Date(CALENDAR_START) : candidate;
+    });
+    setIsTodayWindow(false);
+  }
+
+  // Month-step navigation ({ and }): step by 1 month
+  function pageForwardMonth() {
+    setPageStart((prev) => {
+      const next = new Date(prev.getFullYear(), prev.getMonth() + 1, 1);
+      return next >= CALENDAR_END ? prev : next;
+    });
+    setIsTodayWindow(false);
+  }
+
+  function pageBackwardMonth() {
+    setPageStart((prev) => {
+      const candidate = new Date(prev.getFullYear(), prev.getMonth() - 1, 1);
+      return candidate.getTime() < CALENDAR_START.getTime() ? new Date(CALENDAR_START) : candidate;
+    });
+    setIsTodayWindow(false);
+  }
+
+  // When navigating to the today window, scroll to current week
   useEffect(() => {
-    if (currentPage !== 1) return;
+    if (!isTodayWindow) return;
     setTimeout(scrollToToday, 150);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage]);
+  }, [isTodayWindow]);
 
   // Initial load: scroll today into view once data arrives
   const didInitialScrollRef = useRef(false);
@@ -455,8 +488,10 @@ export function GlancePage() {
           goToPage(parseInt(key));
           return;
         }
-        if (key === '[') { e.preventDefault(); goToPage(currentPageRef.current - 1); return; }
-        if (key === ']') { e.preventDefault(); goToPage(currentPageRef.current + 1); return; }
+        if (key === '[') { e.preventDefault(); pageBackward(); return; }
+        if (key === ']') { e.preventDefault(); pageForward(); return; }
+        if (key === '{') { e.preventDefault(); pageBackwardMonth(); return; }
+        if (key === '}') { e.preventDefault(); pageForwardMonth(); return; }
 
         // Enter filter mode
         if (key === 'f') { e.preventDefault(); setFilterMode(true); return; }
@@ -567,7 +602,7 @@ export function GlancePage() {
 
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  // filterModeRef and currentPageRef are ref mirrors — no need in deps
+  // filterModeRef is a ref mirror — no need in deps
   }, [gMode, toggleLane, toggleMember]);
 
   // ---------------------------------------------------------------------------
@@ -647,13 +682,13 @@ export function GlancePage() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
               <button
                 onClick={pageBackward}
-                disabled={currentPage === 0}
-                style={{ background: 'none', border: 'none', padding: '0 3px', cursor: currentPage === 0 ? 'default' : 'pointer', opacity: currentPage === 0 ? 0.25 : 0.6, fontSize: '11px', lineHeight: 1 }}
+                disabled={pageStart.getTime() <= CALENDAR_START.getTime()}
+                style={{ background: 'none', border: 'none', padding: '0 3px', cursor: pageStart.getTime() <= CALENDAR_START.getTime() ? 'default' : 'pointer', opacity: pageStart.getTime() <= CALENDAR_START.getTime() ? 0.25 : 0.6, fontSize: '11px', lineHeight: 1 }}
               >←</button>
               <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>
                 {formatPageLabel(pageStart, clampedEnd)}
-                {currentPage === 0 && <span style={{ opacity: 0.55, marginLeft: '4px' }}>· start</span>}
-                {currentPage === 1 && <span style={{ opacity: 0.55, marginLeft: '4px' }}>· today</span>}
+                {pageStart.getTime() <= CALENDAR_START.getTime() && <span style={{ opacity: 0.55, marginLeft: '4px' }}>· start</span>}
+                {isTodayWindow && <span style={{ opacity: 0.55, marginLeft: '4px' }}>· today</span>}
               </span>
               <button
                 onClick={pageForward}
@@ -661,7 +696,7 @@ export function GlancePage() {
               >→</button>
             </div>
             <span style={{ fontSize: '10px', color: 'var(--color-text-tertiary, #bbb)', textAlign: 'center', marginTop: '2px', lineHeight: 1 }}>
-              page {currentPage}{currentPage === 1 ? ' · today' : ''}
+              {isTodayWindow ? '· today' : ''}
             </span>
           </div>
 
