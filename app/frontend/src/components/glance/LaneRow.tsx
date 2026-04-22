@@ -1,7 +1,6 @@
 import React from 'react';
 import type { GlanceDayData } from '../../hooks/useGlanceData';
 import { TripBar } from './TripBar';
-import type { RibbonPos } from './TripBar';
 import { EntryCell } from './EntryCell';
 import { CommentCell } from './CommentCell';
 import { MONTH_RGB } from './GlanceWeek';
@@ -68,61 +67,6 @@ function dragSelectedDates(drag: DragState | null): Set<string> {
   return set;
 }
 
-interface RibbonInfo {
-  pos: RibbonPos;
-  showLabel: boolean;
-}
-
-/** Compute ribbon position and label visibility for each trip day in this lane+week. */
-function computeRibbonMap(
-  week: Date[],
-  dayData: Record<string, GlanceDayData>,
-  laneId: LaneId,
-  visibleMembers: Set<string>,
-): Map<string, RibbonInfo> {
-  const result = new Map<string, RibbonInfo>();
-
-  // Group visible trip days by trip_id, tracking their week index
-  const tripGroups = new Map<number, Array<{ ds: string; weekIdx: number }>>();
-  week.forEach((d, weekIdx) => {
-    const ds = localIso(d);
-    const data = dayData[ds];
-    if (!data) return;
-    const trips = data.trips.filter((t) => {
-      if (t.lane !== laneId) return false;
-      if (laneId === 'fam_travel') {
-        if (t.member_id && !visibleMembers.has(t.member_id)) return false;
-      }
-      return true;
-    });
-    for (const trip of trips) {
-      if (!tripGroups.has(trip.trip_id)) tripGroups.set(trip.trip_id, []);
-      tripGroups.get(trip.trip_id)!.push({ ds, weekIdx });
-    }
-  });
-
-  for (const [, days] of tripGroups) {
-    days.sort((a, b) => a.weekIdx - b.weekIdx);
-    const n = days.length;
-    const midIdx = Math.floor((n - 1) / 2); // middle position (rounding towards start)
-
-    days.forEach(({ ds }, i) => {
-      let pos: RibbonPos;
-      if (n === 1) {
-        pos = 'solo';
-      } else if (i === 0) {
-        pos = 'start';
-      } else if (i === n - 1) {
-        pos = 'end';
-      } else {
-        pos = 'middle';
-      }
-      result.set(ds, { pos, showLabel: i === midIdx });
-    });
-  }
-
-  return result;
-}
 
 export function LaneRow({
   laneId,
@@ -156,25 +100,6 @@ export function LaneRow({
 
   const selected = dragSelectedDates(dragState);
 
-  // Compute ribbon positions for all trip days in this lane+week
-  const ribbonMap = computeRibbonMap(week, dayData, laneId, visibleMembers);
-
-  // Build a date→tripId map for arrow suppression (prev/next day lookup)
-  const dateTripId = new Map<string, number>();
-  week.forEach((d) => {
-    const ds = localIso(d);
-    const data = dayData[ds];
-    if (!data) return;
-    const trips = data.trips.filter((t) => {
-      if (t.lane !== laneId) return false;
-      if (laneId === 'fam_travel') {
-        if (t.member_id && !visibleMembers.has(t.member_id)) return false;
-      }
-      return true;
-    });
-    if (trips.length > 0) dateTripId.set(ds, trips[0].trip_id);
-  });
-
   return (
     <tr>
       {/* Month column — sticky left */}
@@ -201,7 +126,7 @@ export function LaneRow({
       </td>
 
       {/* Seven day cells */}
-      {week.map((d, weekIdx) => {
+      {week.map((d) => {
         const ds = localIso(d);
         const weekend = isWeekend(d);
         const data = dayData[ds];
@@ -239,17 +164,6 @@ export function LaneRow({
           outlineStyle = { outline: '1.5px solid rgba(55, 138, 221, 0.5)', '--glance-cell-bg': `rgba(55, 138, 221, 0.06)` };
         }
 
-        // Ribbon info for the trip in this cell
-        const ribbonInfo = filteredTrips.length > 0 ? ribbonMap.get(ds) : undefined;
-        const ribbonPos: RibbonPos = ribbonInfo?.pos ?? 'solo';
-        const showLabel = ribbonInfo?.showLabel ?? true;
-
-        // Previous and next trip IDs for arrow suppression
-        const prevDs = weekIdx > 0 ? localIso(week[weekIdx - 1]) : null;
-        const nextDs = weekIdx < week.length - 1 ? localIso(week[weekIdx + 1]) : null;
-        const prevTripId = prevDs ? (dateTripId.get(prevDs) ?? null) : null;
-        const nextTripId = nextDs ? (dateTripId.get(nextDs) ?? null) : null;
-
         return (
           <td
             key={ds}
@@ -278,10 +192,6 @@ export function LaneRow({
             {filteredTrips.length > 0 && (
               <TripBar
                 trip={filteredTrips[0]}
-                ribbonPos={ribbonPos}
-                showLabel={showLabel}
-                prevTripId={prevTripId}
-                nextTripId={nextTripId}
                 onMouseEnter={filteredTrips[0].day_notes || filteredTrips[0].trip_notes
                   ? (e) => onNoteHover(e, laneLabel, dateStr, [filteredTrips[0].day_notes || filteredTrips[0].trip_notes || ''].filter(Boolean))
                   : undefined}
