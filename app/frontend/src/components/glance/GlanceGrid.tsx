@@ -127,9 +127,9 @@ export function GlanceGrid({
     <div style={{ display: 'flex', flexDirection: 'column' }}>
 
       {/* ── Fixed header table — never scrolls ── */}
-      {/* overflow:hidden + margin/padding:0 eliminates any gap between header and scroll body */}
-      <div style={{ overflow: 'hidden', flexShrink: 0, marginBottom: 0, paddingBottom: 0 }}>
-        <table className="glance-table" style={{ ...TABLE_STYLE, borderSpacing: 0 }}>
+      {/* overflow:hidden + margin/padding:0 + lineHeight:0 eliminates any gap between header and scroll body */}
+      <div style={{ overflow: 'hidden', flexShrink: 0, marginBottom: 0, paddingBottom: 0, lineHeight: 0 }}>
+        <table className="glance-table" style={{ ...TABLE_STYLE, borderSpacing: 0, borderCollapse: 'separate', marginBottom: 0 }}>
           <Colgroup />
           <thead>
             <tr>
@@ -194,7 +194,7 @@ export function GlanceGrid({
       </div>
 
       {/* ── Scrollable body ── */}
-      <div ref={scrollRef} style={{ overflowY: 'scroll', marginTop: 0 }}>
+      <div ref={scrollRef} style={{ overflowY: 'scroll', marginTop: 0, paddingTop: 0 }}>
         <table className="glance-table" style={TABLE_STYLE}>
           <Colgroup />
           <tbody>

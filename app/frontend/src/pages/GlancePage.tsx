@@ -300,16 +300,19 @@ export function GlancePage() {
   // --- Page navigation ---
 
   function scrollToToday() {
-    requestAnimationFrame(() => {
-      const todayStr = localIso(new Date());
-      const el = document.querySelector(`[data-date="${todayStr}"]`) as HTMLElement | null;
-      if (el && gridScrollRef.current) {
-        const containerRect = gridScrollRef.current.getBoundingClientRect();
-        const elRect = el.getBoundingClientRect();
-        const delta = elRect.top - containerRect.top - 20;
-        gridScrollRef.current.scrollBy({ top: delta });
-      }
-    });
+    const el = gridScrollRef.current;
+    if (!el) return;
+    const today = new Date();
+    const pageStartDate = pageStartForIndex(1);
+    const msPerWeek = 7 * 24 * 60 * 60 * 1000;
+    const weeksFromStart = Math.floor(
+      (today.getTime() - pageStartDate.getTime()) / msPerWeek
+    );
+    const pageEndDate = new Date(pageStartDate);
+    pageEndDate.setMonth(pageEndDate.getMonth() + PAGE_MONTHS);
+    const totalWeeks = Math.ceil((pageEndDate.getTime() - pageStartDate.getTime()) / msPerWeek);
+    const weekHeight = el.scrollHeight / totalWeeks;
+    el.scrollTop = Math.max(0, weeksFromStart * weekHeight);
   }
 
   function goToPage(n: number) {
@@ -319,14 +322,17 @@ export function GlancePage() {
     ) + 1;
     const clamped = Math.max(0, Math.min(n, maxPage));
     setCurrentPage(clamped);
-    if (n === 1) {
-      // Scroll to today after React re-renders the new page data
-      setTimeout(scrollToToday, 100);
-    }
   }
 
   function pageForward()  { goToPage(currentPage + 1); }
   function pageBackward() { goToPage(currentPage - 1); }
+
+  // When navigating to page 1 (today window), scroll to current week
+  useEffect(() => {
+    if (currentPage !== 1) return;
+    setTimeout(scrollToToday, 150);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPage]);
 
   // Initial load: scroll today into view once data arrives
   const didInitialScrollRef = useRef(false);
@@ -334,7 +340,7 @@ export function GlancePage() {
     if (isLoading || didInitialScrollRef.current) return;
     if (Object.keys(weeksData).length === 0) return;
     didInitialScrollRef.current = true;
-    setTimeout(scrollToToday, 100);
+    setTimeout(scrollToToday, 150);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoading]);
 
@@ -609,18 +615,8 @@ export function GlancePage() {
           ))}
         </div>
 
-        {/* Row 2: f… indicator + page nav + toggle + month tint */}
+        {/* Row 2: page nav + f… indicator + (toggle + month tint right-justified) */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          {filterMode && (
-            <span style={{
-              fontSize: '11px', fontWeight: 600,
-              background: 'rgba(55, 138, 221, 0.13)',
-              color: '#1a6eb5',
-              padding: '1px 7px', borderRadius: '3px',
-              letterSpacing: '0.02em',
-            }}>f…</span>
-          )}
-
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
               <button
@@ -643,32 +639,44 @@ export function GlancePage() {
             </span>
           </div>
 
-          <button
-            onClick={() => setMode((m) => m === 'vertical' ? 'horizontal' : 'vertical')}
-            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--color-background-secondary, #f0efeb)'; }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
-            style={{
-              fontSize: '11px', padding: '2px 8px',
-              border: '0.5px solid var(--color-border-secondary, #d8d6ce)',
-              borderRadius: '3px', cursor: 'pointer',
-              background: 'transparent', fontFamily: 'inherit',
-              color: 'var(--color-text-secondary)',
-            }}
-          >
-            {mode === 'vertical' ? 'horizontal' : 'vertical'}
-          </button>
+          {filterMode && (
+            <span style={{
+              fontSize: '11px', fontWeight: 600,
+              background: 'rgba(55, 138, 221, 0.13)',
+              color: '#1a6eb5',
+              padding: '1px 7px', borderRadius: '3px',
+              letterSpacing: '0.02em',
+            }}>f…</span>
+          )}
 
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ opacity: 0.5 }}>month tint</span>
-            <input
-              type="range"
-              min={0}
-              max={20}
-              value={monthOpacity}
-              onChange={(e) => setMonthOpacity(Number(e.target.value))}
-              style={{ width: '80px', margin: 0 }}
-            />
-            <span style={{ opacity: 0.7, minWidth: '22px' }}>{monthOpacity}%</span>
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <button
+              onClick={() => setMode((m) => m === 'vertical' ? 'horizontal' : 'vertical')}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--color-background-secondary, #f0efeb)'; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
+              style={{
+                fontSize: '11px', padding: '2px 8px',
+                border: '0.5px solid var(--color-border-secondary, #d8d6ce)',
+                borderRadius: '3px', cursor: 'pointer',
+                background: 'transparent', fontFamily: 'inherit',
+                color: 'var(--color-text-secondary)',
+              }}
+            >
+              {mode === 'vertical' ? 'horizontal' : 'vertical'}
+            </button>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ opacity: 0.5 }}>month tint</span>
+              <input
+                type="range"
+                min={0}
+                max={20}
+                value={monthOpacity}
+                onChange={(e) => setMonthOpacity(Number(e.target.value))}
+                style={{ width: '80px', margin: 0 }}
+              />
+              <span style={{ opacity: 0.7, minWidth: '22px' }}>{monthOpacity}%</span>
+            </div>
           </div>
         </div>
 

@@ -71,7 +71,10 @@
       "Bash(python -c \"import routers.libby; print\\('OK'\\)\")",
       "Bash(git tag:*)",
       "Bash(app/backend/venv/bin/python -m alembic -c app/backend/alembic.ini history)",
-      "Bash(app/backend/venv/bin/python -m alembic -c app/backend/alembic.ini current)"
+      "Bash(app/backend/venv/bin/python -m alembic -c app/backend/alembic.ini current)",
+      "Bash(app/frontend/node_modules/.bin/tsc -p app/frontend/tsconfig.json --noEmit)",
+      "Bash(venv/bin/python3 -c ':*)",
+      "Bash(git revert:*)"
     ]
   }
 }
