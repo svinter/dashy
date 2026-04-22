@@ -92,8 +92,10 @@ export function GlanceGrid({
     const el = scrollRef.current;
     if (!el) return;
     const updateHeight = () => {
-      const top = el.getBoundingClientRect().top + window.scrollY;
-      el.style.height = `${window.innerHeight - top}px`;
+      let offsetTop = 0;
+      let node: HTMLElement | null = el;
+      while (node) { offsetTop += node.offsetTop; node = node.offsetParent as HTMLElement | null; }
+      el.style.height = `${window.innerHeight - offsetTop}px`;
     };
     updateHeight();
     window.addEventListener('resize', updateHeight);

@@ -578,100 +578,100 @@ export function GlancePage() {
         )}
       </div>
 
-      {/* Control bar */}
-      <div
-        style={{
-          display: 'flex', flexWrap: 'wrap', gap: '8px 16px',
-          alignItems: 'center', marginBottom: '10px',
-          fontSize: '11px', color: 'var(--color-text-secondary)',
-        }}
-      >
-        <span style={{ opacity: 0.5, marginRight: '2px' }}>lanes:</span>
-        {LANE_CONFIG.map(({ id, controlLabel, shortcutHint }) => (
-          <div key={id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1px' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
-              <input type="checkbox" checked={visibleLanes.has(id)} onChange={() => toggleLane(id)} style={{ margin: 0 }} />
-              {controlLabel}
-            </label>
-            <span style={{ fontSize: '10px', color: 'var(--color-text-tertiary, #bbb)', lineHeight: 1 }}>{shortcutHint}</span>
-          </div>
-        ))}
+      {/* Control bar — two rows */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '10px', fontSize: '11px', color: 'var(--color-text-secondary)' }}>
 
-        <span style={{ opacity: 0.3 }}>|</span>
+        {/* Row 1: lanes + show */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 16px', alignItems: 'center' }}>
+          <span style={{ opacity: 0.5, marginRight: '2px' }}>lanes:</span>
+          {LANE_CONFIG.map(({ id, controlLabel, shortcutHint }) => (
+            <div key={id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+                <input type="checkbox" checked={visibleLanes.has(id)} onChange={() => toggleLane(id)} style={{ margin: 0 }} />
+                {controlLabel}
+              </label>
+              <span style={{ fontSize: '10px', color: 'var(--color-text-tertiary, #bbb)', lineHeight: 1 }}>{shortcutHint}</span>
+            </div>
+          ))}
 
-        {filterMode && (
-          <span style={{
-            fontSize: '11px', fontWeight: 600,
-            background: 'rgba(55, 138, 221, 0.13)',
-            color: '#1a6eb5',
-            padding: '1px 7px', borderRadius: '3px',
-            letterSpacing: '0.02em',
-          }}>f…</span>
-        )}
+          <span style={{ opacity: 0.3 }}>|</span>
 
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <button
-              onClick={pageBackward}
-              disabled={currentPage === 0}
-              style={{ background: 'none', border: 'none', padding: '0 3px', cursor: currentPage === 0 ? 'default' : 'pointer', opacity: currentPage === 0 ? 0.25 : 0.6, fontSize: '11px', lineHeight: 1 }}
-            >←</button>
-            <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>
-              {formatPageLabel(pageStart, clampedEnd)}
-              {currentPage === 0 && <span style={{ opacity: 0.55, marginLeft: '4px' }}>· start</span>}
-              {currentPage === 1 && <span style={{ opacity: 0.55, marginLeft: '4px' }}>· today</span>}
+          <span style={{ opacity: 0.5, marginRight: '2px' }}>show:</span>
+          {Object.entries(MEMBER_SWATCHES).map(([id, { label, color, shortcutHint }]) => (
+            <div key={id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+                <input type="checkbox" checked={visibleMembers.has(id)} onChange={() => toggleMember(id)} style={{ margin: 0 }} />
+                <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '2px', background: color, flexShrink: 0 }} />
+                {label}
+              </label>
+              <span style={{ fontSize: '10px', color: 'var(--color-text-tertiary, #bbb)', lineHeight: 1 }}>{shortcutHint}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Row 2: f… indicator + page nav + toggle + month tint */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {filterMode && (
+            <span style={{
+              fontSize: '11px', fontWeight: 600,
+              background: 'rgba(55, 138, 221, 0.13)',
+              color: '#1a6eb5',
+              padding: '1px 7px', borderRadius: '3px',
+              letterSpacing: '0.02em',
+            }}>f…</span>
+          )}
+
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <button
+                onClick={pageBackward}
+                disabled={currentPage === 0}
+                style={{ background: 'none', border: 'none', padding: '0 3px', cursor: currentPage === 0 ? 'default' : 'pointer', opacity: currentPage === 0 ? 0.25 : 0.6, fontSize: '11px', lineHeight: 1 }}
+              >←</button>
+              <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>
+                {formatPageLabel(pageStart, clampedEnd)}
+                {currentPage === 0 && <span style={{ opacity: 0.55, marginLeft: '4px' }}>· start</span>}
+                {currentPage === 1 && <span style={{ opacity: 0.55, marginLeft: '4px' }}>· today</span>}
+              </span>
+              <button
+                onClick={pageForward}
+                style={{ background: 'none', border: 'none', padding: '0 3px', cursor: 'pointer', opacity: 0.6, fontSize: '11px', lineHeight: 1 }}
+              >→</button>
+            </div>
+            <span style={{ fontSize: '10px', color: 'var(--color-text-tertiary, #bbb)', textAlign: 'center', marginTop: '2px', lineHeight: 1 }}>
+              page {currentPage}{currentPage === 1 ? ' · today' : ''}
             </span>
-            <button
-              onClick={pageForward}
-              style={{ background: 'none', border: 'none', padding: '0 3px', cursor: 'pointer', opacity: 0.6, fontSize: '11px', lineHeight: 1 }}
-            >→</button>
           </div>
-          <span style={{ fontSize: '10px', color: 'var(--color-text-tertiary, #bbb)', textAlign: 'center', marginTop: '2px', lineHeight: 1 }}>
-            page {currentPage}{currentPage === 1 ? ' · today' : ''}
-          </span>
+
+          <button
+            onClick={() => setMode((m) => m === 'vertical' ? 'horizontal' : 'vertical')}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--color-background-secondary, #f0efeb)'; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
+            style={{
+              fontSize: '11px', padding: '2px 8px',
+              border: '0.5px solid var(--color-border-secondary, #d8d6ce)',
+              borderRadius: '3px', cursor: 'pointer',
+              background: 'transparent', fontFamily: 'inherit',
+              color: 'var(--color-text-secondary)',
+            }}
+          >
+            {mode === 'vertical' ? 'horizontal' : 'vertical'}
+          </button>
+
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{ opacity: 0.5 }}>month tint</span>
+            <input
+              type="range"
+              min={0}
+              max={20}
+              value={monthOpacity}
+              onChange={(e) => setMonthOpacity(Number(e.target.value))}
+              style={{ width: '80px', margin: 0 }}
+            />
+            <span style={{ opacity: 0.7, minWidth: '22px' }}>{monthOpacity}%</span>
+          </div>
         </div>
 
-        <span style={{ opacity: 0.3 }}>|</span>
-
-        <span style={{ opacity: 0.5, marginRight: '2px' }}>show:</span>
-        {Object.entries(MEMBER_SWATCHES).map(([id, { label, color, shortcutHint }]) => (
-          <div key={id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1px' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
-              <input type="checkbox" checked={visibleMembers.has(id)} onChange={() => toggleMember(id)} style={{ margin: 0 }} />
-              <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '2px', background: color, flexShrink: 0 }} />
-              {label}
-            </label>
-            <span style={{ fontSize: '10px', color: 'var(--color-text-tertiary, #bbb)', lineHeight: 1 }}>{shortcutHint}</span>
-          </div>
-        ))}
-
-        <button
-          onClick={() => setMode((m) => m === 'vertical' ? 'horizontal' : 'vertical')}
-          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--color-background-secondary, #f0efeb)'; }}
-          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
-          style={{
-            fontSize: '11px', padding: '2px 8px',
-            border: '0.5px solid var(--color-border-secondary, #d8d6ce)',
-            borderRadius: '3px', cursor: 'pointer',
-            background: 'transparent', fontFamily: 'inherit',
-            color: 'var(--color-text-secondary)',
-          }}
-        >
-          {mode === 'vertical' ? 'horizontal' : 'vertical'}
-        </button>
-
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <span style={{ opacity: 0.5 }}>month tint</span>
-          <input
-            type="range"
-            min={0}
-            max={20}
-            value={monthOpacity}
-            onChange={(e) => setMonthOpacity(Number(e.target.value))}
-            style={{ width: '80px', margin: 0 }}
-          />
-          <span style={{ opacity: 0.7, minWidth: '22px' }}>{monthOpacity}%</span>
-        </div>
       </div>
 
       {/* Grid */}
