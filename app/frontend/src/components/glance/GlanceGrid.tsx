@@ -85,17 +85,19 @@ export function GlanceGrid({
     }
   }, [weeks]);
 
-  // Dynamic height: fill from scroll container top to viewport bottom
+  // Dynamic height: fill from scroll container top to viewport bottom.
+  // Use getBoundingClientRect().top + window.scrollY for the absolute document
+  // offset so the value is stable regardless of scroll position.
   useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
     const updateHeight = () => {
-      if (!scrollRef.current) return;
-      const top = scrollRef.current.getBoundingClientRect().top;
-      scrollRef.current.style.height = `${window.innerHeight - top}px`;
+      const top = el.getBoundingClientRect().top + window.scrollY;
+      el.style.height = `${window.innerHeight - top}px`;
     };
     updateHeight();
     window.addEventListener('resize', updateHeight);
     return () => window.removeEventListener('resize', updateHeight);
-  // scrollRef identity is stable (useRef in parent), empty deps is correct
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -123,9 +125,9 @@ export function GlanceGrid({
     <div style={{ display: 'flex', flexDirection: 'column' }}>
 
       {/* ── Fixed header table — never scrolls ── */}
-      {/* overflow:hidden wrapper clips any fractional-pixel table bottom gap */}
-      <div style={{ overflow: 'hidden', flexShrink: 0 }}>
-        <table className="glance-table" style={TABLE_STYLE}>
+      {/* overflow:hidden + margin/padding:0 eliminates any gap between header and scroll body */}
+      <div style={{ overflow: 'hidden', flexShrink: 0, marginBottom: 0, paddingBottom: 0 }}>
+        <table className="glance-table" style={{ ...TABLE_STYLE, borderSpacing: 0 }}>
           <Colgroup />
           <thead>
             <tr>
@@ -190,7 +192,7 @@ export function GlanceGrid({
       </div>
 
       {/* ── Scrollable body ── */}
-      <div ref={scrollRef} style={{ overflowY: 'scroll' }}>
+      <div ref={scrollRef} style={{ overflowY: 'scroll', marginTop: 0 }}>
         <table className="glance-table" style={TABLE_STYLE}>
           <Colgroup />
           <tbody>

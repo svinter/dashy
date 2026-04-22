@@ -583,6 +583,25 @@ export function GlancePage() {
 
         <span style={{ opacity: 0.3 }}>|</span>
 
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <button
+            onClick={pageBackward}
+            disabled={currentPage === 0}
+            style={{ background: 'none', border: 'none', padding: '0 3px', cursor: currentPage === 0 ? 'default' : 'pointer', opacity: currentPage === 0 ? 0.25 : 0.6, fontSize: '11px', lineHeight: 1 }}
+          >←</button>
+          <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>
+            {formatPageLabel(pageStart, clampedEnd)}
+            {currentPage === 0 && <span style={{ opacity: 0.55, marginLeft: '4px' }}>· start</span>}
+            {currentPage === 1 && <span style={{ opacity: 0.55, marginLeft: '4px' }}>· today</span>}
+          </span>
+          <button
+            onClick={pageForward}
+            style={{ background: 'none', border: 'none', padding: '0 3px', cursor: 'pointer', opacity: 0.6, fontSize: '11px', lineHeight: 1 }}
+          >→</button>
+        </div>
+
+        <span style={{ opacity: 0.3 }}>|</span>
+
         <span style={{ opacity: 0.5, marginRight: '2px' }}>show:</span>
         {Object.entries(MEMBER_SWATCHES).map(([id, { label, color, shortcutHint }]) => (
           <div key={id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1px' }}>
@@ -620,25 +639,6 @@ export function GlancePage() {
           <input type="radio" name="glance-mode" checked={mode === 'horizontal'} onChange={() => setMode('horizontal')} style={{ margin: 0 }} />
           horizontal
         </label>
-
-        <span style={{ opacity: 0.3 }}>|</span>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <button
-            onClick={pageBackward}
-            disabled={currentPage === 0}
-            style={{ background: 'none', border: 'none', padding: '0 3px', cursor: currentPage === 0 ? 'default' : 'pointer', opacity: currentPage === 0 ? 0.25 : 0.6, fontSize: '11px', lineHeight: 1 }}
-          >←</button>
-          <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>
-            {formatPageLabel(pageStart, clampedEnd)}
-            {currentPage === 0 && <span style={{ opacity: 0.55, marginLeft: '4px' }}>· start</span>}
-            {currentPage === 1 && <span style={{ opacity: 0.55, marginLeft: '4px' }}>· today</span>}
-          </span>
-          <button
-            onClick={pageForward}
-            style={{ background: 'none', border: 'none', padding: '0 3px', cursor: 'pointer', opacity: 0.6, fontSize: '11px', lineHeight: 1 }}
-          >→</button>
-        </div>
       </div>
 
       {/* Grid */}
