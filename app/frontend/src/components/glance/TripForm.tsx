@@ -46,10 +46,13 @@ export function TripForm({ initial, editId, existingData, members, locations, on
     try { return JSON.parse(existingData.color_data); } catch { return null; }
   });
 
-  // Sync locationInput display with locationId
+  // Sync locationInput display when a known locationId is set (edit mode, or after selection).
+  // Guard: skip when locationId is empty so we never clear the user's in-progress typed text,
+  // and skip when locations haven't loaded yet to avoid wiping the input on late-load.
   useEffect(() => {
+    if (!locationId || locations.length === 0) return;
     const loc = locations.find((l) => l.id === locationId);
-    setLocationInput(loc?.display ?? locationId);
+    if (loc) setLocationInput(loc.display);
   }, [locationId, locations]);
 
   function handleLocationInput(val: string) {
