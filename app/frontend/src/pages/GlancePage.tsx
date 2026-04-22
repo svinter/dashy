@@ -87,11 +87,52 @@ function getLaneShortLabel(id: LaneId): string {
 }
 
 // ---------------------------------------------------------------------------
+// Page navigation constants and helpers
+// ---------------------------------------------------------------------------
+
+const CALENDAR_START = new Date(2026, 3, 1); // Apr 1, 2026 — immutable
+const CALENDAR_END   = new Date(2030, 3, 1); // Apr 1, 2030 — immutable
+const PAGE_MONTHS    = 6;
+
+const MONTH_ABBR_LONG = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+function getPage1Start(): Date {
+  const today = new Date();
+  return new Date(today.getFullYear(), today.getMonth() - 1, 1);
+}
+
+function pageStartForIndex(n: number): Date {
+  if (n === 0) return new Date(CALENDAR_START);
+  const base = getPage1Start();
+  base.setMonth(base.getMonth() + (n - 1) * PAGE_MONTHS);
+  return base;
+}
+
+function formatPageLabel(start: Date, end: Date): string {
+  // end is exclusive (pageStart + 6 months), so last visible month is end - 1 month
+  const lastMonth = new Date(end);
+  lastMonth.setMonth(lastMonth.getMonth() - 1);
+  const sm = MONTH_ABBR_LONG[start.getMonth()];
+  const em = MONTH_ABBR_LONG[lastMonth.getMonth()];
+  if (start.getFullYear() === lastMonth.getFullYear()) {
+    return `${sm} – ${em} ${start.getFullYear()}`;
+  }
+  return `${sm} ${start.getFullYear()} – ${em} ${lastMonth.getFullYear()}`;
+}
+
+// ---------------------------------------------------------------------------
 // GlancePage
 // ---------------------------------------------------------------------------
 
 export function GlancePage() {
-  const { weeksData, isLoading, error } = useGlanceData(52);
+  const [currentPage, setCurrentPage] = useState(1);
+
+  const pageStart = pageStartForIndex(currentPage);
+  const pageEnd   = new Date(pageStart);
+  pageEnd.setMonth(pageEnd.getMonth() + PAGE_MONTHS);
+  const clampedEnd = pageEnd > CALENDAR_END ? new Date(CALENDAR_END) : pageEnd;
+
+  const { weeksData, isLoading, error } = useGlanceData(localIso(pageStart), localIso(clampedEnd));
   const { data: members = [] } = useGlanceMembers();
   const { data: locations = [] } = useGlanceLocations();
 
@@ -130,6 +171,8 @@ export function GlancePage() {
   cursorRef.current   = cursor;
   const modalRef      = useRef(modal);
   modalRef.current    = modal;
+  const currentPageRef = useRef(currentPage);
+  currentPageRef.current = currentPage;
 
   // --- Lane / member toggles ---
 
@@ -251,6 +294,47 @@ export function GlancePage() {
     localStorage.setItem('glance_month_opacity', String(monthOpacity));
   }, [monthOpacity]);
 
+  // --- Page navigation ---
+
+  function scrollToToday() {
+    requestAnimationFrame(() => {
+      const todayStr = localIso(new Date());
+      const el = document.querySelector(`[data-date="${todayStr}"]`) as HTMLElement | null;
+      if (el && gridScrollRef.current) {
+        const containerRect = gridScrollRef.current.getBoundingClientRect();
+        const elRect = el.getBoundingClientRect();
+        const delta = elRect.top - containerRect.top - 20;
+        gridScrollRef.current.scrollBy({ top: delta });
+      }
+    });
+  }
+
+  function goToPage(n: number) {
+    const maxPage = Math.ceil(
+      (CALENDAR_END.getTime() - getPage1Start().getTime())
+      / (1000 * 60 * 60 * 24 * 30 * PAGE_MONTHS)
+    ) + 1;
+    const clamped = Math.max(0, Math.min(n, maxPage));
+    setCurrentPage(clamped);
+    if (n === 1) {
+      // Scroll to today after React re-renders the new page data
+      setTimeout(scrollToToday, 100);
+    }
+  }
+
+  function pageForward()  { goToPage(currentPage + 1); }
+  function pageBackward() { goToPage(currentPage - 1); }
+
+  // Initial load: scroll today into view once data arrives
+  const didInitialScrollRef = useRef(false);
+  useEffect(() => {
+    if (isLoading || didInitialScrollRef.current) return;
+    if (Object.keys(weeksData).length === 0) return;
+    didInitialScrollRef.current = true;
+    setTimeout(scrollToToday, 100);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoading]);
+
   // --- Edit handlers invoked from ViewEditPopover ---
 
   const handleEditTrip = useCallback((tripId: number) => {
@@ -350,11 +434,18 @@ export function GlancePage() {
         return;
       }
 
-      // Member filters (Option = altKey)
+      // Option key shortcuts
       if (e.altKey) {
+        // Member filters
         if (key === 'p') { toggleMember('pgv');      return; }
         if (key === 'k') { toggleMember('kpv');      return; }
         if (key === 'o') { toggleMember('ovinters'); return; }
+        // Page navigation
+        if (key === '0') { e.preventDefault(); goToPage(0); return; }
+        if (key === '1') { e.preventDefault(); goToPage(1); return; }
+        // ⌥] on US Mac produces "'" and ⌥[ produces """
+        if (key === ']' || key === "'") { e.preventDefault(); goToPage(currentPageRef.current + 1); return; }
+        if (key === '[' || key === '"') { e.preventDefault(); goToPage(currentPageRef.current - 1); return; }
       }
 
       // Cursor movement
@@ -529,6 +620,25 @@ export function GlancePage() {
           <input type="radio" name="glance-mode" checked={mode === 'horizontal'} onChange={() => setMode('horizontal')} style={{ margin: 0 }} />
           horizontal
         </label>
+
+        <span style={{ opacity: 0.3 }}>|</span>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <button
+            onClick={pageBackward}
+            disabled={currentPage === 0}
+            style={{ background: 'none', border: 'none', padding: '0 3px', cursor: currentPage === 0 ? 'default' : 'pointer', opacity: currentPage === 0 ? 0.25 : 0.6, fontSize: '11px', lineHeight: 1 }}
+          >←</button>
+          <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>
+            {formatPageLabel(pageStart, clampedEnd)}
+            {currentPage === 0 && <span style={{ opacity: 0.55, marginLeft: '4px' }}>· start</span>}
+            {currentPage === 1 && <span style={{ opacity: 0.55, marginLeft: '4px' }}>· today</span>}
+          </span>
+          <button
+            onClick={pageForward}
+            style={{ background: 'none', border: 'none', padding: '0 3px', cursor: 'pointer', opacity: 0.6, fontSize: '11px', lineHeight: 1 }}
+          >→</button>
+        </div>
       </div>
 
       {/* Grid */}

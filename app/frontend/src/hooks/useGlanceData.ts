@@ -3,7 +3,7 @@
  * Never fetch/mutate Glance data inside page or component files.
  */
 
-import { useState, useMemo } from 'react';
+import { useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
 // ---------------------------------------------------------------------------
@@ -113,13 +113,6 @@ function isoWeekStart(d: Date): Date {
   return addDays(d, diff);
 }
 
-function defaultRange(weeksCount = 12): { start: string; end: string } {
-  const today = new Date();
-  const monday = isoWeekStart(today);
-  const startMonday = addDays(monday, -Math.floor(weeksCount / 2) * 7);
-  const end = addDays(startMonday, weeksCount * 7 - 1);
-  return { start: toIso(startMonday), end: toIso(end) };
-}
 
 // ---------------------------------------------------------------------------
 // Fetchers
@@ -147,25 +140,17 @@ async function fetchLocations(): Promise<GlanceLocation[]> {
 // Read hooks
 // ---------------------------------------------------------------------------
 
-export function useGlanceData(initialWeeks = 12) {
-  const [range, setRangeState] = useState(() => defaultRange(initialWeeks));
-
+export function useGlanceData(start: string, end: string) {
   const weeksQuery = useQuery<GlanceWeeksData>({
-    queryKey: ['glance-weeks', range.start, range.end],
-    queryFn: () => fetchWeeks(range.start, range.end),
+    queryKey: ['glance-weeks', start, end],
+    queryFn: () => fetchWeeks(start, end),
     staleTime: 60_000,
   });
-
-  function setRange(start: string, end: string) {
-    setRangeState({ start, end });
-  }
 
   return {
     weeksData: weeksQuery.data ?? {},
     isLoading: weeksQuery.isLoading,
     error: weeksQuery.error,
-    range,
-    setRange,
   };
 }
 
