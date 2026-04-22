@@ -43,12 +43,13 @@ interface DateStripProps {
 
 const DATE_STRIP_WEEKDAY_BG = '#EFEEEA';
 const DATE_STRIP_WEEKEND_BG = '#E8E6E0';
+export const DATE_STRIP_HEIGHT = 20;
 const DATE_STRIP_FONT: React.CSSProperties = {
   fontSize: '11px',
   fontWeight: 500,
   color: '#4a4944',
-  height: '20px',
-  lineHeight: '20px',
+  height: DATE_STRIP_HEIGHT,
+  lineHeight: `${DATE_STRIP_HEIGHT}px`,
   textAlign: 'center',
   boxSizing: 'border-box',
 };
@@ -71,27 +72,34 @@ export function DateStrip({ week, monthBg, monthLabel, dayData, visibleLanes }: 
 
   return (
     <tr>
-      {/* Month column — sticky left */}
+      {/* Month column — sticky left; height fixed to DATE_STRIP_HEIGHT so text cannot expand the row */}
       <td
         style={{
           ...cellBorder,
           ...weekdayStripBg,
-          verticalAlign: 'middle',
-          padding: '0 4px',
-          fontSize: '9px',
-          fontWeight: 500,
-          lineHeight: 1.2,
-          color: 'var(--color-text, #111)',
-          boxSizing: 'border-box',
-          height: '20px',
-          whiteSpace: 'nowrap',
+          padding: 0,
+          height: DATE_STRIP_HEIGHT,
           overflow: 'hidden',
           position: 'sticky',
           left: 0,
           zIndex: 5,
         }}
       >
-        {monthLabel}
+        <span style={{
+          display: 'block',
+          height: DATE_STRIP_HEIGHT,
+          lineHeight: `${DATE_STRIP_HEIGHT}px`,
+          padding: '0 4px',
+          fontSize: '9px',
+          fontWeight: 500,
+          color: 'var(--color-text, #111)',
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          boxSizing: 'border-box',
+        }}>
+          {monthLabel}
+        </span>
       </td>
 
       {/* Week-number cell — sticky left */}

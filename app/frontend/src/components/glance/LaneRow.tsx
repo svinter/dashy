@@ -15,6 +15,7 @@ interface LaneRowProps {
   week: Date[];
   dayData: Record<string, GlanceDayData>;
   monthBg: string;
+  monthOpacity: number;
   visibleMembers: Set<string>;
   onNoteHover: (e: React.MouseEvent, laneLabel: string, date: string, notes: string[]) => void;
   onNoteLeave: () => void;
@@ -66,6 +67,7 @@ export function LaneRow({
   week,
   dayData,
   monthBg,
+  monthOpacity,
   visibleMembers,
   onNoteHover,
   onNoteLeave,
@@ -77,6 +79,7 @@ export function LaneRow({
   onCellClick,
   onEdgeDragStart,
 }: LaneRowProps) {
+  const weekendDimming = 1 - (monthOpacity / 100) * 0.4;
   const cellBorderBottom =
     laneId === 'york' || laneId === 'fam_travel'
       ? '0.5px solid rgba(0,0,0,0.22)'
@@ -160,7 +163,7 @@ export function LaneRow({
             data-lane={laneId}
             style={{
               '--glance-cell-bg': monthBg,
-              filter: weekend ? 'brightness(0.975)' : undefined,
+              filter: weekend ? `brightness(${weekendDimming})` : undefined,
               padding: 0,
               height: LANE_ROW_HEIGHT,
               overflow: 'hidden',

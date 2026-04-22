@@ -80,6 +80,7 @@ export function GlanceWeek({
           week={week}
           dayData={dayData}
           monthBg={monthBg}
+          monthOpacity={monthOpacity}
           visibleMembers={visibleMembers}
           onNoteHover={onNoteHover}
           onNoteLeave={onNoteLeave}
