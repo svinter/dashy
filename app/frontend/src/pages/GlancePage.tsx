@@ -37,12 +37,12 @@ export type CursorCell = { date: string; laneId: LaneId };
 // ---------------------------------------------------------------------------
 
 const LANE_CONFIG: { id: LaneId; controlLabel: string; shortLabel: string; shortcutHint: string }[] = [
-  { id: 'gcal',        controlLabel: 'calendar',      shortLabel: 'calendar',  shortcutHint: '1' },
-  { id: 'york',        controlLabel: 'york house',    shortLabel: 'york',      shortcutHint: '2' },
-  { id: 'fam_events',  controlLabel: 'family events', shortLabel: 'family',    shortcutHint: '3' },
-  { id: 'fam_travel',  controlLabel: 'family travel', shortLabel: 'travel',    shortcutHint: '4' },
-  { id: 'steve_events',controlLabel: 'my events',     shortLabel: 'my events', shortcutHint: '5' },
-  { id: 'steve_travel',controlLabel: 'my travel',     shortLabel: 'my travel', shortcutHint: '6' },
+  { id: 'gcal',        controlLabel: 'calendar',      shortLabel: 'calendar',  shortcutHint: 'f1' },
+  { id: 'york',        controlLabel: 'york house',    shortLabel: 'york',      shortcutHint: 'f2' },
+  { id: 'fam_events',  controlLabel: 'family events', shortLabel: 'family',    shortcutHint: 'f3' },
+  { id: 'fam_travel',  controlLabel: 'family travel', shortLabel: 'travel',    shortcutHint: 'f4' },
+  { id: 'steve_events',controlLabel: 'my events',     shortLabel: 'my events', shortcutHint: 'f5' },
+  { id: 'steve_travel',controlLabel: 'my travel',     shortLabel: 'my travel', shortcutHint: 'f6' },
 ];
 
 const LANE_IDS: LaneId[] = LANE_CONFIG.map((l) => l.id);
@@ -54,9 +54,9 @@ const DEFAULT_VISIBLE_LANES: Set<LaneId> = new Set([
 const DEFAULT_VISIBLE_MEMBERS: Set<string> = new Set(['pgv', 'kpv', 'ovinters']);
 
 const MEMBER_SWATCHES: Record<string, { label: string; color: string; shortcutHint: string }> = {
-  pgv:      { label: 'PGV',      color: '#F4C0D1', shortcutHint: '⌥P' },
-  kpv:      { label: 'KPV',      color: '#9FE1CB', shortcutHint: '⌥K' },
-  ovinters: { label: 'OVinters', color: '#FAC775', shortcutHint: '⌥O' },
+  pgv:      { label: 'PGV',      color: '#F4C0D1', shortcutHint: 'fp' },
+  kpv:      { label: 'KPV',      color: '#9FE1CB', shortcutHint: 'fk' },
+  ovinters: { label: 'OVinters', color: '#FAC775', shortcutHint: 'fo' },
 };
 
 const TRAVEL_LANES = new Set<LaneId>(['steve_travel', 'fam_travel']);
@@ -173,6 +173,9 @@ export function GlancePage() {
   modalRef.current    = modal;
   const currentPageRef = useRef(currentPage);
   currentPageRef.current = currentPage;
+  const [filterMode, setFilterMode] = useState(false);
+  const filterModeRef = useRef(false);
+  filterModeRef.current = filterMode;
 
   // --- Lane / member toggles ---
 
@@ -397,11 +400,14 @@ export function GlancePage() {
     }
 
     function handler(e: KeyboardEvent) {
-      // Escape is always handled regardless of focus
-      if (e.key === 'Escape') {
-        if (modalRef.current) { setModal(null); return; }
-        if (gMode) { setGMode(false); return; }
-        if (dragStateRef.current) { setDragState(null); return; }
+      const { key } = e;
+
+      // Escape — always handled regardless of focus
+      if (key === 'Escape') {
+        if (modalRef.current)      { setModal(null);       return; }
+        if (filterModeRef.current) { setFilterMode(false); return; }
+        if (gMode)                 { setGMode(false);      return; }
+        if (dragStateRef.current)  { setDragState(null);   return; }
         setCursor(null);
         return;
       }
@@ -409,12 +415,38 @@ export function GlancePage() {
       if (modalRef.current || gMode) return;
       if (isInputActive()) return;
 
-      const { key } = e;
+      // ── Filter mode: waiting for second key after 'f' ──────────────────────
+      if (filterModeRef.current) {
+        setFilterMode(false);
+        e.preventDefault();
+        if (key === '1') { toggleLane('gcal');         return; }
+        if (key === '2') { toggleLane('york');         return; }
+        if (key === '3') { toggleLane('fam_events');   return; }
+        if (key === '4') { toggleLane('fam_travel');   return; }
+        if (key === '5') { toggleLane('steve_events'); return; }
+        if (key === '6') { toggleLane('steve_travel'); return; }
+        if (key === 'p') { toggleMember('pgv');        return; }
+        if (key === 'k') { toggleMember('kpv');        return; }
+        if (key === 'o') { toggleMember('ovinters');   return; }
+        // Unrecognized key — filter mode already cancelled above
+        return;
+      }
 
-      // Scroll / navigation
-      if (key === 'j') { e.preventDefault(); gridScrollRef.current?.scrollBy({ top: 260,  behavior: 'smooth' }); return; }
+      // ── Single-key shortcuts ───────────────────────────────────────────────
+
+      // Enter filter mode
+      if (key === 'f') { e.preventDefault(); setFilterMode(true); return; }
+
+      // Page navigation
+      if (key === '1') { e.preventDefault(); goToPage(1); return; }
+      if (key === '0') { e.preventDefault(); goToPage(0); return; }
+      if (key === '[') { e.preventDefault(); goToPage(currentPageRef.current - 1); return; }
+      if (key === ']') { e.preventDefault(); goToPage(currentPageRef.current + 1); return; }
+
+      // Scroll
+      if (key === 'j') { e.preventDefault(); gridScrollRef.current?.scrollBy({ top:  260, behavior: 'smooth' }); return; }
       if (key === 'k') { e.preventDefault(); gridScrollRef.current?.scrollBy({ top: -260, behavior: 'smooth' }); return; }
-      if (key === 'J') { e.preventDefault(); gridScrollRef.current?.scrollBy({ top: 520,  behavior: 'smooth' }); return; }
+      if (key === 'J') { e.preventDefault(); gridScrollRef.current?.scrollBy({ top:  520, behavior: 'smooth' }); return; }
       if (key === 'K') { e.preventDefault(); gridScrollRef.current?.scrollBy({ top: -520, behavior: 'smooth' }); return; }
       if (key === 't') {
         e.preventDefault();
@@ -422,31 +454,12 @@ export function GlancePage() {
         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
         return;
       }
+
+      // Go-to-month input mode
       if (key === 'g') { e.preventDefault(); setGMode(true); setGInput(''); return; }
 
       // View toggle
       if (key === 'v') { e.preventDefault(); setMode((m) => m === 'vertical' ? 'horizontal' : 'vertical'); return; }
-
-      // Lane toggles (1–6)
-      if (key >= '1' && key <= '6') {
-        const idx = parseInt(key) - 1;
-        if (idx < LANE_IDS.length) toggleLane(LANE_IDS[idx]);
-        return;
-      }
-
-      // Option key shortcuts
-      if (e.altKey) {
-        // Member filters
-        if (key === 'p') { toggleMember('pgv');      return; }
-        if (key === 'k') { toggleMember('kpv');      return; }
-        if (key === 'o') { toggleMember('ovinters'); return; }
-        // Page navigation
-        if (key === '0') { e.preventDefault(); goToPage(0); return; }
-        if (key === '1') { e.preventDefault(); goToPage(1); return; }
-        // ⌥] on US Mac produces "'" and ⌥[ produces """
-        if (key === ']' || key === "'") { e.preventDefault(); goToPage(currentPageRef.current + 1); return; }
-        if (key === '[' || key === '"') { e.preventDefault(); goToPage(currentPageRef.current - 1); return; }
-      }
 
       // Cursor movement
       if (key === 'ArrowRight') {
@@ -512,14 +525,11 @@ export function GlancePage() {
           return;
         }
       }
-
-      // R — Phase 3 GCal refresh (no-op placeholder)
-      if (key === 'R') { return; }
     }
 
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  // Stable deps only — refs handle the mutable values
+  // filterModeRef and currentPageRef are ref mirrors — no need in deps
   }, [gMode, toggleLane, toggleMember]);
 
   // ---------------------------------------------------------------------------
@@ -582,6 +592,16 @@ export function GlancePage() {
         ))}
 
         <span style={{ opacity: 0.3 }}>|</span>
+
+        {filterMode && (
+          <span style={{
+            fontSize: '11px', fontWeight: 600,
+            background: 'rgba(55, 138, 221, 0.13)',
+            color: '#1a6eb5',
+            padding: '1px 7px', borderRadius: '3px',
+            letterSpacing: '0.02em',
+          }}>f…</span>
+        )}
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
           <button
