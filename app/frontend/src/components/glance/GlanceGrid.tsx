@@ -127,8 +127,8 @@ export function GlanceGrid({
     <div style={{ display: 'flex', flexDirection: 'column' }}>
 
       {/* ── Fixed header table — never scrolls ── */}
-      {/* overflow:hidden + margin/padding:0 + lineHeight:0 eliminates any gap between header and scroll body */}
-      <div style={{ overflow: 'hidden', flexShrink: 0, marginBottom: 0, paddingBottom: 0, lineHeight: 0 }}>
+      {/* display:block + fontSize:0 collapses inline whitespace without affecting the table's own line heights */}
+      <div style={{ overflow: 'hidden', flexShrink: 0, marginBottom: 0, paddingBottom: 0, display: 'block', fontSize: 0 }}>
         <table className="glance-table" style={{ ...TABLE_STYLE, borderSpacing: 0, borderCollapse: 'separate', marginBottom: 0 }}>
           <Colgroup />
           <thead>
