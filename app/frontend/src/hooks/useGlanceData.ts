@@ -17,6 +17,8 @@ export interface GlanceTripDay {
   member_display: string | null;
   member_color_bg: string | null;
   member_color_text: string | null;
+  member_travel_color_bg: string | null;
+  member_travel_color_text: string | null;
   location_id: string;
   location_display: string | null;
   location_color_bg: string | null;
@@ -61,6 +63,8 @@ export interface GlanceMember {
   color_accent: string;
   sort_order: number;
   gcal_calendar_id: string | null;
+  travel_color_bg: string | null;
+  travel_color_text: string | null;
 }
 
 export interface GlanceLocation {
@@ -202,7 +206,8 @@ export function useCreateGlanceTrip() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (body: {
-      member_id: string; location_id: string;
+      member_id: string;
+      location_id?: string; location_name?: string;
       start_date: string; end_date: string;
       notes?: string; color_data?: string | null; day_overrides?: object[];
     }) => {
@@ -222,7 +227,7 @@ export function useUpdateGlanceTrip() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, ...body }: {
-      id: number; member_id?: string; location_id?: string;
+      id: number; member_id?: string; location_id?: string; location_name?: string;
       start_date?: string; end_date?: string; color_data?: string | null;
       notes?: string; day_overrides?: object[];
     }) => {

@@ -334,7 +334,8 @@ class GlanceCommentUpsert(BaseModel):
 
 class GlanceTripCreate(BaseModel):
     member_id: str
-    location_id: str
+    location_id: Optional[str] = None   # existing location id
+    location_name: Optional[str] = None  # free-text; new location created if not found
     start_date: str   # YYYY-MM-DD
     end_date: str     # YYYY-MM-DD
     notes: Optional[str] = None
@@ -345,6 +346,7 @@ class GlanceTripCreate(BaseModel):
 class GlanceTripUpdate(BaseModel):
     member_id: Optional[str] = None
     location_id: Optional[str] = None
+    location_name: Optional[str] = None  # free-text; new location created if not found
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     notes: Optional[str] = None

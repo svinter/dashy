@@ -62,11 +62,11 @@ def upgrade() -> None:
         INSERT OR IGNORE INTO glance_locations
             (id, display, color_bg, color_text, is_home, is_york)
         VALUES
-            ('boston',   'boston',   '#85B7EB', '#042C53', 1, 0),
-            ('york',     'york',     '#97C459', '#173404', 0, 1),
-            ('portugal', 'Portugal', '#F0997B', '#4A1B0C', 0, 0),
-            ('azores',   'Azores',   '#F0997B', '#4A1B0C', 0, 0),
-            ('sark',     'Sark',     '#ED93B1', '#4B1528', 0, 0)
+            ('boston',   'boston',   '#8CB8E5', '#042C53', 1, 0),
+            ('york',     'york',     '#97C35B', '#173404', 0, 1),
+            ('portugal', 'Portugal', '#EF997A', '#4A1B0C', 0, 0),
+            ('azores',   'Azores',   '#EF997A', '#4A1B0C', 0, 0),
+            ('sark',     'Sark',     '#EF997A', '#4A1B0C', 0, 0)
     """)
 
     op.execute("""

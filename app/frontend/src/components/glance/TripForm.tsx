@@ -22,7 +22,8 @@ interface TripFormProps {
   members: GlanceMember[];
   locations: GlanceLocation[];
   onSave: (data: {
-    member_id: string; location_id: string;
+    member_id: string;
+    location_id?: string; location_name?: string;
     start_date: string; end_date: string;
     notes?: string; color_data?: string | null; day_overrides?: object[];
   }) => void;
@@ -76,13 +77,21 @@ export function TripForm({ initial, editId, existingData, members, locations, on
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!memberId) { setError('Member is required'); return; }
-    if (!locationId && !locationInput.trim()) { setError('Location is required'); return; }
-    const resolvedLocationId = locationId || locationInput.trim().toLowerCase().replace(/\s+/g, '_');
-    if (locations.length > 0 && !locations.find((l) => l.id === resolvedLocationId)) {
-      setError(`"${locationInput.trim()}" not found — select a location from the list`);
-      return;
+    const trimmedInput = locationInput.trim();
+    if (!locationId && !trimmedInput) { setError('Location is required'); return; }
+    const saveData: Parameters<typeof onSave>[0] = {
+      member_id: memberId,
+      start_date: startDate,
+      end_date: endDate,
+      notes: notes || undefined,
+      color_data: colorData ? JSON.stringify(colorData) : null,
+    };
+    if (locationId) {
+      saveData.location_id = locationId;
+    } else {
+      saveData.location_name = trimmedInput;
     }
-    onSave({ member_id: memberId, location_id: resolvedLocationId, start_date: startDate, end_date: endDate, notes: notes || undefined, color_data: colorData ? JSON.stringify(colorData) : null });
+    onSave(saveData);
   }
 
   // Compute day range for day marks section

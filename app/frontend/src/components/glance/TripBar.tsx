@@ -30,7 +30,9 @@ export function TripBar({
   }
 
   const locationDisplay = trip.location_display ?? trip.location_id;
-  const memberColorBg   = trip.lane === 'fam_travel' ? (trip.member_color_bg ?? null) : null;
+  const memberColorBg   = trip.lane === 'fam_travel'
+    ? (trip.member_travel_color_bg ?? trip.member_color_bg ?? null)
+    : null;
   const isDepart  = trip.depart;
   const isReturn  = trip.return;
   const hasNotes  = Boolean(trip.day_notes || trip.trip_notes);

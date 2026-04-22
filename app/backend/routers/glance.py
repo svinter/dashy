@@ -246,6 +246,8 @@ def get_weeks(
                 "member_display": member.get("display"),
                 "member_color_bg": member.get("color_bg"),
                 "member_color_text": member.get("color_text"),
+                "member_travel_color_bg": member.get("travel_color_bg"),
+                "member_travel_color_text": member.get("travel_color_text"),
                 "location_id": location_id,
                 "location_display": location.get("display"),
                 "location_color_bg": location.get("color_bg"),
@@ -310,6 +312,46 @@ def upsert_comment(body: GlanceCommentUpsert):
 # POST /trips  — create trip with auto-computed day marks
 # ---------------------------------------------------------------------------
 
+DEFAULT_LOCATION_COLOR_BG   = "#EF997A"
+DEFAULT_LOCATION_COLOR_TEXT = "#4A1B0C"
+
+
+def _resolve_or_create_location(db, location_id: Optional[str], location_name: Optional[str]) -> str:
+    """Return the resolved location_id, creating a new row if necessary."""
+    if not location_id and not location_name:
+        raise HTTPException(status_code=400, detail="Either location_id or location_name is required")
+
+    if location_id:
+        # Validate it exists
+        row = db.execute("SELECT id FROM glance_locations WHERE id = ?", (location_id,)).fetchone()
+        if row:
+            return location_id
+        # Fall through: treat as unknown — try to match by display name
+        location_name = location_id
+
+    # Try case-insensitive match against existing display names
+    name = location_name.strip()
+    row = db.execute(
+        "SELECT id FROM glance_locations WHERE LOWER(display) = LOWER(?)", (name,)
+    ).fetchone()
+    if row:
+        return row["id"]
+
+    # Also try matching by id slug
+    slug = name.lower().replace(" ", "-")
+    row = db.execute("SELECT id FROM glance_locations WHERE id = ?", (slug,)).fetchone()
+    if row:
+        return slug
+
+    # Create new location
+    db.execute(
+        "INSERT INTO glance_locations (id, display, color_bg, color_text, is_home, is_york) "
+        "VALUES (?, ?, ?, ?, 0, 0)",
+        (slug, name, DEFAULT_LOCATION_COLOR_BG, DEFAULT_LOCATION_COLOR_TEXT),
+    )
+    return slug
+
+
 @router.post("/trips", status_code=201)
 def create_trip(body: GlanceTripCreate):
     try:
@@ -332,10 +374,11 @@ def create_trip(body: GlanceTripCreate):
 
     try:
         with get_db_connection() as db:
+            resolved_location_id = _resolve_or_create_location(db, body.location_id, body.location_name)
             cur = db.execute(
                 "INSERT INTO glance_trips (member_id, location_id, start_date, end_date, notes, color_data, source) "
                 "VALUES (?, ?, ?, ?, ?, ?, 'manual')",
-                (body.member_id, body.location_id, body.start_date, body.end_date, body.notes, body.color_data),
+                (body.member_id, resolved_location_id, body.start_date, body.end_date, body.notes, body.color_data),
             )
             trip_id = cur.lastrowid
             for m in marks:
@@ -381,8 +424,9 @@ def update_trip(trip_id: int, body: GlanceTripUpdate):
         params: list = []
         if body.member_id is not None:
             updates.append("member_id = ?"); params.append(body.member_id)
-        if body.location_id is not None:
-            updates.append("location_id = ?"); params.append(body.location_id)
+        if body.location_id is not None or body.location_name is not None:
+            resolved = _resolve_or_create_location(db, body.location_id, body.location_name)
+            updates.append("location_id = ?"); params.append(resolved)
         if body.start_date is not None:
             updates.append("start_date = ?"); params.append(body.start_date)
         if body.end_date is not None:
