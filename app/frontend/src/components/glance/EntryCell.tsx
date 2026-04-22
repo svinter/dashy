@@ -22,6 +22,8 @@ export function EntryCell({ entry, onMouseEnter, onMouseLeave }: EntryCellProps)
       colorTextOverride = computed.text;
     } catch { /* ignore */ }
   }
+  const textColorOverride = entry.text_color ?? null;
+
   const noteMark = hasNotes ? (
     <sup style={{ fontSize: '8px', opacity: 0.5, marginLeft: '1px' }}>*</sup>
   ) : null;
@@ -40,8 +42,11 @@ export function EntryCell({ entry, onMouseEnter, onMouseLeave }: EntryCellProps)
           fontSize: '10px', textAlign: 'center', lineHeight: '15px',
           ...(colorBgOverride ? {
             display: 'inline-flex', alignItems: 'center',
-            background: colorBgOverride, color: colorTextOverride ?? undefined,
+            background: colorBgOverride, color: textColorOverride ?? colorTextOverride ?? undefined,
             borderRadius: '3px', padding: '1px 5px', whiteSpace: 'nowrap',
+          } : textColorOverride ? {
+            display: 'inline-flex', alignItems: 'center',
+            color: textColorOverride,
           } : {}),
         }}
         {...handlers}
@@ -53,7 +58,7 @@ export function EntryCell({ entry, onMouseEnter, onMouseLeave }: EntryCellProps)
 
   if (entry.lane === 'fam_events') {
     const bg   = colorBgOverride   ?? entry.member_color_bg  ?? '#e0e0e0';
-    const fg   = colorTextOverride ?? entry.member_color_text ?? '#000';
+    const fg   = textColorOverride ?? colorTextOverride ?? entry.member_color_text ?? '#000';
     const memberDisplay = entry.member_display ?? entry.member_id ?? '';
     return (
       <div
@@ -77,7 +82,7 @@ export function EntryCell({ entry, onMouseEnter, onMouseLeave }: EntryCellProps)
 
   if (entry.lane === 'york') {
     const bg = colorBgOverride   ?? '#97C35B';
-    const fg = colorTextOverride ?? '#173404';
+    const fg = textColorOverride ?? colorTextOverride ?? '#173404';
     return (
       <div
         style={{
@@ -105,8 +110,11 @@ export function EntryCell({ entry, onMouseEnter, onMouseLeave }: EntryCellProps)
         fontSize: '10px', lineHeight: '15px',
         ...(colorBgOverride ? {
           display: 'inline-flex', alignItems: 'center',
-          background: colorBgOverride, color: colorTextOverride ?? undefined,
+          background: colorBgOverride, color: textColorOverride ?? colorTextOverride ?? undefined,
           borderRadius: '3px', padding: '1px 5px', whiteSpace: 'nowrap',
+        } : textColorOverride ? {
+          display: 'inline-flex', alignItems: 'center',
+          color: textColorOverride,
         } : {}),
       }}
       {...handlers}

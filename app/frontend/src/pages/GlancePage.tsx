@@ -722,6 +722,7 @@ export function GlancePage() {
             end_date:    modal.existingTrip.trip_end,
             notes:       modal.existingTrip.trip_notes ?? undefined,
             color_data:  modal.existingTrip.color_data ?? undefined,
+            text_color:  modal.existingTrip.text_color ?? undefined,
           } : undefined}
           members={members}
           locations={locations}
@@ -747,6 +748,7 @@ export function GlancePage() {
             member_id:  modal.existingEntry.member_id,
             date:       modal.existingDate ?? modal.initial.startDate,
             color_data: modal.existingEntry.color_data ?? undefined,
+            text_color: modal.existingEntry.text_color ?? undefined,
           } : undefined}
           members={members}
           onSave={(entries) => {

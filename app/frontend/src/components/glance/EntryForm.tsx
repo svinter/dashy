@@ -3,6 +3,7 @@ import type { GlanceMember } from '../../hooks/useGlanceData';
 import { backdropStyle, modalStyle, saveBtnStyle, cancelBtnStyle } from './TripForm';
 import { ColorPicker } from './ColorPicker';
 import type { ColorData } from './ColorPicker';
+import { TextColorPicker } from './TextColorPicker';
 
 export interface EntryFormInitial {
   laneId: string;
@@ -13,9 +14,9 @@ export interface EntryFormInitial {
 interface EntryFormProps {
   initial: EntryFormInitial;
   editId?: number;
-  existingData?: { label: string; notes?: string | null; member_id?: string | null; date: string; color_data?: string | null };
+  existingData?: { label: string; notes?: string | null; member_id?: string | null; date: string; color_data?: string | null; text_color?: string | null };
   members: GlanceMember[];
-  onSave: (entries: Array<{ lane: string; member_id?: string | null; date: string; label: string; notes?: string | null; color_data?: string | null }>) => void;
+  onSave: (entries: Array<{ lane: string; member_id?: string | null; date: string; label: string; notes?: string | null; color_data?: string | null; text_color?: string | null }>) => void;
   onCancel: () => void;
 }
 
@@ -30,6 +31,7 @@ export function EntryForm({ initial, editId, existingData, members, onSave, onCa
     if (!existingData?.color_data) return null;
     try { return JSON.parse(existingData.color_data); } catch { return null; }
   });
+  const [textColor, setTextColor] = useState<string | null>(existingData?.text_color ?? null);
 
   const needsMember = initial.laneId === 'fam_events';
   const isRange = startDate !== endDate && !editId;
@@ -69,6 +71,7 @@ export function EntryForm({ initial, editId, existingData, members, onSave, onCa
       label: label.trim(),
       notes: notes.trim() || undefined,
       color_data: colorData ? JSON.stringify(colorData) : null,
+      text_color: textColor,
     })));
   }
 
@@ -114,6 +117,7 @@ export function EntryForm({ initial, editId, existingData, members, onSave, onCa
           </label>
 
           <ColorPicker value={colorData} onChange={setColorData} />
+          <TextColorPicker value={textColor} onChange={setTextColor} />
 
           {editId ? (
             <label style={labelStyle}>

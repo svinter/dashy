@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import type { GlanceMember, GlanceLocation } from '../../hooks/useGlanceData';
 import { ColorPicker } from './ColorPicker';
 import type { ColorData } from './ColorPicker';
+import { TextColorPicker } from './TextColorPicker';
 
 export interface TripFormInitial {
   laneId: string;
@@ -17,6 +18,7 @@ interface TripFormProps {
     member_id: string; location_id: string;
     start_date: string; end_date: string; notes?: string | null;
     color_data?: string | null;
+    text_color?: string | null;
     days?: Array<{ date: string; depart: boolean; sleep: boolean; return: boolean; notes: string | null }>;
   };
   members: GlanceMember[];
@@ -25,7 +27,7 @@ interface TripFormProps {
     member_id: string;
     location_id?: string; location_name?: string;
     start_date: string; end_date: string;
-    notes?: string; color_data?: string | null; day_overrides?: object[];
+    notes?: string; color_data?: string | null; text_color?: string | null; day_overrides?: object[];
   }) => void;
   onCancel: () => void;
 }
@@ -46,6 +48,7 @@ export function TripForm({ initial, editId, existingData, members, locations, on
     if (!existingData?.color_data) return null;
     try { return JSON.parse(existingData.color_data); } catch { return null; }
   });
+  const [textColor, setTextColor] = useState<string | null>(existingData?.text_color ?? null);
 
   // Sync locationInput display when a known locationId is set (edit mode, or after selection).
   // Guard: skip when locationId is empty so we never clear the user's in-progress typed text,
@@ -85,6 +88,7 @@ export function TripForm({ initial, editId, existingData, members, locations, on
       end_date: endDate,
       notes: notes || undefined,
       color_data: colorData ? JSON.stringify(colorData) : null,
+      text_color: textColor,
     };
     if (locationId) {
       saveData.location_id = locationId;
@@ -177,6 +181,7 @@ export function TripForm({ initial, editId, existingData, members, locations, on
           </label>
 
           <ColorPicker value={colorData} onChange={setColorData} />
+          <TextColorPicker value={textColor} onChange={setTextColor} />
 
           {/* Day marks toggle */}
           <div style={{ marginBottom: '12px' }}>

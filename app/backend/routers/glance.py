@@ -168,7 +168,7 @@ def get_weeks(
         trip_rows = db.execute(
             """
             SELECT t.id, t.member_id, t.location_id,
-                   t.start_date, t.end_date, t.notes, t.color_data,
+                   t.start_date, t.end_date, t.notes, t.color_data, t.text_color,
                    t.source, t.source_ref
             FROM glance_trips t
             WHERE t.start_date <= ? AND t.end_date >= ?
@@ -192,7 +192,7 @@ def get_weeks(
                 trip_day_map[(dr["trip_id"], dr["date"])] = _row_to_dict(dr)
 
         entry_rows = db.execute(
-            "SELECT e.id, e.lane, e.member_id, e.date, e.label, e.notes, e.color_data "
+            "SELECT e.id, e.lane, e.member_id, e.date, e.label, e.notes, e.color_data, e.text_color "
             "FROM glance_entries e WHERE e.date >= ? AND e.date <= ? ORDER BY e.date, e.id",
             (start, end),
         ).fetchall()
@@ -257,6 +257,7 @@ def get_weeks(
                 "trip_end": trip["end_date"],
                 "trip_notes": trip.get("notes"),
                 "color_data": trip.get("color_data"),
+                "text_color": trip.get("text_color"),
                 "depart": bool(day_data.get("depart", False)),
                 "sleep": bool(day_data.get("sleep", False)),
                 "return": bool(day_data.get("return", False)),
@@ -282,6 +283,7 @@ def get_weeks(
             "label": entry["label"],
             "notes": entry["notes"],
             "color_data": entry["color_data"],
+            "text_color": entry["text_color"],
         })
 
     return result
@@ -376,9 +378,9 @@ def create_trip(body: GlanceTripCreate):
         with get_db_connection() as db:
             resolved_location_id = _resolve_or_create_location(db, body.location_id, body.location_name)
             cur = db.execute(
-                "INSERT INTO glance_trips (member_id, location_id, start_date, end_date, notes, color_data, source) "
-                "VALUES (?, ?, ?, ?, ?, ?, 'manual')",
-                (body.member_id, resolved_location_id, body.start_date, body.end_date, body.notes, body.color_data),
+                "INSERT INTO glance_trips (member_id, location_id, start_date, end_date, notes, color_data, text_color, source) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, 'manual')",
+                (body.member_id, resolved_location_id, body.start_date, body.end_date, body.notes, body.color_data, body.text_color),
             )
             trip_id = cur.lastrowid
             for m in marks:
@@ -435,6 +437,8 @@ def update_trip(trip_id: int, body: GlanceTripUpdate):
             updates.append("notes = ?"); params.append(body.notes)
         if body.color_data is not None:
             updates.append("color_data = ?"); params.append(body.color_data)
+        if "text_color" in body.model_fields_set:
+            updates.append("text_color = ?"); params.append(body.text_color)
         updates.append("updated_at = CURRENT_TIMESTAMP")
         params.append(trip_id)
         db.execute(f"UPDATE glance_trips SET {', '.join(updates)} WHERE id = ?", params)
@@ -527,9 +531,9 @@ def create_entries(body: GlanceEntriesCreate):
     with get_db_connection() as db:
         for e in body.entries:
             cur = db.execute(
-                "INSERT INTO glance_entries (lane, member_id, date, label, notes, color_data, source) "
-                "VALUES (?, ?, ?, ?, ?, ?, 'manual')",
-                (e.lane, e.member_id, e.date, e.label, e.notes, e.color_data),
+                "INSERT INTO glance_entries (lane, member_id, date, label, notes, color_data, text_color, source) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, 'manual')",
+                (e.lane, e.member_id, e.date, e.label, e.notes, e.color_data, e.text_color),
             )
             entry_id = cur.lastrowid
             row = db.execute("SELECT * FROM glance_entries WHERE id = ?", (entry_id,)).fetchone()
@@ -563,6 +567,8 @@ def update_entry(entry_id: int, body: GlanceEntryUpdate):
             updates.append("notes = ?"); params.append(body.notes)
         if body.color_data is not None:
             updates.append("color_data = ?"); params.append(body.color_data)
+        if "text_color" in body.model_fields_set:
+            updates.append("text_color = ?"); params.append(body.text_color)
         updates.append("updated_at = CURRENT_TIMESTAMP")
         params.append(entry_id)
         db.execute(f"UPDATE glance_entries SET {', '.join(updates)} WHERE id = ?", params)

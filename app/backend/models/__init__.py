@@ -340,6 +340,7 @@ class GlanceTripCreate(BaseModel):
     end_date: str     # YYYY-MM-DD
     notes: Optional[str] = None
     color_data: Optional[str] = None  # JSON: {"h":int,"s":int,"tint":int,"opacity":int}
+    text_color: Optional[str] = None  # hex string: null|#FF0000|#0000FF|#FFFFFF
     day_overrides: Optional[list[dict]] = None  # list of {date, depart?, sleep?, return?, notes?}
 
 
@@ -351,6 +352,7 @@ class GlanceTripUpdate(BaseModel):
     end_date: Optional[str] = None
     notes: Optional[str] = None
     color_data: Optional[str] = None
+    text_color: Optional[str] = None  # hex string; use model_fields_set to distinguish unset vs explicit null
     day_overrides: Optional[list[dict]] = None
 
 
@@ -361,6 +363,7 @@ class GlanceEntryCreate(BaseModel):
     label: str
     notes: Optional[str] = None
     color_data: Optional[str] = None  # JSON: {"h":int,"s":int,"tint":int,"opacity":int}
+    text_color: Optional[str] = None  # hex string: null|#FF0000|#0000FF|#FFFFFF
 
 
 class GlanceEntriesCreate(BaseModel):
@@ -374,3 +377,4 @@ class GlanceEntryUpdate(BaseModel):
     label: Optional[str] = None
     notes: Optional[str] = None
     color_data: Optional[str] = None
+    text_color: Optional[str] = None  # hex string; use model_fields_set to distinguish unset vs explicit null

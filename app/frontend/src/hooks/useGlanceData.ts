@@ -28,6 +28,7 @@ export interface GlanceTripDay {
   trip_end: string;
   trip_notes: string | null;
   color_data: string | null;
+  text_color: string | null;
   depart: boolean;
   sleep: boolean;
   return: boolean;
@@ -44,6 +45,7 @@ export interface GlanceEntry {
   label: string;
   notes: string | null;
   color_data: string | null;
+  text_color: string | null;
 }
 
 export interface GlanceDayData {
@@ -209,7 +211,7 @@ export function useCreateGlanceTrip() {
       member_id: string;
       location_id?: string; location_name?: string;
       start_date: string; end_date: string;
-      notes?: string; color_data?: string | null; day_overrides?: object[];
+      notes?: string; color_data?: string | null; text_color?: string | null; day_overrides?: object[];
     }) => {
       const res = await fetch('/api/glance/trips', {
         method: 'POST',
@@ -228,7 +230,7 @@ export function useUpdateGlanceTrip() {
   return useMutation({
     mutationFn: async ({ id, ...body }: {
       id: number; member_id?: string; location_id?: string; location_name?: string;
-      start_date?: string; end_date?: string; color_data?: string | null;
+      start_date?: string; end_date?: string; color_data?: string | null; text_color?: string | null;
       notes?: string; day_overrides?: object[];
     }) => {
       const res = await fetch(`/api/glance/trips/${id}`, {
@@ -259,7 +261,7 @@ export function useCreateGlanceEntries() {
   return useMutation({
     mutationFn: async (entries: Array<{
       lane: string; member_id?: string | null;
-      date: string; label: string; notes?: string | null; color_data?: string | null;
+      date: string; label: string; notes?: string | null; color_data?: string | null; text_color?: string | null;
     }>) => {
       const res = await fetch('/api/glance/entries', {
         method: 'POST',
@@ -278,7 +280,7 @@ export function useUpdateGlanceEntry() {
   return useMutation({
     mutationFn: async ({ id, ...body }: {
       id: number; lane?: string; member_id?: string | null;
-      date?: string; label?: string; notes?: string | null; color_data?: string | null;
+      date?: string; label?: string; notes?: string | null; color_data?: string | null; text_color?: string | null;
     }) => {
       const res = await fetch(`/api/glance/entries/${id}`, {
         method: 'PUT',

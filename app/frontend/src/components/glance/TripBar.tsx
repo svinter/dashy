@@ -38,6 +38,8 @@ export function TripBar({
     ? locationColorText
     : (trip.member_travel_color_text ?? trip.member_color_text ?? locationColorText);
 
+  const effectivePillText = trip.text_color ?? pillText;
+
   const locationDisplay = trip.location_display ?? trip.location_id;
   const isDepart  = trip.depart;
   const isReturn  = trip.return;
@@ -85,7 +87,7 @@ export function TripBar({
       onMouseDown={handleMouseDown}
     >
       {isDepart && (
-        <span style={{ fontSize: '11px', color: pillText, opacity: 0.7, marginRight: '3px' }}>→</span>
+        <span style={{ fontSize: '11px', color: effectivePillText, opacity: 0.7, marginRight: '3px' }}>→</span>
       )}
       <span style={{
         display: 'inline-block',
@@ -94,7 +96,7 @@ export function TripBar({
         fontSize: '10px',
         fontWeight: 500,
         background: pillBg,
-        color: pillText,
+        color: effectivePillText,
         whiteSpace: 'nowrap',
         overflow: 'hidden',
         textOverflow: 'ellipsis',
@@ -102,7 +104,7 @@ export function TripBar({
         {locationDisplay}{hasNotes && <sup style={{ fontSize: '8px', opacity: 0.5 }}>*</sup>}
       </span>
       {isReturn && (
-        <span style={{ fontSize: '11px', color: pillText, opacity: 0.7, marginLeft: '3px' }}>←</span>
+        <span style={{ fontSize: '11px', color: effectivePillText, opacity: 0.7, marginLeft: '3px' }}>←</span>
       )}
     </div>
   );
