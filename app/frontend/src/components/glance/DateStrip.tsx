@@ -22,8 +22,6 @@ function localIso(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
-const TODAY_STR = localIso(new Date());
-
 const LANE_DOT_COLOR: Record<string, string> = {
   gcal:         '#888',
   york:         '#97C459',
@@ -116,7 +114,10 @@ export function DateStrip({ week, monthLabel, dayData, visibleLanes }: DateStrip
       {week.map((d) => {
         const ds = localIso(d);
         const weekend = isWeekend(d);
-        const isToday = ds === TODAY_STR;
+        const today = new Date();
+        const isToday = d.getFullYear() === today.getFullYear() &&
+                        d.getMonth()    === today.getMonth()    &&
+                        d.getDate()     === today.getDate();
         const dayNum = d.getDate();
 
         // Collect hidden-lane dots for this day
@@ -151,7 +152,6 @@ export function DateStrip({ week, monthLabel, dayData, visibleLanes }: DateStrip
             }}
           >
             <span style={{
-              opacity: isToday ? 0.4 : 1,
               display: 'block',
               textAlign: 'center',
               color: isToday ? '#D85A30' : undefined,

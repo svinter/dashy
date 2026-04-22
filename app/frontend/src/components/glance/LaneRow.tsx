@@ -219,7 +219,7 @@ export function LaneRow({
         weekStart={weekStartIso}
         laneId={laneId}
         comment={comment}
-        cellBg={monthBgForDate(week[0], monthOpacity)}
+        cellBg="#F5F4F1"
         borderBottom={cellBorderBottom}
         borderTop={cellBorderTop}
       />

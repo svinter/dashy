@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import type { GlanceWeeksData } from '../../hooks/useGlanceData';
 import { useGlanceWeeks } from '../../hooks/useGlanceData';
 import { GlanceWeek } from './GlanceWeek';
@@ -15,6 +15,7 @@ const DAY_COL_W = 'calc((100% - 112px) / 9)';
 const COMMENT_COL_W = 'calc((100% - 112px) / 9 * 2)';
 
 const TH_BG = 'var(--color-bg, #fffff8)';
+const TH_BORDER_BOTTOM = '2px solid rgba(0,0,0,0.35)';
 
 // Shared colgroup for both the header table and the body table.
 // Both tables have identical colgroup so their columns align pixel-perfectly.
@@ -73,85 +74,123 @@ export function GlanceGrid({
 }: GlanceGridProps) {
   const weeks = useGlanceWeeks(weeksData);
 
-  const headerYear = weeks.length > 0
-    ? (weeks[0][3] ?? weeks[0][0]).getFullYear()
-    : new Date().getFullYear();
+  const [headerYear, setHeaderYear] = useState(() =>
+    weeks.length > 0 ? (weeks[0][3] ?? weeks[0][0]).getFullYear() : new Date().getFullYear()
+  );
+
+  // Reset year to top of page when data changes (page navigation)
+  useEffect(() => {
+    if (weeks.length > 0) {
+      setHeaderYear((weeks[0][3] ?? weeks[0][0]).getFullYear());
+    }
+  }, [weeks]);
+
+  // Dynamic height: fill from scroll container top to viewport bottom
+  useEffect(() => {
+    const updateHeight = () => {
+      if (!scrollRef.current) return;
+      const top = scrollRef.current.getBoundingClientRect().top;
+      scrollRef.current.style.height = `${window.innerHeight - top}px`;
+    };
+    updateHeight();
+    window.addEventListener('resize', updateHeight);
+    return () => window.removeEventListener('resize', updateHeight);
+  // scrollRef identity is stable (useRef in parent), empty deps is correct
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Year in header tracks the midpoint of the visible scroll area
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || weeks.length === 0) return;
+    const handleScroll = () => {
+      const midScrollTop = el.scrollTop + el.clientHeight / 2;
+      const weekHeight = el.scrollHeight / weeks.length;
+      const midWeekIndex = Math.min(Math.floor(midScrollTop / weekHeight), weeks.length - 1);
+      const midWeek = weeks[midWeekIndex];
+      if (midWeek) setHeaderYear((midWeek[3] ?? midWeek[0]).getFullYear());
+    };
+    el.addEventListener('scroll', handleScroll, { passive: true });
+    return () => el.removeEventListener('scroll', handleScroll);
+  }, [weeks, scrollRef]);
 
   const seenMonths = new Set<string>();
-
-  const thBorder: React.CSSProperties = { borderBottom: 'var(--glance-line-bold)' };
 
   return (
     // Flex column: fixed header + scrollable body below it.
     // overflowY: 'scroll' (not 'auto') ensures the scrollbar is always reserved,
     // keeping the body table the same width as the header table.
-    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 152px)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column' }}>
 
       {/* ── Fixed header table — never scrolls ── */}
-      <table className="glance-table" style={TABLE_STYLE}>
-        <Colgroup />
-        <thead>
-          <tr>
-            <th style={{
-              fontWeight: 500,
-              fontSize: '10px',
-              color: 'var(--color-text-primary, #111)',
-              textAlign: 'left',
-              padding: '4px 4px',
-              position: 'sticky',
-              left: 0,
-              zIndex: 5,
-              background: TH_BG,
-            }}>
-              {headerYear}
-            </th>
-            <th style={{
-              fontWeight: 400,
-              fontSize: '10px',
-              color: 'var(--color-text-tertiary, #999)',
-              textAlign: 'right',
-              paddingRight: '6px',
-              ...thBorder,
-              position: 'sticky',
-              left: 46,
-              zIndex: 5,
-              background: TH_BG,
-            }}>
-              lane
-            </th>
-            {DAY_HEADERS.map((d) => (
-              <th
-                key={d}
-                style={{
-                  fontWeight: 500,
-                  fontSize: '11px',
-                  color: '#4a4944',
-                  textAlign: 'center',
-                  padding: '4px 0',
-                  background: TH_BG,
-                  ...thBorder,
-                }}
-              >
-                {d}
+      {/* overflow:hidden wrapper clips any fractional-pixel table bottom gap */}
+      <div style={{ overflow: 'hidden', flexShrink: 0 }}>
+        <table className="glance-table" style={TABLE_STYLE}>
+          <Colgroup />
+          <thead>
+            <tr>
+              <th style={{
+                fontWeight: 500,
+                fontSize: '10px',
+                color: 'var(--color-text-primary, #111)',
+                textAlign: 'left',
+                padding: '4px 4px',
+                position: 'sticky',
+                left: 0,
+                zIndex: 5,
+                background: TH_BG,
+                borderBottom: TH_BORDER_BOTTOM,
+              }}>
+                {headerYear}
               </th>
-            ))}
-            <th style={{
-              fontWeight: 400,
-              fontSize: '10px',
-              color: 'var(--color-text-tertiary, #999)',
-              textAlign: 'left',
-              paddingLeft: '6px',
-              background: TH_BG,
-              ...thBorder,
-            }}>
-              notes
-            </th>
-          </tr>
-        </thead>
-      </table>
+              <th style={{
+                fontWeight: 400,
+                fontSize: '10px',
+                color: 'var(--color-text-tertiary, #999)',
+                textAlign: 'right',
+                paddingRight: '6px',
+                borderBottom: TH_BORDER_BOTTOM,
+                position: 'sticky',
+                left: 46,
+                zIndex: 5,
+                background: TH_BG,
+              }}>
+                lane
+              </th>
+              {DAY_HEADERS.map((d) => (
+                <th
+                  key={d}
+                  style={{
+                    fontWeight: 500,
+                    fontSize: '11px',
+                    color: '#4a4944',
+                    textAlign: 'center',
+                    padding: '4px 0',
+                    background: TH_BG,
+                    borderBottom: TH_BORDER_BOTTOM,
+                  }}
+                >
+                  {d}
+                </th>
+              ))}
+              <th style={{
+                fontWeight: 400,
+                fontSize: '10px',
+                color: 'var(--color-text-tertiary, #999)',
+                textAlign: 'left',
+                paddingLeft: '6px',
+                background: TH_BG,
+                borderBottom: TH_BORDER_BOTTOM,
+              }}>
+                notes
+              </th>
+            </tr>
+          </thead>
+        </table>
+      </div>
 
       {/* ── Scrollable body ── */}
-      <div ref={scrollRef} style={{ flex: 1, overflowY: 'scroll' }}>
+      <div ref={scrollRef} style={{ overflowY: 'scroll' }}>
         <table className="glance-table" style={TABLE_STYLE}>
           <Colgroup />
           <tbody>
