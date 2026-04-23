@@ -74,7 +74,9 @@
       "Bash(app/backend/venv/bin/python -m alembic -c app/backend/alembic.ini current)",
       "Bash(app/frontend/node_modules/.bin/tsc -p app/frontend/tsconfig.json --noEmit)",
       "Bash(venv/bin/python3 -c ':*)",
-      "Bash(git revert:*)"
+      "Bash(git revert:*)",
+      "Bash(python -m ruff check app/backend/routers/settings.py app/backend/routers/config_api.py)",
+      "Bash(ruff check:*)"
     ]
   }
 }

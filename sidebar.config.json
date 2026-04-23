@@ -2,12 +2,8 @@
   "sections": [
     {
       "id": "work",
-      "label": "work",
+      "label": "coaching",
       "items": [
-        { "id": "notes",    "label": "Thoughts", "route": "/notes" },
-        { "id": "issues",   "label": "Issues",   "route": "/issues" },
-        { "id": "docs",     "label": "Docs",     "route": "/docs" },
-        { "id": "meetings", "label": "Meetings", "route": "/meetings", "connector": "google|granola" },
         { "id": "coaching", "label": "Coaching", "route": "/coaching" },
         { "id": "libby",    "label": "Library",  "route": "/libby" },
         { "id": "billing",  "label": "Billing",  "route": "/billing" },
@@ -18,6 +14,10 @@
       "id": "sources",
       "label": "sources",
       "items": [
+        { "id": "docs",     "label": "Docs",     "route": "/docs" },
+        { "id": "meetings", "label": "Meetings", "route": "/meetings", "connector": "google|granola" },
+        { "id": "notes",    "label": "Thoughts", "route": "/notes" },
+        { "id": "issues",   "label": "Issues",   "route": "/issues" },
         { "id": "email",    "label": "Email",    "route": "/email",    "connector": "google" },
         { "id": "news",     "label": "News",     "route": "/news",     "connector": "news" },
         { "id": "github",   "label": "GitHub",   "route": "/github",   "connector": "github" },
