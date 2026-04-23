@@ -53,6 +53,7 @@ interface LibraryEntry {
   attribution?: string | null;
   context?: string | null;
   synopsis?: string | null;
+  summary_path?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -210,12 +211,16 @@ function openDetailUrl(url: string, isObsidian = false) {
   }
 }
 
-interface DetailLink { icon: string; label: string; url: string; isObsidian?: boolean }
+interface DetailLink { icon: string; label: string; url?: string; isObsidian?: boolean; action?: () => void }
 
 function buildDetailLinks(entry: LibraryEntry): DetailLink[] {
   const links: DetailLink[] = [];
   if (entry.obsidian_link) {
     links.push({ icon: '📓', label: 'Vault', url: entry.obsidian_link, isObsidian: true });
+  }
+  if (entry.summary_path) {
+    const summaryUrl = `obsidian://open?vault=MyNotes&file=${encodeURIComponent(entry.summary_path)}`;
+    links.push({ icon: '📝', label: 'Summary', action: () => openExternal(summaryUrl) });
   }
   if (entry.type_code === 'b') {
     // Books: Amazon link from amazon_short_url or amazon_url; Web only for the generated Libby page
@@ -330,7 +335,7 @@ function DetailPanel({
             <button
               key={link.label}
               className="libby-detail-link"
-              onClick={() => openDetailUrl(link.url, link.isObsidian)}
+              onClick={() => link.action ? link.action() : openDetailUrl(link.url!, link.isObsidian)}
             >
               {link.icon} {link.label}
             </button>

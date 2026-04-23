@@ -82,7 +82,8 @@
       "Bash(app/frontend/node_modules/.bin/tsc --noEmit -p app/frontend/tsconfig.json)",
       "Read(//Users/stevevinter/.personal-dashboard/**)",
       "Bash(rm ~/.personal-dashboard/.google_token.json)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(open:*)"
     ]
   }
 }

@@ -244,8 +244,11 @@ def collect_files() -> tuple[list[dict], dict[str, int]]:
         title = extract_title(meta, body, path.stem)
         url = extract_url(meta, body)
 
-        # obsidian_link: path relative to vault root, used as unique key
-        obsidian_link = str(path.relative_to(VAULT_ROOT))
+        # obsidian_link: full obsidian:// URL, used as unique key and for opening
+        from urllib.parse import quote as _quote
+        rel = str(path.relative_to(VAULT_ROOT))
+        encoded = "/".join(_quote(part, safe="") for part in rel.split("/"))
+        obsidian_link = f"obsidian://open?vault=MyNotes&file={encoded}"
 
         records.append({
             "path": path,

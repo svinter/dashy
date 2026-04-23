@@ -1,4 +1,4 @@
-.PHONY: start stop restart backend frontend status logs app build dev run test test-headed test-setup test-seed test-servers-start test-servers-stop test-status test-logs test-clean lint fmt blft verify dmg release db-migrate db-upgrade db-downgrade db-current db-history db-revision whatsapp whatsapp-stop setup ship demo demo-seed demo-backend demo-frontend demo-reset demo-capture enrich enrich-status enrich-notfound enrich-notfound-csv
+.PHONY: start stop restart backend frontend status logs app build dev run test test-headed test-setup test-seed test-servers-start test-servers-stop test-status test-logs test-clean lint fmt blft verify dmg release db-migrate db-upgrade db-downgrade db-current db-history db-revision whatsapp whatsapp-stop setup ship demo demo-seed demo-backend demo-frontend demo-reset demo-capture enrich enrich-status enrich-notfound enrich-notfound-csv autotag autotag-status
 
 BACKEND_DIR = app/backend
 FRONTEND_DIR = app/frontend
@@ -311,6 +311,18 @@ enrich-notfound-csv:
 		"SELECT entry_id, name, author, attempts, first_seen FROM library_enrich_not_found ORDER BY name;" \
 		> ~/Desktop/enrich_not_found.csv
 	@echo "Exported to ~/Desktop/enrich_not_found.csv"
+
+autotag:
+	@echo "Running bulk auto-tag for non-book entries..."
+	@cd $(BACKEND_DIR) && source venv/bin/activate && \
+		python scripts/autotag_library.py --limit 500
+	@echo "Done. Run again tomorrow for remaining entries if limit hit."
+
+autotag-status:
+	@sqlite3 ~/.personal-dashboard/dashboard.db \
+		"SELECT type_code, COUNT(*) as pending FROM library_entries \
+		WHERE needs_enrichment = 1 AND type_code != 'b' \
+		GROUP BY type_code ORDER BY type_code;"
 
 # --- Ship (commit, push, PR, optional merge) ---
 # Usage:
