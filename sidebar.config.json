@@ -6,7 +6,13 @@
       "items": [
         { "id": "coaching", "label": "Coaching", "route": "/coaching" },
         { "id": "libby",    "label": "Library",  "route": "/libby" },
-        { "id": "billing",  "label": "Billing",  "route": "/billing" },
+        { "id": "billing",  "label": "Billing",  "route": "/billing" }
+      ]
+   },
+    {
+      "id": "tools",
+      "label": "tools",
+      "items": [
         { "id": "glance",   "label": "Glance",   "route": "/glance" }
       ]
     },
@@ -14,29 +20,12 @@
       "id": "sources",
       "label": "sources",
       "items": [
+        { "id": "obsidian", "label": "Obsidian", "route": "/obsidian", "connector": "obsidian" },
         { "id": "docs",     "label": "Docs",     "route": "/docs" },
         { "id": "meetings", "label": "Meetings", "route": "/meetings", "connector": "google|granola" },
         { "id": "notes",    "label": "Thoughts", "route": "/notes" },
-        { "id": "issues",   "label": "Issues",   "route": "/issues" },
         { "id": "email",    "label": "Email",    "route": "/email",    "connector": "google" },
-        { "id": "news",     "label": "News",     "route": "/news",     "connector": "news" },
-        { "id": "github",   "label": "GitHub",   "route": "/github",   "connector": "github" },
-        { "id": "slack",    "label": "Slack",    "route": "/slack",    "connector": "slack" },
-        { "id": "notion",   "label": "Notion",   "route": "/notion",   "connector": "notion" },
-        { "id": "drive",    "label": "Drive",    "route": "/drive",    "connector": "google_drive" },
-        { "id": "obsidian", "label": "Obsidian", "route": "/obsidian", "connector": "obsidian" },
-        { "id": "ramp",     "label": "Ramp",     "route": "/ramp",     "connector": "ramp" }
-      ]
-    },
-    {
-      "id": "tools",
-      "label": "tools",
-      "items": [
-        { "id": "people",      "label": "People",      "route": "/people" },
-        { "id": "code-search", "label": "Code Search", "route": "/code-search", "connector": "github" },
-        { "id": "agent",       "label": "Agent",       "route": "/agent",       "connector": "gemini|anthropic|openai" },
-        { "id": "claude",      "label": "Claude",      "route": "/claude",      "connector": "claude_code" },
-        { "id": "sandbox",     "label": "Sandbox",     "route": "/sandbox",     "connector": "claude_code" }
+        { "id": "news",     "label": "News",     "route": "/news",     "connector": "news" }
       ]
     }
   ]
