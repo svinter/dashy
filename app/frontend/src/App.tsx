@@ -180,6 +180,7 @@ function AppContent() {
 
               <Route path="/billing/*" element={<BillingPage />} />
               <Route path="/glance" element={<GlancePage />} />
+              <Route path="/glance/today" element={<Navigate to="/glance?today=1" replace />} />
 
               <Route path="/agent" element={<AgentPage />} />
               <Route path="/code-search" element={<CodeSearchPage />} />

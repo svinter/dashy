@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   useGlanceData,
   useGlanceMembers,
@@ -143,8 +144,18 @@ function formatPageLabel(start: Date, end: Date): string {
 // ---------------------------------------------------------------------------
 
 export function GlancePage() {
+  const [searchParams] = useSearchParams();
   const [pageStart, setPageStart] = useState<Date>(() => pageStartForIndex(1));
   const [isTodayWindow, setIsTodayWindow] = useState(true);
+
+  // ?today=1 deep link — snap to today window on mount
+  useEffect(() => {
+    if (searchParams.get('today') === '1') {
+      setPageStart(getPage1Start());
+      setIsTodayWindow(true);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const pageEnd   = new Date(pageStart);
   pageEnd.setMonth(pageEnd.getMonth() + PAGE_MONTHS);
