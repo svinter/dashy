@@ -219,7 +219,7 @@ function buildDetailLinks(entry: LibraryEntry): DetailLink[] {
     links.push({ icon: '📓', label: 'Vault', url: entry.obsidian_link, isObsidian: true });
   }
   if (entry.summary_path) {
-    const summaryUrl = `obsidian://open?vault=MyNotes&file=${encodeURIComponent(entry.summary_path)}`;
+    const summaryUrl = `obsidian://open?vault=MyNotes&file=${entry.summary_path.split('/').map(encodeURIComponent).join('/')}`;
     links.push({ icon: '📝', label: 'Summary', action: () => openExternal(summaryUrl) });
   }
   if (entry.type_code === 'b') {
