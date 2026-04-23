@@ -54,6 +54,7 @@ interface LibraryEntry {
   context?: string | null;
   synopsis?: string | null;
   summary_path?: string | null;
+  highlights_path?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -221,6 +222,10 @@ function buildDetailLinks(entry: LibraryEntry): DetailLink[] {
   if (entry.summary_path) {
     const summaryUrl = `obsidian://open?vault=MyNotes&file=${entry.summary_path.split('/').map(encodeURIComponent).join('/')}`;
     links.push({ icon: '📝', label: 'Summary', action: () => openExternal(summaryUrl) });
+  }
+  if (entry.highlights_path) {
+    const highlightsUrl = `obsidian://open?vault=MyNotes&file=${entry.highlights_path.split('/').map(encodeURIComponent).join('/')}`;
+    links.push({ icon: '📖', label: 'Highlights', action: () => openExternal(highlightsUrl) });
   }
   if (entry.type_code === 'b') {
     // Books: Amazon link from amazon_short_url or amazon_url; Web only for the generated Libby page
