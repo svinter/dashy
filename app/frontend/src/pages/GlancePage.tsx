@@ -198,6 +198,10 @@ export function GlancePage() {
   const modalRef      = useRef(modal);
   modalRef.current    = modal;
   // (currentPageRef removed — page navigation now uses functional state updaters)
+  const queryStartRef = useRef(queryStart);
+  queryStartRef.current = queryStart;
+  const queryEndRef = useRef(queryEnd);
+  queryEndRef.current = queryEnd;
   const [filterMode, setFilterMode] = useState(false);
   const filterModeRef = useRef(false);
   filterModeRef.current = filterMode;
@@ -503,8 +507,16 @@ export function GlancePage() {
         if (key === 'K') { e.preventDefault(); gridScrollRef.current?.scrollBy({ top: -520, behavior: 'smooth' }); return; }
         if (key === 't') {
           e.preventDefault();
-          const el = document.querySelector(`[data-date="${localIso(new Date())}"]`) as HTMLElement | null;
-          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          const today = new Date();
+          const inPage = today >= queryStartRef.current && today <= queryEndRef.current;
+          if (inPage) {
+            const el = document.querySelector(`[data-date="${localIso(today)}"]`) as HTMLElement | null;
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          } else {
+            // Navigate to today window; the isTodayWindow useEffect scrolls after 150ms
+            setPageStart(getPage1Start());
+            setIsTodayWindow(true);
+          }
           return;
         }
 
