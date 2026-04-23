@@ -3,8 +3,77 @@ import { NavLink, useLocation } from 'react-router-dom';
 import { usePeople, useSync, useAuthStatus, useConnectors, useCreatePerson, useUpdatePerson, usePersonas, useGroups, useRenameGroup, useVersion, useBillingBadgeCounts } from '../../api/hooks';
 import { useSyncProgress } from '../../hooks/useSyncProgress';
 import { useModulePrefs } from '../../hooks/useModulePrefs';
+import { useSidebarConfig } from '../../hooks/useSidebarConfig';
+import type { SidebarItem } from '../../hooks/useSidebarConfig';
 import { SyncDetailModal } from '../SyncProgressOverlay';
 import type { SyncSourceInfo } from '../../api/types';
+
+interface NavItemCtx {
+  active: Set<string>;
+  onBillingPage: boolean;
+  onRampPage: boolean;
+  onClaudePage: boolean;
+  queueCount: number;
+  unmatchedCount: number;
+  personas: Array<{ id: string; name: string; is_default: boolean; avatar_filename?: string | null }> | undefined;
+}
+
+function renderNavItem(item: SidebarItem, ctx: NavItemCtx) {
+  const { id, label, route } = item;
+  switch (id) {
+    case 'billing':
+      return (
+        <>
+          <NavLink to={route}>
+            {label}
+            {!ctx.onBillingPage && (ctx.queueCount > 0 || ctx.unmatchedCount > 0) && (
+              <span className="nav-count-badge">{ctx.queueCount + ctx.unmatchedCount}</span>
+            )}
+          </NavLink>
+          {ctx.onBillingPage && (
+            <>
+              <NavLink to="/billing" end className="sidebar-sub-link">
+                Queue{ctx.queueCount > 0 && <span className="nav-count-badge">{ctx.queueCount}</span>}
+              </NavLink>
+              <NavLink to="/billing/payments" className="sidebar-sub-link">
+                Payments{ctx.unmatchedCount > 0 && <span className="nav-count-badge">{ctx.unmatchedCount}</span>}
+              </NavLink>
+            </>
+          )}
+        </>
+      );
+    case 'ramp':
+      return (
+        <>
+          <NavLink to={route} end>{label}</NavLink>
+          {ctx.onRampPage && (
+            <>
+              <NavLink to="/ramp/bills" className="sidebar-sub-link">Bills</NavLink>
+              <NavLink to="/ramp/projects" className="sidebar-sub-link">Projects</NavLink>
+            </>
+          )}
+        </>
+      );
+    case 'claude':
+      return (
+        <>
+          <NavLink to={route} end>{label}</NavLink>
+          {ctx.onClaudePage && ctx.personas?.filter(p => !p.is_default).map(p => (
+            <NavLink key={p.id} to={`/claude?persona=${p.id}`} className="sidebar-sub-link sidebar-persona-link">
+              {p.avatar_filename ? (
+                <img src={`/api/personas/${p.id}/avatar`} alt="" className="persona-avatar-sidebar" />
+              ) : (
+                <span className="persona-avatar-placeholder-sidebar">{p.name.charAt(0).toUpperCase()}</span>
+              )}
+              {p.name}
+            </NavLink>
+          ))}
+        </>
+      );
+    default:
+      return <NavLink to={route}>{label}</NavLink>;
+  }
+}
 
 function formatTimeAgo(iso: string) {
   const diffMs = Date.now() - new Date(iso).getTime();
@@ -35,6 +104,7 @@ export function Sidebar() {
   const [syncDetailOpen, setSyncDetailOpen] = useState(false);
   const { data: versionData } = useVersion();
   const { hiddenIds } = useModulePrefs();
+  const { data: sidebarConfig } = useSidebarConfig();
 
   const enabled = new Set(connectors?.filter(c => c.enabled).map(c => c.id));
 
@@ -140,87 +210,30 @@ export function Sidebar() {
           </div>
         )}
 
-        <div className="sidebar-section-label">work</div>
-        <nav>
-          {!hiddenIds.has('notes') && <NavLink to="/notes">Thoughts</NavLink>}
-          {!hiddenIds.has('issues') && <NavLink to="/issues">Issues</NavLink>}
-          {!hiddenIds.has('docs') && <NavLink to="/docs">Docs</NavLink>}
-          {!hiddenIds.has('meetings') && (active.has('google') || active.has('granola')) && <NavLink to="/meetings">Meetings</NavLink>}
-          {!hiddenIds.has('coaching') && <NavLink to="/coaching">Coaching</NavLink>}
-          {!hiddenIds.has('libby') && <NavLink to="/libby">Library</NavLink>}
-          {!hiddenIds.has('billing') && (
-            <NavLink to="/billing">
-              Billing
-              {!onBillingPage && (queueCount > 0 || unmatchedCount > 0) && (
-                <span className="nav-count-badge">{queueCount + unmatchedCount}</span>
-              )}
-            </NavLink>
-          )}
-          {!hiddenIds.has('billing') && onBillingPage && <>
-            <NavLink to="/billing" end className="sidebar-sub-link">
-              Queue{queueCount > 0 && <span className="nav-count-badge">{queueCount}</span>}
-            </NavLink>
-            <NavLink to="/billing/payments" className="sidebar-sub-link">
-              Payments{unmatchedCount > 0 && <span className="nav-count-badge">{unmatchedCount}</span>}
-            </NavLink>
-          </>}
-          {!hiddenIds.has('glance') && <NavLink to="/glance">Glance</NavLink>}
-        </nav>
-
-        {(active.has('google') || active.has('slack') || active.has('notion') || active.has('github') || active.has('ramp') || active.has('news') || active.has('google_drive') || active.has('obsidian')) && (
-          <>
-            <div className="sidebar-section-label">sources</div>
-            <nav>
-              {!hiddenIds.has('email') && active.has('google') && <NavLink to="/email">Email</NavLink>}
-              {!hiddenIds.has('news') && active.has('news') && <NavLink to="/news">News</NavLink>}
-              {!hiddenIds.has('github') && active.has('github') && <NavLink to="/github">GitHub</NavLink>}
-              {!hiddenIds.has('slack') && active.has('slack') && <NavLink to="/slack">Slack</NavLink>}
-              {!hiddenIds.has('notion') && active.has('notion') && <NavLink to="/notion">Notion</NavLink>}
-              {!hiddenIds.has('drive') && active.has('google_drive') && <NavLink to="/drive">Drive</NavLink>}
-              {!hiddenIds.has('obsidian') && active.has('obsidian') && <NavLink to="/obsidian">Obsidian</NavLink>}
-              {!hiddenIds.has('ramp') && active.has('ramp') && <>
-                <NavLink to="/ramp" end>Ramp</NavLink>
-                {onRampPage && <>
-                  <NavLink to="/ramp/bills" className="sidebar-sub-link">Bills</NavLink>
-                  <NavLink to="/ramp/projects" className="sidebar-sub-link">Projects</NavLink>
-                </>}
-              </>}
-            </nav>
-          </>
-        )}
-
-        <div className="sidebar-section-label">tools</div>
-        <nav>
-          {!hiddenIds.has('people') && <NavLink to="/people">People</NavLink>}
-          {!hiddenIds.has('code-search') && active.has('github') && <NavLink to="/code-search">Code Search</NavLink>}
-          {!hiddenIds.has('agent') && (active.has('gemini') || active.has('anthropic') || active.has('openai')) && (
-            <NavLink to="/agent">Agent</NavLink>
-          )}
-          {active.has('claude_code') && <>
-            {!hiddenIds.has('claude') && <NavLink to="/claude" end>Claude</NavLink>}
-            {!hiddenIds.has('claude') && onClaudePage && personas?.filter(p => !p.is_default).map(p => (
-              <NavLink
-                key={p.id}
-                to={`/claude?persona=${p.id}`}
-                className="sidebar-sub-link sidebar-persona-link"
-              >
-                {p.avatar_filename ? (
-                  <img
-                    src={`/api/personas/${p.id}/avatar`}
-                    alt=""
-                    className="persona-avatar-sidebar"
-                  />
-                ) : (
-                  <span className="persona-avatar-placeholder-sidebar">
-                    {p.name.charAt(0).toUpperCase()}
-                  </span>
-                )}
-                {p.name}
-              </NavLink>
-            ))}
-            {!hiddenIds.has('sandbox') && <NavLink to="/sandbox">Sandbox</NavLink>}
-          </>}
-        </nav>
+        {(sidebarConfig?.sections ?? []).map((section) => {
+          const navCtx: NavItemCtx = { active, onBillingPage, onRampPage, onClaudePage, queueCount, unmatchedCount, personas };
+          const visibleItems = section.items.filter((item) => {
+            if (hiddenIds.has(item.id)) return false;
+            if (item.connector) {
+              const needs = item.connector.split('|');
+              if (!needs.some((c) => active.has(c))) return false;
+            }
+            return true;
+          });
+          if (visibleItems.length === 0) return null;
+          return (
+            <div key={section.id}>
+              {section.label && <div className="sidebar-section-label">{section.label}</div>}
+              <nav>
+                {visibleItems.map((item) => (
+                  <div key={item.id} style={{ display: 'contents' }}>
+                    {renderNavItem(item, navCtx)}
+                  </div>
+                ))}
+              </nav>
+            </div>
+          );
+        })}
 
         {groupList.map((group) => {
           const members = employeesByGroup.get(group) || [];
