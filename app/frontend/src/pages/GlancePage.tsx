@@ -734,8 +734,11 @@ export function GlancePage() {
               >←</button>
               <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>
                 {formatPageLabel(pageStart, clampedEnd)}
-                {pageStart.getTime() <= CALENDAR_START.getTime() && <span style={{ opacity: 0.55, marginLeft: '4px' }}>· start</span>}
-                {isTodayWindow && <span style={{ opacity: 0.55, marginLeft: '4px' }}>· today</span>}
+                {pageStart.getTime() <= CALENDAR_START.getTime()
+                  ? <span style={{ opacity: 0.55, marginLeft: '4px' }}>· start</span>
+                  : isTodayWindow
+                    ? <span style={{ opacity: 0.55, marginLeft: '4px' }}>· today</span>
+                    : null}
               </span>
               <button
                 onClick={pageForward}
@@ -764,6 +767,7 @@ export function GlancePage() {
             title="Import events from Glance GCal calendar"
             style={{
               fontSize: '11px', padding: '2px 8px',
+              marginLeft: '20px',
               border: '0.5px solid var(--color-border-secondary, #d8d6ce)',
               borderRadius: '3px', cursor: gcalImporting ? 'default' : 'pointer',
               background: 'transparent', fontFamily: 'inherit',
@@ -773,7 +777,7 @@ export function GlancePage() {
               opacity: gcalImporting ? 0.6 : 1,
             }}
           >
-            {gcalImporting ? '…' : gcalImportMsg ? gcalImportMsg.text : '↓ gcal'}
+            {gcalImporting ? '…' : gcalImportMsg ? gcalImportMsg.text : 'calendar sync'}
           </button>
 
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '12px' }}>
