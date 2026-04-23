@@ -8,6 +8,7 @@ import type { HelpShortcut } from '../components/shared/ClientFilterBar';
 import { LibbyTopicsPage } from './LibbyTopicsPage';
 import { LibbyTypesPage } from './LibbyTypesPage';
 import { LibbyNewPage } from './LibbyNewPage';
+import { openExternal } from '../api/client';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -203,11 +204,7 @@ function PriorityDots({ priority }: { priority: string }) {
 
 function openDetailUrl(url: string, isObsidian = false) {
   if (isObsidian) {
-    const a = document.createElement('a');
-    a.href = url;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    openExternal(url);
   } else {
     window.open(url, '_blank', 'noopener,noreferrer');
   }
@@ -1735,11 +1732,7 @@ function CatalogPage() {
       showToast('No Obsidian page for this entry');
       return;
     }
-    const a = document.createElement('a');
-    a.href = selected.obsidian_link;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    openExternal(selected.obsidian_link);
     showToast('Opening in Obsidian…');
   };
 
@@ -2138,11 +2131,7 @@ function CatalogPage() {
                             className="libby-result-quick-link"
                             onClick={e => {
                               e.stopPropagation();
-                              const a = document.createElement('a');
-                              a.href = entry.obsidian_link!;
-                              document.body.appendChild(a);
-                              a.click();
-                              document.body.removeChild(a);
+                              openExternal(entry.obsidian_link!);
                             }}
                           >📓</button>
                         )}

@@ -78,7 +78,11 @@
       "Bash(python -m ruff check app/backend/routers/settings.py app/backend/routers/config_api.py)",
       "Bash(ruff check:*)",
       "Bash(pbcopy)",
-      "Bash(launchctl load:*)"
+      "Bash(launchctl load:*)",
+      "Bash(app/frontend/node_modules/.bin/tsc --noEmit -p app/frontend/tsconfig.json)",
+      "Read(//Users/stevevinter/.personal-dashboard/**)",
+      "Bash(rm ~/.personal-dashboard/.google_token.json)",
+      "Bash(python:*)"
     ]
   }
 }

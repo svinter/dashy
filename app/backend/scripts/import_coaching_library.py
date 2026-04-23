@@ -144,12 +144,23 @@ def parse_frontmatter(text: str) -> tuple[dict, str]:
 
 
 def extract_title(meta: dict, body: str, stem: str) -> str:
-    """Resolve title: frontmatter title > first H1 > filename stem."""
-    if meta.get("title") and isinstance(meta["title"], str):
-        t = meta["title"].strip()
+    """Resolve title: frontmatter title → frontmatter aliases[0] → first H1 → filename stem."""
+    # frontmatter title (may be a list in some vaults)
+    raw = meta.get("title") or ""
+    if isinstance(raw, list):
+        raw = raw[0] if raw else ""
+    t = str(raw).strip()
+    if t:
+        return t
+
+    # frontmatter aliases[0]
+    aliases = meta.get("aliases") or []
+    if isinstance(aliases, list) and aliases:
+        t = str(aliases[0]).strip()
         if t:
             return t
 
+    # first H1 heading in body
     for line in body.split("\n"):
         line = line.strip()
         if line.startswith("# "):
@@ -158,6 +169,7 @@ def extract_title(meta: dict, body: str, stem: str) -> str:
             if t:
                 return t
 
+    # filename stem (clean up hyphens/underscores)
     name = re.sub(r"\.(pdf|doc|docx|txt)$", "", stem, flags=re.IGNORECASE)
     return name.strip()
 
