@@ -1125,6 +1125,37 @@ interface SetupConfirmation {
   details: Record<string, string>;
 }
 
+interface ClientTaskStep {
+  name: string;
+  status: 'running' | 'ok' | 'warning' | 'error';
+  detail: string;
+}
+
+interface ClientCreateResult {
+  status: string;
+  client_id: number;
+  name: string;
+  company_name: string;
+  client_type: string;
+  gdrive_coaching_docs_url: string;
+  copied_files: string[];
+  manifest_gdoc_url: string | null;
+  agreement_edited: boolean;
+  folder_shared_with: string | null;
+  folder_share_error: string | null;
+  obsidian: { action: string; path?: string };
+  obsidian_name: string;
+  draft_id: string | null;
+  draft_url: string | null;
+}
+
+interface ClientTaskStatus {
+  steps: ClientTaskStep[];
+  done: boolean;
+  result: ClientCreateResult | null;
+  error: string | null;
+}
+
 // Shared field row
 function FieldRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -1146,6 +1177,7 @@ function CompanyForm({ onSuccess }: { onSuccess: (c: SetupConfirmation) => void 
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1166,14 +1198,21 @@ function CompanyForm({ onSuccess }: { onSuccess: (c: SetupConfirmation) => void 
           notes: notes.trim() || null,
         },
       );
+      const obsidianActionOk = result.obsidian.action !== 'skipped' && result.obsidian.action !== 'error';
+      const obsidianUrl = obsidianActionOk
+        ? `obsidian://open?vault=MyNotes&file=1%20Company%2F${encodeURIComponent(result.name)}%2F${encodeURIComponent(result.name)}.md`
+        : null;
       onSuccess({
         type: 'company',
         name: result.name,
         details: {
           'Drive folder': result.gdrive_folder_url,
           'Obsidian': result.obsidian.action,
+          ...(obsidianUrl ? { 'Open in Obsidian': obsidianUrl } : {}),
         },
       });
+      // Invalidate so the new company immediately appears in the Client form dropdown
+      queryClient.invalidateQueries({ queryKey: ['setup-companies'] });
       setName(''); setAbbrev(''); setDefaultRate(''); setBillingMethod('');
       setPaymentMethod(''); setApEmail(''); setCcEmail(''); setNotes('');
     } catch (err: unknown) {
@@ -1243,6 +1282,10 @@ function ClientForm({ companies, onSuccess }: { companies: SetupCompany[]; onSuc
   const [emailTemplate, setEmailTemplate] = useState<string>('Welcome');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [taskId, setTaskId] = useState<string | null>(null);
+  const [steps, setSteps] = useState<ClientTaskStep[]>([]);
+  const [taskDone, setTaskDone] = useState(false);
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const { data: templatesData } = useEmailTemplates();
   const templates = templatesData?.templates ?? [];
@@ -1253,14 +1296,62 @@ function ClientForm({ companies, onSuccess }: { companies: SetupCompany[]; onSuc
     if (!obsidianName || obsidianName === name) setObsidianName(val);
   };
 
+  // Poll task status when taskId is set
+  useEffect(() => {
+    if (!taskId) return;
+    const poll = async () => {
+      try {
+        const status = await api.get<ClientTaskStatus>(`/coaching/setup/client/status/${taskId}`);
+        setSteps(status.steps);
+        if (status.done) {
+          if (pollingRef.current) clearInterval(pollingRef.current);
+          setTaskDone(true);
+          setSubmitting(false);
+          if (status.error) {
+            setError(status.error);
+          } else if (status.result) {
+            const result = status.result;
+            const obsidianOk = result.obsidian.action !== 'skipped' && result.obsidian.action !== 'error';
+            const obsidianUrl = obsidianOk
+              ? `obsidian://open?vault=MyNotes&file=1%20People%2F${encodeURIComponent(result.obsidian_name || result.name)}.md`
+              : null;
+            const details: Record<string, string> = {
+              'Company': result.company_name,
+              'Client type': result.client_type,
+              'Coaching docs': result.gdrive_coaching_docs_url,
+              'Files copied': result.copied_files.length.toString(),
+              ...(result.folder_shared_with ? { 'Folder shared': `with ${result.folder_shared_with}` } : {}),
+              ...(result.folder_share_error ? { 'Folder sharing failed': result.folder_share_error } : {}),
+              'Coaching Agreement': result.agreement_edited ? 'edited' : 'skipped',
+              'Obsidian': result.obsidian.action,
+              ...(obsidianUrl ? { 'Open in Obsidian': obsidianUrl } : {}),
+              ...(result.draft_url ? { 'Email draft': result.draft_url } : {}),
+            };
+            if (result.manifest_gdoc_url) details['Manifest'] = result.manifest_gdoc_url;
+            onSuccess({ type: 'client', name: result.name, details });
+            setName(''); setObsidianName(''); setEmail(''); setRateOverride(''); setPrepaid(false);
+            setTaskId(null); setSteps([]); setTaskDone(false);
+          }
+        }
+      } catch {
+        // ignore transient polling errors
+      }
+    };
+    pollingRef.current = setInterval(poll, 1000);
+    poll();
+    return () => { if (pollingRef.current) clearInterval(pollingRef.current); };
+  }, [taskId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!companyId) { setError('Select a company'); return; }
     if (!name.trim()) { setError('Name is required'); return; }
     setSubmitting(true);
     setError(null);
+    setSteps([]);
+    setTaskDone(false);
     try {
-      const result = await api.post<{ status: string; client_id: number; name: string; company_name: string; client_type: string; gdrive_coaching_docs_url: string; copied_files: string[]; manifest_gdoc_url: string | null; agreement_edited: boolean; folder_shared_with: string | null; folder_share_error: string | null; obsidian: { action: string }; draft_id: string | null; draft_url: string | null }>(
+      const { task_id } = await api.post<{ task_id: string }>(
         '/coaching/setup/client',
         {
           company_id: parseInt(companyId, 10),
@@ -1272,30 +1363,10 @@ function ClientForm({ companies, onSuccess }: { companies: SetupCompany[]; onSuc
           email_template: email.trim() && emailTemplate ? emailTemplate : null,
         },
       );
-      const details: Record<string, string> = {
-        'Company': result.company_name,
-        'Client type': result.client_type,
-        'Coaching docs': result.gdrive_coaching_docs_url,
-        'Files copied': result.copied_files.length.toString(),
-        ...(result.folder_shared_with ? { 'Folder shared': `with ${result.folder_shared_with}` } : {}),
-        ...(result.folder_share_error ? { 'Folder sharing failed': result.folder_share_error } : {}),
-        'Coaching Agreement': result.agreement_edited ? 'edited' : 'skipped',
-        'Obsidian': result.obsidian.action,
-        ...(result.draft_url ? { 'Email draft': result.draft_url } : {}),
-      };
-      if (result.manifest_gdoc_url) {
-        details['Manifest'] = result.manifest_gdoc_url;
-      }
-      onSuccess({
-        type: 'client',
-        name: result.name,
-        details,
-      });
-      setName(''); setObsidianName(''); setEmail(''); setRateOverride(''); setPrepaid(false);
+      setTaskId(task_id);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Creation failed';
       setError(msg);
-    } finally {
       setSubmitting(false);
     }
   };
@@ -1350,6 +1421,25 @@ function ClientForm({ companies, onSuccess }: { companies: SetupCompany[]; onSuc
             <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-tertiary)', marginLeft: 6 }}>needs email address</span>
           )}
         </FieldRow>
+      )}
+      {steps.length > 0 && (
+        <div className="setup-progress">
+          {steps.map((s, i) => (
+            <div key={i} className={`setup-progress-step setup-progress-step--${s.status}`}>
+              <span className="setup-progress-icon">
+                {s.status === 'running' ? '⏳' : s.status === 'ok' ? '✓' : s.status === 'warning' ? '⚠' : '✗'}
+              </span>
+              <span className="setup-progress-name">{s.name}</span>
+              {s.detail && <span className="setup-progress-detail">{s.detail}</span>}
+            </div>
+          ))}
+          {submitting && !taskDone && (
+            <div className="setup-progress-step setup-progress-step--running">
+              <span className="setup-progress-icon">⏳</span>
+              <span className="setup-progress-name">Working…</span>
+            </div>
+          )}
+        </div>
       )}
       {error && <div className="setup-error">{error}</div>}
       <div className="setup-actions">
@@ -1524,8 +1614,10 @@ function SetupPage() {
               <div key={k} className="setup-confirmation-row">
                 <dt>{k}</dt>
                 <dd>
-                  {v.startsWith('https://') || v.startsWith('http://')
-                    ? <a href={v} target="_blank" rel="noreferrer">{k === 'Email draft' ? 'Open in Gmail →' : 'link'}</a>
+                  {v.startsWith('https://') || v.startsWith('http://') || v.startsWith('obsidian://')
+                    ? <a href={v} target="_blank" rel="noreferrer">
+                        {k === 'Email draft' ? 'Open in Gmail →' : k === 'Open in Obsidian' ? 'Open in Obsidian →' : 'link'}
+                      </a>
                     : v}
                 </dd>
               </div>

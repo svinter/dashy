@@ -3,6 +3,7 @@ import logging
 import re
 import threading
 import traceback
+import uuid
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -16,6 +17,9 @@ from database import get_db, get_write_db
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/coaching", tags=["coaching"])
+
+# In-memory store for async client creation tasks {task_id → task_dict}
+_client_tasks: dict[str, dict] = {}
 
 # ---------------------------------------------------------------------------
 # GET /api/coaching/active — detect in-progress grape/banana session
@@ -1613,6 +1617,7 @@ def setup_create_company(body: CompanyCreateRequest):
 
     # 3 — Obsidian page (non-fatal)
     obsidian_result = {"action": "skipped", "reason": "vault not configured"}
+    obsidian_name = name
     try:
         vault = get_vault_path()
         if vault:
@@ -1620,6 +1625,30 @@ def setup_create_company(body: CompanyCreateRequest):
     except Exception as exc:
         logger.warning("Obsidian page creation failed for company %r: %s", name, exc)
         obsidian_result = {"action": "error", "reason": str(exc)}
+
+    # 4 — Append to billing_seed.json (non-fatal)
+    try:
+        import json as _json
+        seed_path = Path(__file__).resolve().parent.parent / "dashy_billing_seed.json"
+        if seed_path.exists():
+            seed_data = _json.loads(seed_path.read_text(encoding="utf-8"))
+            seed_data.setdefault("companies", []).append({
+                "name": name,
+                "abbrev": body.abbrev,
+                "default_rate": body.default_rate,
+                "billing_method": body.billing_method,
+                "payment_method": body.payment_method,
+                "ap_email": body.ap_email,
+                "cc_email": body.cc_email,
+                "notes": body.notes,
+                "gdrive_folder_url": folder_url,
+                "obsidian_name": obsidian_name,
+                "active": True,
+            })
+            seed_path.write_text(_json.dumps(seed_data, indent=2, ensure_ascii=False), encoding="utf-8")
+            logger.info("Appended company %r to billing_seed.json", name)
+    except Exception as exc:
+        logger.warning("billing_seed.json update failed for company %r: %s", name, exc)
 
     logger.info("Created company %r (id=%d) gdrive=%s", name, company_id, folder_url)
     return {
@@ -1883,21 +1912,31 @@ _EMAIL_TEMPLATES_CACHE_TS: float = 0.0
 _EMAIL_TEMPLATES_CACHE_TTL: float = 300.0  # 5 minutes
 
 _WELCOME_TEMPLATE = """\
-# Welcome
-
+# welcome
 Subject: Welcome to your coaching program with %CoachName%!
 
 <p>Hi %ClientFirstName%,</p>
 
-<p>I'm so excited to begin our coaching journey together at %Company%.</p>
+<p>I'm excited to begin working with you!</p>
 
-<p>Your coaching documents are ready here: <a href="%CoachingDocsUrl%">Coaching Docs</a></p>
+<p>Your coaching documents are ready here:</p>
 
-<p>Looking forward to our first session in %MonthYear%!</p>
+<ul>
+  <li><a href="%CoachingDocsUrl%">Coaching Docs folder</a></li>
+  <li><a href="%ManifestUrl%">Manifest of coaching documents</a></li>
+  <li><a href="%CoachingAgreementUrl%">Coaching agreement</a></li>
+  <li><a href="%CoachingKickoffUrl%">Coaching kickoff questions</a></li>
+</ul>
 
-<p>Warm regards,<br>
+<p>Please review the coaching agreement and let me know if there's anything you'd like to change. Let's discuss it when we meet. And take a look at the coaching kickoff questions and see if exploring those are a useful way for us to start.</p>
+
+<p>I'm looking forward to our first session!</p>
+
+<p>Best,<br>
 %CoachName%<br>
 <a href="mailto:%CoachEmail%">%CoachEmail%</a></p>
+
+<p><a href="%CalendlyLink%">Schedule a session</a></p>
 """
 
 
@@ -1985,13 +2024,30 @@ def _fetch_email_templates() -> list[dict]:
 
 
 def _substitute_placeholders(text: str, **subs: str) -> str:
-    """Replace %Placeholder% tokens."""
+    """Replace %Placeholder% tokens in email template text.
+
+    Supported placeholders and their kwarg keys:
+        %ClientFirstName%       — first_name       — client's first name
+        %ClientFullName%        — full_name         — client's full name
+        %Company%               — company           — company name
+        %CoachingDocsUrl%       — coaching_docs_url — URL of the Coaching Docs folder
+        %ManifestUrl%           — manifest_url      — URL of the Manifest Google Doc
+        %CoachingAgreementUrl%  — coaching_agreement_url — URL of the Coaching Agreement file
+        %CoachingKickoffUrl%    — coaching_kickoff_url   — URL of the Coaching Kickoff Questions file
+        %CalendlyLink%          — calendly_link     — coach's Calendly URL (dashy_install.json user.calendly_url)
+        %CoachEmail%            — coach_email       — coach's email (dashy_install.json user.coach_email)
+        %CoachName%             — coach_name        — coach's display name (dashy_install.json user.name)
+        %MonthYear%             — month_year        — current month and year, e.g. "April 2026"
+    """
     mapping = {
         '%ClientFirstName%': subs.get('first_name', ''),
         '%ClientFullName%': subs.get('full_name', ''),
         '%Company%': subs.get('company', ''),
         '%CoachingDocsUrl%': subs.get('coaching_docs_url', ''),
         '%ManifestUrl%': subs.get('manifest_url', ''),
+        '%CoachingAgreementUrl%': subs.get('coaching_agreement_url', ''),
+        '%CoachingKickoffUrl%': subs.get('coaching_kickoff_url', ''),
+        '%CalendlyLink%': subs.get('calendly_link', ''),
         '%CoachEmail%': subs.get('coach_email', ''),
         '%CoachName%': subs.get('coach_name', ''),
         '%MonthYear%': subs.get('month_year', ''),
@@ -2098,6 +2154,47 @@ def init_email_templates_doc():
     }
 
 
+@router.post("/setup/email-templates/rewrite")
+def rewrite_email_templates_doc():
+    """Clear the Email Templates Google Doc and rewrite it with the current _WELCOME_TEMPLATE.
+
+    Use this after updating _WELCOME_TEMPLATE in code to push the new content to the live doc.
+    Busts the in-process template cache on success.
+    """
+    global _EMAIL_TEMPLATES_CACHE, _EMAIL_TEMPLATES_CACHE_TS
+
+    from connectors.google_auth import get_google_credentials
+    from googleapiclient.discovery import build
+
+    doc_id = _get_email_templates_doc_id()
+    if not doc_id:
+        raise HTTPException(status_code=400, detail="email_templates_doc_id not configured in dashy_install.json")
+
+    creds = get_google_credentials()
+    docs_svc = build('docs', 'v1', credentials=creds)
+
+    doc = docs_svc.documents().get(documentId=doc_id).execute()
+    end_index = doc['body']['content'][-1]['endIndex'] - 1
+
+    requests: list[dict] = []
+    if end_index > 1:
+        requests.append({'deleteContentRange': {'range': {'startIndex': 1, 'endIndex': end_index}}})
+    requests.append({'insertText': {'location': {'index': 1}, 'text': _WELCOME_TEMPLATE.strip()}})
+
+    docs_svc.documents().batchUpdate(documentId=doc_id, body={'requests': requests}).execute()
+
+    # Bust the in-process template cache
+    _EMAIL_TEMPLATES_CACHE = None
+    _EMAIL_TEMPLATES_CACHE_TS = 0.0
+
+    logger.info('Rewrote Email Templates doc %s', doc_id)
+    return {
+        'status': 'ok',
+        'doc_id': doc_id,
+        'web_url': f'https://docs.google.com/document/d/{doc_id}/edit',
+    }
+
+
 # ---------------------------------------------------------------------------
 # POST /api/coaching/setup/client
 # ---------------------------------------------------------------------------
@@ -2112,81 +2209,88 @@ class ClientCreateRequest(BaseModel):
     email_template: str | None = None
 
 
-@router.post("/setup/client")
-def setup_create_client(body: ClientCreateRequest):
-    """Create a new billing client.
-
-    Actions (in order):
-    1. Validate company exists and has gdrive_folder_url
-    2. Create Drive folder structure + copy template files; on failure → 400 (no DB write)
-    3. Insert into billing_clients with gdrive_coaching_docs_url
-    4. Update client_type for all clients at this company (auto-detection)
-    5. Create Obsidian client page (failure is a warning)
+def _run_client_creation(task_id: str, body: "ClientCreateRequest") -> None:
+    """Background thread: executes the full client creation pipeline and
+    updates _client_tasks[task_id] with live step progress and final result.
     """
     from connectors.drive import copy_drive_file, get_or_create_drive_folder, list_drive_files
     from connectors.obsidian import get_vault_path
 
+    task = _client_tasks[task_id]
+
+    def _step(name: str, status: str, detail: str = "") -> None:
+        task["steps"].append({"name": name, "status": status, "detail": detail})
+
+    def _finish_step(status: str, detail: str = "") -> None:
+        if task["steps"]:
+            task["steps"][-1]["status"] = status
+            if detail:
+                task["steps"][-1]["detail"] = detail
+
+    def _fatal(name: str, detail: str) -> None:
+        _finish_step("error", detail)
+        task["done"] = True
+        task["error"] = detail
+
     name = body.name.strip()
     obsidian_name = (body.obsidian_name or name).strip()
-    if not name:
-        raise HTTPException(status_code=400, detail="Client name is required")
 
-    db_r = get_db()
-    company = db_r.execute(
-        "SELECT id, name, gdrive_folder_url FROM billing_companies WHERE id = ? AND active = 1",
-        (body.company_id,),
-    ).fetchone()
-    if not company:
-        raise HTTPException(status_code=404, detail="Company not found")
-
-    company_name = company["name"]
-    company_folder_url = company["gdrive_folder_url"]
-    company_folder_id = _folder_id_from_url(company_folder_url) if company_folder_url else None
-
-    if not company_folder_id:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Company '{company_name}' has no Google Drive folder configured. "
-                   "Create the company via Setup first.",
-        )
-
-    # 1 — Drive folder structure (must succeed before DB write)
-    # Use get_or_create so re-running setup for an existing client doesn't
-    # create duplicate Clients / client-name / Coaching docs folders.
+    # Step 1 — Validate company (read directly from billing_companies by ID)
+    _step("Validate company", "running")
     try:
-        # {company}/Clients/{client_name}/
+        db_r = get_db()
+        # Look up by ID only — do NOT filter by active so Setup-created companies
+        # (which may not yet be in billing_seed.json) are always found.
+        company = db_r.execute(
+            "SELECT id, name, gdrive_folder_url FROM billing_companies WHERE id = ?",
+            (body.company_id,),
+        ).fetchone()
+        db_r.close()
+        if not company:
+            return _fatal("Validate company", f"Company id={body.company_id} not found in DB")
+        company_name = company["name"]
+        company_folder_id = _folder_id_from_url(company["gdrive_folder_url"] or "")
+        if not company_folder_id:
+            return _fatal("Validate company", f"Company '{company_name}' has no Drive folder configured")
+        _finish_step("ok", company_name)
+    except Exception as exc:
+        return _fatal("Validate company", str(exc))
+
+    # Step 2 — Create Drive folders
+    _step("Create Drive folders", "running")
+    try:
         clients_folder_id, _ = get_or_create_drive_folder(_drive_subfolder("clients", "Clients"), company_folder_id)
         client_folder_id, _ = get_or_create_drive_folder(name, clients_folder_id)
-        # {company}/Clients/{client_name}/Coaching docs/
-        coaching_docs_id, coaching_docs_url = get_or_create_drive_folder(_drive_subfolder("coaching_docs", "Coaching docs"), client_folder_id)
+        coaching_docs_id, coaching_docs_url = get_or_create_drive_folder(
+            _drive_subfolder("coaching_docs", "Coaching docs"), client_folder_id
+        )
+        _finish_step("ok")
     except Exception as exc:
         logger.error("Drive folder creation failed for client %r: %s", name, exc)
-        raise HTTPException(status_code=400, detail=f"Google Drive error: {exc}")
+        return _fatal("Create Drive folders", str(exc))
 
-    # 1.5 — Share Coaching Docs folder with the client (non-fatal)
+    # Step 3 — Share folder with client (non-fatal, skip if no email)
     folder_shared_with: str | None = None
     folder_share_error: str | None = None
     if body.email:
+        _step("Share folder with client", "running")
         try:
             from connectors.drive import share_drive_item
-            logger.info("Sharing folder %s with %s", coaching_docs_id, body.email)
             share_drive_item(coaching_docs_id, body.email)
             folder_shared_with = body.email
-            logger.info("Shared coaching docs folder %s with %s", coaching_docs_id, body.email)
+            _finish_step("ok", body.email)
         except Exception as exc:
-            # Extract the most useful part of the error (HttpError messages are verbose)
-            raw = str(exc)
-            # googleapiclient HttpError embeds the message inside quotes after "returned "
             import re as _re
-            m = _re.search(r'returned "(.+?)"', raw)
-            folder_share_error = m.group(1) if m else raw
+            m = _re.search(r'returned "(.+?)"', str(exc))
+            folder_share_error = m.group(1) if m else str(exc)
+            _finish_step("warning", folder_share_error)
             logger.warning("Folder share failed for client %r (%s): %s", name, body.email, exc)
 
-    # 2 — Copy template files into Coaching docs
-    # Pass the original template name so copy_drive_file strips the
-    # "Copy of " prefix that the Drive API automatically prepends.
+    # Step 4 — Copy template files (non-fatal)
+    _step("Copy template files", "running")
     coaching_agreement_url = ""
     coaching_agreement_doc_id: str | None = None
+    coaching_kickoff_url = ""
     wheel_of_life_url = ""
     copied_files: list[dict] = []
     try:
@@ -2198,48 +2302,64 @@ def setup_create_client(body: ClientCreateRequest):
             if "coaching agreement" in lower or "agreement" in lower:
                 coaching_agreement_url = copied["web_url"]
                 coaching_agreement_doc_id = copied["id"]
+            elif "kickoff" in lower:
+                coaching_kickoff_url = copied["web_url"]
             elif "wheel of life" in lower or "wheel" in lower:
                 wheel_of_life_url = copied["web_url"]
+        _finish_step("ok", f"{len(copied_files)} files")
     except Exception as exc:
         logger.warning("Template file copy incomplete for client %r: %s", name, exc)
+        _finish_step("warning", str(exc))
 
-    # 3 — DB insert
-    with get_write_db() as db:
-        db.execute(
-            """INSERT INTO billing_clients
-               (name, company_id, rate_override, prepaid, obsidian_name,
-                email, active, client_type, gdrive_coaching_docs_url)
-               VALUES (?, ?, ?, ?, ?, ?, 1, 'company', ?)""",
-            (
-                name,
-                body.company_id,
-                body.rate_override,
-                int(body.prepaid),
-                obsidian_name,
-                body.email,
-                coaching_docs_url,
-            ),
-        )
-        client_id = db.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
-        db.commit()
+    # Step 5 — Save to database (fatal if fails)
+    _step("Save to database", "running")
+    try:
+        with get_write_db() as db:
+            db.execute(
+                """INSERT INTO billing_clients
+                   (name, company_id, rate_override, prepaid, obsidian_name,
+                    email, status, client_type, gdrive_coaching_docs_url)
+                   VALUES (?, ?, ?, ?, ?, ?, 'active', 'company', ?)""",
+                (
+                    name,
+                    body.company_id,
+                    body.rate_override,
+                    int(body.prepaid),
+                    obsidian_name,
+                    body.email,
+                    coaching_docs_url,
+                ),
+            )
+            client_id = db.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
+            db.commit()
+        _finish_step("ok", f"id={client_id}")
+    except Exception as exc:
+        logger.error("DB insert failed for client %r: %s", name, exc)
+        return _fatal("Save to database", str(exc))
 
-    # 4 — client_type auto-detection
-    with get_write_db() as db:
-        count_row = db.execute(
-            "SELECT COUNT(*) AS cnt FROM billing_clients WHERE company_id = ? AND active = 1",
-            (body.company_id,),
-        ).fetchone()
-        active_count = count_row["cnt"] if count_row else 1
+    # Step 6 — Detect client type (non-fatal)
+    _step("Detect client type", "running")
+    new_type = "company"
+    try:
+        with get_write_db() as db:
+            count_row = db.execute(
+                "SELECT COUNT(*) AS cnt FROM billing_clients WHERE company_id = ? AND status = 'active'",
+                (body.company_id,),
+            ).fetchone()
+            active_count = count_row["cnt"] if count_row else 1
+            new_type = "individual" if active_count == 1 else "company"
+            db.execute(
+                "UPDATE billing_clients SET client_type = ? WHERE company_id = ? AND status = 'active'",
+                (new_type, body.company_id),
+            )
+            db.commit()
+        _finish_step("ok", new_type)
+    except Exception as exc:
+        logger.warning("Client type detection failed for client %r: %s", name, exc)
+        _finish_step("warning", str(exc))
 
-        new_type = "individual" if active_count == 1 else "company"
-        db.execute(
-            "UPDATE billing_clients SET client_type = ? WHERE company_id = ? AND active = 1",
-            (new_type, body.company_id),
-        )
-        db.commit()
-
-    # 5 — Manifest Google Doc (non-fatal) — runs before Obsidian so the URL
-    #     can be embedded in the client page
+    # Step 7 — Create Manifest doc (non-fatal)
+    _step("Create Manifest doc", "running")
     manifest_gdoc_url: str | None = None
     try:
         doc_title = f"Manifest - {name}"
@@ -2251,31 +2371,35 @@ def setup_create_client(body: ClientCreateRequest):
             )
             db.commit()
         logger.info("Created Manifest doc for client %r: %s", name, manifest_gdoc_url)
+        _finish_step("ok")
     except Exception as exc:
         logger.warning("Manifest doc creation failed for client %r: %s", name, exc)
+        _finish_step("warning", str(exc))
 
-    # 5.5 — Edit Coaching Agreement placeholders (non-fatal)
+    # Step 8 — Edit Coaching Agreement (non-fatal, skip if no agreement)
     agreement_edited = False
     if coaching_agreement_doc_id:
+        _step("Edit Coaching Agreement", "running")
         try:
             from datetime import date as _date
-            _now = _date.today()
-            month_year = _now.strftime("%B %Y")
-            client_first_name = name.split()[0]
+            month_year = _date.today().strftime("%B %Y")
             _edit_coaching_agreement(
                 doc_id=coaching_agreement_doc_id,
-                client_first_name=client_first_name,
+                client_first_name=name.split()[0],
                 month_year=month_year,
                 company_name=company_name,
                 manifest_url=manifest_gdoc_url or "",
                 coaching_docs_url=coaching_docs_url,
             )
             agreement_edited = True
-            logger.info("Edited Coaching Agreement for client %r (doc=%s)", name, coaching_agreement_doc_id)
+            _finish_step("ok")
+            logger.info("Edited Coaching Agreement for client %r", name)
         except Exception as exc:
             logger.warning("Coaching Agreement edit failed for client %r: %s", name, exc)
+            _finish_step("warning", str(exc))
 
-    # 6 — Obsidian page (non-fatal)
+    # Step 9 — Create Obsidian page (non-fatal)
+    _step("Create Obsidian page", "running")
     obsidian_result: dict = {"action": "skipped", "reason": "vault not configured"}
     try:
         vault = get_vault_path()
@@ -2286,77 +2410,81 @@ def setup_create_client(body: ClientCreateRequest):
                 manifest_gdoc_url=manifest_gdoc_url or "",
             )
             obsidian_result = {"action": "created", "path": str(page)}
+            _finish_step("ok", obsidian_name)
+        else:
+            _finish_step("ok", "vault not configured")
     except Exception as exc:
         logger.warning("Obsidian client page failed for %r: %s", name, exc)
         obsidian_result = {"action": "error", "reason": str(exc)}
+        _finish_step("warning", str(exc))
 
-    # 7 — Append to billing_seed.json (non-fatal)
+    # Step 10 — Update billing seed (non-fatal, skip if file absent)
     try:
-        import json as _json
         seed_path = Path(__file__).resolve().parent.parent / "dashy_billing_seed.json"
         if seed_path.exists():
+            _step("Update billing seed", "running")
+            import json as _json
             seed_data = _json.loads(seed_path.read_text(encoding="utf-8"))
             seed_data.setdefault("clients", []).append({
-                "name": name,
-                "company": company_name,
-                "obsidian_name": obsidian_name,
-                "email": body.email or None,
-                "rate_override": body.rate_override,
-                "prepaid": body.prepaid,
-                "client_type": new_type,
+                "name": name, "company": company_name, "obsidian_name": obsidian_name,
+                "email": body.email or None, "rate_override": body.rate_override,
+                "prepaid": body.prepaid, "client_type": new_type,
                 "gdrive_coaching_docs_url": coaching_docs_url,
-                "manifest_gdoc_url": manifest_gdoc_url,
-                "active": True,
+                "manifest_gdoc_url": manifest_gdoc_url, "active": True,
             })
             seed_path.write_text(_json.dumps(seed_data, indent=2, ensure_ascii=False), encoding="utf-8")
             logger.info("Appended client %r to billing_seed.json", name)
+            _finish_step("ok")
     except Exception as exc:
         logger.warning("billing_seed.json update failed for client %r: %s", name, exc)
+        if task["steps"] and task["steps"][-1]["name"] == "Update billing seed":
+            _finish_step("warning", str(exc))
 
-    # 8 — Gmail draft from email template (non-fatal)
+    # Step 11 — Create email draft (non-fatal, skip if no template/email)
     draft_id: str | None = None
     draft_url: str | None = None
     if body.email_template and body.email:
+        _step("Create email draft", "running")
         try:
             from app_config import get_install_config
             from datetime import date as _date
             _cfg = get_install_config()
             coach_name = _cfg.get("user", {}).get("name", "Your Coach")
             coach_email = _cfg.get("user", {}).get("coach_email", "")
+            calendly_link = _cfg.get("user", {}).get("calendly_url", "")
             month_year = _date.today().strftime("%B %Y")
             client_first_name = name.split()[0]
-
             templates = _fetch_email_templates()
             matched = next((t for t in templates if t["name"].lower() == body.email_template.lower()), None)
             if matched:
-                subject = _substitute_placeholders(
-                    matched["subject_raw"],
+                _subs = dict(
                     first_name=client_first_name, full_name=name,
                     company=company_name, coaching_docs_url=coaching_docs_url,
-                    manifest_url=manifest_gdoc_url or "", coach_email=coach_email,
-                    coach_name=coach_name, month_year=month_year,
+                    manifest_url=manifest_gdoc_url or "",
+                    coaching_agreement_url=coaching_agreement_url,
+                    coaching_kickoff_url=coaching_kickoff_url,
+                    calendly_link=calendly_link,
+                    coach_email=coach_email, coach_name=coach_name, month_year=month_year,
                 )
-                body_html = _substitute_placeholders(
-                    matched["body_raw"],
-                    first_name=client_first_name, full_name=name,
-                    company=company_name, coaching_docs_url=coaching_docs_url,
-                    manifest_url=manifest_gdoc_url or "", coach_email=coach_email,
-                    coach_name=coach_name, month_year=month_year,
-                )
+                subject = _substitute_placeholders(matched["subject_raw"], **_subs)
+                body_html = _substitute_placeholders(matched["body_raw"], **_subs)
                 draft = _create_gmail_draft_html(body.email, subject, body_html)
                 draft_id = draft["id"]
                 draft_url = f"https://mail.google.com/mail/#drafts/{draft_id}"
-                logger.info("Created email draft %s for client %r (%s)", draft_id, name, body.email)
+                logger.info("Created email draft %s for client %r", draft_id, name)
+                _finish_step("ok")
             else:
                 logger.warning("Email template %r not found for client %r", body.email_template, name)
+                _finish_step("warning", f"Template '{body.email_template}' not found")
         except Exception as exc:
             logger.warning("Email draft creation failed for client %r: %s", name, exc)
+            _finish_step("warning", str(exc))
 
     logger.info(
         "Created client %r (id=%d) company=%r coaching_docs=%s client_type=%s",
         name, client_id, company_name, coaching_docs_url, new_type,
     )
-    return {
+    task["result"] = {
         "status": "ok",
         "client_id": client_id,
         "name": name,
@@ -2369,9 +2497,32 @@ def setup_create_client(body: ClientCreateRequest):
         "folder_shared_with": folder_shared_with,
         "folder_share_error": folder_share_error,
         "obsidian": obsidian_result,
+        "obsidian_name": obsidian_name,
         "draft_id": draft_id,
         "draft_url": draft_url,
     }
+    task["done"] = True
+
+
+@router.post("/setup/client")
+def setup_create_client(body: ClientCreateRequest):
+    """Kick off async client creation. Returns task_id for progress polling."""
+    if not body.name.strip():
+        raise HTTPException(status_code=400, detail="Client name is required")
+    task_id = str(uuid.uuid4())
+    _client_tasks[task_id] = {"steps": [], "done": False, "result": None, "error": None}
+    t = threading.Thread(target=_run_client_creation, args=(task_id, body), daemon=True)
+    t.start()
+    return {"task_id": task_id}
+
+
+@router.get("/setup/client/status/{task_id}")
+def setup_client_status(task_id: str):
+    """Poll progress of an async client creation task."""
+    task = _client_tasks.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return task
 
 
 # ---------------------------------------------------------------------------

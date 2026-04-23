@@ -3,7 +3,8 @@
   "user": {
     "name": "Steve Vinter",
     "email": "steve.vinter@gmail.com",
-    "coach_email": "steve.vinter@gmail.com"
+    "coach_email": "steve.vinter@gmail.com",
+    "calendly_url": "https://stevevinter.com/schedule"
   },
   "obsidian": {
     "vault_path": "/Users/stevevinter/Obsidian/MyNotes",

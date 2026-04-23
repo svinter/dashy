@@ -10,6 +10,7 @@ from pathlib import Path
 from fastapi import APIRouter, BackgroundTasks
 
 from connectors.markdown import parse_meeting_files
+from config import DATA_DIR
 from database import batch_upsert, get_db_connection, get_write_db
 from utils.person_matching import rebuild_from_db
 
@@ -33,7 +34,30 @@ DEFAULT_AUTO_SYNC_INTERVAL = 900  # 15 minutes
 # Daily digest scheduler
 _daily_digest_thread: threading.Thread | None = None
 _daily_digest_stop = threading.Event()
-_daily_digest_last_sent_date: date | None = None  # track last send date for catch-up logic
+
+_DIGEST_LAST_SENT_PATH = DATA_DIR / "digest_last_sent.txt"
+
+
+def _read_digest_last_sent() -> date | None:
+    """Read the persisted last-sent date from disk. Returns None if file absent or unreadable."""
+    try:
+        text = _DIGEST_LAST_SENT_PATH.read_text(encoding="utf-8").strip()
+        return date.fromisoformat(text)
+    except Exception:
+        return None
+
+
+def _write_digest_last_sent(d: date) -> None:
+    """Persist the last-sent date to disk so it survives restarts."""
+    try:
+        _DIGEST_LAST_SENT_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _DIGEST_LAST_SENT_PATH.write_text(d.isoformat(), encoding="utf-8")
+    except Exception:
+        logger.warning("Failed to write digest_last_sent.txt", exc_info=True)
+
+
+# Initialise from disk so restarts inherit the last send date
+_daily_digest_last_sent_date: date | None = _read_digest_last_sent()
 
 
 def _check_stale_sync_unlocked():
@@ -913,6 +937,7 @@ def _daily_digest_loop():
             try:
                 sync_daily_digest()
                 _daily_digest_last_sent_date = today
+                _write_digest_last_sent(today)
             except Exception:
                 logger.exception("Daily digest catch-up send failed")
 
@@ -934,6 +959,7 @@ def _daily_digest_loop():
             try:
                 sync_daily_digest()
                 _daily_digest_last_sent_date = today
+                _write_digest_last_sent(today)
             except Exception:
                 logger.exception("Daily digest send failed")
 

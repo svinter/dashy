@@ -8976,6 +8976,48 @@ span.news-item-title {
   padding: var(--space-sm) 0;
 }
 
+/* Client creation progress steps */
+.setup-progress {
+  margin: var(--space-xs) 0;
+  margin-left: 152px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.setup-progress-step {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.setup-progress-icon {
+  font-size: 11px;
+  width: 14px;
+  flex-shrink: 0;
+}
+
+.setup-progress-name {
+  color: var(--color-text);
+}
+
+.setup-progress-detail {
+  color: var(--color-text-light);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 260px;
+}
+
+.setup-progress-step--ok .setup-progress-name { color: var(--color-text-light); }
+.setup-progress-step--ok .setup-progress-icon { color: #27ae60; }
+.setup-progress-step--warning .setup-progress-icon { color: #e67e22; }
+.setup-progress-step--error .setup-progress-icon { color: var(--color-error, #c0392b); }
+.setup-progress-step--error .setup-progress-name { color: var(--color-error, #c0392b); }
+
 /* Operations page */
 
 .coaching-operations {
