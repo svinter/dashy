@@ -1132,7 +1132,7 @@ export interface BillingClient {
   prepaid: boolean;
   obsidian_name: string | null;
   employee_id: number | null;
-  active: boolean;
+  status: 'active' | 'infrequent' | 'inactive';
 }
 
 export interface BillingSettings {

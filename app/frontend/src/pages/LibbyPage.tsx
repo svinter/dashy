@@ -373,7 +373,7 @@ function HoverPreview({ entry, pos }: { entry: LibraryEntry; pos: { x: number; y
 // ---------------------------------------------------------------------------
 
 const LIBBY_CLIENT_SHORTCUTS: HelpShortcut[] = [
-  { keys: '⌘F',       description: 'Focus client search' },
+  { keys: '/',         description: 'Focus client search' },
   { keys: '⌘A',       description: 'Clear selection' },
   { keys: '⌘.',       description: 'Collapse autocomplete' },
   { keys: 'Escape',   description: 'Clear search text' },
@@ -454,7 +454,7 @@ function LibbyClientFilter() {
       allChip={allChip}
       onSelectionChange={onSelectionChange}
       matchFn={matchFn}
-      placeholder="client… (⌘F · ⌘? help)"
+      placeholder="client… (/ · ⌘? help)"
       helpTitle="Libby client shortcuts"
       shortcuts={LIBBY_CLIENT_SHORTCUTS}
       chipClassName={item =>

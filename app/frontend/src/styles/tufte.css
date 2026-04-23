@@ -8105,6 +8105,14 @@ span.news-item-title {
   height: 100%;
 }
 
+.coaching-module > h1 {
+  margin-bottom: 14px;
+}
+
+.coaching-module .tab-bar {
+  margin-bottom: 14px;
+}
+
 .coaching-sub-nav {
   display: flex;
   gap: var(--space-lg);
@@ -8144,13 +8152,44 @@ span.news-item-title {
 .coaching-topbar {
   display: flex;
   flex-direction: row;
-  align-items: center;
+  align-items: flex-start;
   gap: 40px;
   margin-bottom: 4px;
 }
 
+/* Labeled button group — wraps a set of related toolbar buttons */
+.coaching-toolbar-group {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+/* Label row: small-caps text + hairline extending to group edge */
+.coaching-toolbar-group-header {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+}
+
+.coaching-toolbar-group-label {
+  font-size: 9px;
+  font-variant: small-caps;
+  letter-spacing: 0.12em;
+  color: var(--color-text-light);
+  white-space: nowrap;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.coaching-toolbar-group-line {
+  flex: 1;
+  height: 1px;
+  background: var(--color-border);
+  opacity: 0.2;
+}
+
 .coaching-topbar-chips {
-  margin-bottom: var(--space-md);
 }
 
 .coaching-filter {
@@ -8333,7 +8372,6 @@ span.news-item-title {
   align-items: baseline;
   gap: var(--space-md);
   padding: 3px 0;
-  flex-wrap: wrap;
 }
 
 .coaching-client-name {
@@ -8352,13 +8390,15 @@ span.news-item-title {
 .coaching-client-last {
   font-size: var(--text-xs);
   color: var(--color-text-light);
-  min-width: 160px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .coaching-client-next {
   font-size: var(--text-xs);
   color: var(--color-text-light);
-  min-width: 100px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .coaching-client-meta-dim {
@@ -11882,6 +11922,51 @@ span.news-item-title {
 /* ColorPicker swatches */
 .cp-swatch {
   background: var(--swatch-bg, transparent) !important;
+}
+
+/* ------------------------------------------------------------------ */
+/* Coaching — infrequent badge, sort toggle, last-sort row, reimport   */
+/* ------------------------------------------------------------------ */
+
+.coaching-reimport-toast {
+  font-size: var(--text-sm);
+  color: var(--color-text-light);
+  padding: 2px 0 6px;
+}
+
+.coaching-reimport-toast--error {
+  color: var(--color-error, #b00);
+}
+
+.coaching-infrequent-badge {
+  font-size: var(--text-xs);
+  color: var(--color-text-light);
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  padding: 0 4px;
+  margin-left: 6px;
+  vertical-align: middle;
+  letter-spacing: 0.02em;
+  font-variant: small-caps;
+}
+
+/* Row 2 of the coaching topbar (input + chips + hint) */
+.coaching-topbar-row2 {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-bottom: 2px;
+}
+
+/* Last-sort: days-since number shown prominently before the client name */
+.coaching-client-days-prominent {
+  font-size: var(--text-base);
+  font-weight: bold;
+  color: var(--color-text);
+  flex: 0 0 3rem;
+  text-align: right;
+  padding-right: var(--space-sm);
 }
 
 /* ------------------------------------------------------------------ */

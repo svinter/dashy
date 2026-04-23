@@ -136,7 +136,7 @@ def get_coaching_active():
         return False
 
     clients = db.execute(
-        "SELECT id, name, obsidian_name FROM billing_clients WHERE active = 1"
+        "SELECT id, name, obsidian_name FROM billing_clients WHERE status IN ('active', 'infrequent')"
     ).fetchall()
     matched_clients = [c for c in clients if _word_match(c["name"])]
     logger.info("coaching/active fallback: matched clients=%r", [c["name"] for c in matched_clients])
@@ -257,12 +257,13 @@ def get_coaching_clients():
             bc.obsidian_name,
             bc.gdrive_coaching_docs_url,
             bc.manifest_gdoc_url,
+            bc.status,
             bco.id   AS company_id,
             bco.name AS company_name,
             bco.default_rate
         FROM billing_clients bc
         JOIN billing_companies bco ON bc.company_id = bco.id
-        WHERE bc.active = 1
+        WHERE bc.status IN ('active', 'infrequent')
         ORDER BY bco.name, bc.name
         """
     ).fetchall()
@@ -324,6 +325,7 @@ def get_coaching_clients():
             "id": r["id"],
             "name": r["name"],
             "client_type": r["client_type"],
+            "status": r["status"],
             "prepaid": bool(r["prepaid"]),
             "obsidian_name": r["obsidian_name"],
             "gdrive_coaching_docs_url": r["gdrive_coaching_docs_url"],
@@ -505,7 +507,7 @@ def _enrich_event_rows(raw_rows: list, db, vault_meetings=None) -> list[dict]:
 
     all_clients = db.execute(
         "SELECT id, name, obsidian_name, gdrive_coaching_docs_url, email, company_id "
-        "FROM billing_clients WHERE active = 1"
+        "FROM billing_clients WHERE status IN ('active', 'infrequent')"
     ).fetchall()
     all_companies = {
         r["id"]: r["name"]
@@ -608,7 +610,9 @@ def get_clients_by_date(mode: str = "today", days: int = 1):
       (days param) — next N rolling days banana sessions (used for ;1–;9 / ;A–;Z)
     """
     db = get_db()
-    today = date.today()
+    from zoneinfo import ZoneInfo
+    _ET = ZoneInfo("America/New_York")
+    today = datetime.now(_ET).date()
     today_str = today.isoformat()
 
     # Vault path for disk-based note existence checks (future/days modes)
@@ -621,9 +625,9 @@ def get_clients_by_date(mode: str = "today", days: int = 1):
     except Exception:
         pass
 
-    # Monday of current week
-    week_start = today - __import__('datetime').timedelta(days=today.weekday())
-    week_end = week_start + __import__('datetime').timedelta(days=6)
+    # Monday of current week (ET-based)
+    week_start = today - timedelta(days=today.weekday())
+    week_end = week_start + timedelta(days=6)
 
     if mode == "past":
         rows = db.execute(
@@ -673,58 +677,32 @@ def get_clients_by_date(mode: str = "today", days: int = 1):
         ).fetchall()
 
     elif mode == "next":
-        rows = db.execute(
-            """
-            SELECT
-                bs.id, bs.date, bs.client_id, bs.company_id,
-                bs.is_confirmed, bs.color_id, bs.obsidian_note_path,
-                bs.session_number, bs.project_id,
-                bc.name   AS client_name,
-                bc.obsidian_name,
-                bc.gdrive_coaching_docs_url,
-                bco.name  AS company_name,
-                ce.start_time
-            FROM billing_sessions bs
-            JOIN billing_clients bc ON bc.id = bs.client_id
-            JOIN billing_companies bco ON bco.id = bs.company_id
-            LEFT JOIN calendar_events ce ON ce.id = bs.calendar_event_id
-            WHERE bs.date >= ?
-              AND bs.client_id IS NOT NULL
-              AND bs.color_id = '5'
-              AND bs.is_confirmed = 0
-            ORDER BY bs.date ASC, ce.start_time ASC
-            LIMIT 10
-            """,
+        # Query calendar_events directly (like future/days) so events not yet in
+        # billing_sessions still appear. Banana (color_id=5) only, date >= today.
+        raw_rows = db.execute(
+            _CE_SESSION_SELECT +
+            "WHERE ce.color_id = '5' "
+            "AND date(ce.start_time) >= ? "
+            "ORDER BY ce.start_time ASC "
+            "LIMIT 10",
             [today_str],
         ).fetchall()
+        rows = _enrich_event_rows(raw_rows, db, vault_meetings)
 
     elif mode == "week":
-        rows = db.execute(
-            """
-            SELECT
-                bs.id, bs.date, bs.client_id, bs.company_id,
-                bs.is_confirmed, bs.color_id, bs.obsidian_note_path,
-                bs.session_number, bs.project_id,
-                bc.name   AS client_name,
-                bc.obsidian_name,
-                bc.gdrive_coaching_docs_url,
-                bco.name  AS company_name,
-                ce.start_time
-            FROM billing_sessions bs
-            JOIN billing_clients bc ON bc.id = bs.client_id
-            JOIN billing_companies bco ON bco.id = bs.company_id
-            LEFT JOIN calendar_events ce ON ce.id = bs.calendar_event_id
-            WHERE bs.date BETWEEN ? AND ?
-              AND bs.client_id IS NOT NULL
-              AND bs.color_id IN ('5', '11')
-            ORDER BY bs.date ASC, ce.start_time ASC
-            """,
+        # Query calendar_events directly so events not yet in billing_sessions appear.
+        raw_rows = db.execute(
+            _CE_SESSION_SELECT +
+            "WHERE ce.color_id IN ('3', '5') "
+            "AND date(ce.start_time) BETWEEN ? AND ? "
+            "ORDER BY ce.start_time ASC",
             [week_start.isoformat(), week_end.isoformat()],
         ).fetchall()
+        rows = _enrich_event_rows(raw_rows, db, vault_meetings)
 
     elif mode == "future":
         # Show grape/banana events remaining today if any exist after now; else tomorrow only.
-        now_str = datetime.now().isoformat()
+        now_str = datetime.now(_ET).isoformat()
         today_remaining = db.execute(
             """
             SELECT COUNT(*) AS cnt
@@ -740,7 +718,6 @@ def get_clients_by_date(mode: str = "today", days: int = 1):
             future_submode = "today"
             target_date = today_str
         else:
-            from datetime import timedelta
             future_submode = "tomorrow"
             target_date = (today + timedelta(days=1)).isoformat()
 
@@ -754,7 +731,6 @@ def get_clients_by_date(mode: str = "today", days: int = 1):
 
     else:
         # ;N days mode (days param)
-        from datetime import timedelta
         end_date = today + timedelta(days=days)
         raw_rows = db.execute(
             _CE_SESSION_SELECT +

@@ -230,7 +230,7 @@ function scopeBtn(active: boolean): React.CSSProperties {
 // ---------------------------------------------------------------------------
 
 const BILLING_SHORTCUTS: HelpShortcut[] = [
-  { keys: '⌘F', description: 'Focus client search box' },
+  { keys: '/', description: 'Focus client search box' },
   { keys: '⌘A', description: 'Show all clients (clear filter)' },
   { keys: '⌘.', description: 'Finish editing (collapse autocomplete)' },
   { keys: 'Escape', description: 'Clear search text' },
@@ -271,7 +271,7 @@ function BillingClientFilter({ companies, projects = [], selection, allChip, onS
       allChip={allChip}
       onSelectionChange={onSelectionChange}
       matchFn={matchFn}
-      placeholder="filter… (⌘F · .p prepaid · .j projects · ⌘?)"
+      placeholder="filter… (/ · .p prepaid · .j projects · ⌘?)"
       helpTitle="Billing filter shortcuts"
       shortcuts={BILLING_SHORTCUTS}
       className="coaching-filter--inline"
@@ -605,8 +605,8 @@ function SessionRow({ session: s, companies, blocks = [], onUpdate, onDelete, on
   const resolvedRate = fRate !== '' ? parseFloat(fRate) : (defaultRate ?? null);
   const previewAmt = fClient?.prepaid ? 0 : Math.round(parseFloat(fDuration || '0') * (resolvedRate ?? 0) * 100) / 100;
   const fFilteredClients = fCompanyId
-    ? companies.find(co => co.id === fCompanyId)?.clients.filter(cl => cl.active) ?? []
-    : companies.flatMap(co => co.clients.filter(cl => cl.active));
+    ? companies.find(co => co.id === fCompanyId)?.clients.filter(cl => cl.status !== 'inactive') ?? []
+    : companies.flatMap(co => co.clients.filter(cl => cl.status !== 'inactive'));
 
   function handleClientChange(val: string) {
     if (val === NO_CLIENT) { setFClientId(NO_CLIENT); return; }
@@ -917,8 +917,8 @@ function NewSessionForm({ companies, defaultDate, onCreated, onCancel }: NewSess
 
   const allClients = companies.flatMap(co => co.clients.map(cl => ({ ...cl, company_name: co.name })));
   const filteredClients = companyId
-    ? companies.find(co => co.id === companyId)?.clients.filter(cl => cl.active) ?? []
-    : companies.flatMap(co => co.clients.filter(cl => cl.active));
+    ? companies.find(co => co.id === companyId)?.clients.filter(cl => cl.status !== 'inactive') ?? []
+    : companies.flatMap(co => co.clients.filter(cl => cl.status !== 'inactive'));
 
   const selectedClient = clientId !== NO_CLIENT && clientId !== '' ? allClients.find(cl => cl.id === Number(clientId)) : null;
   const selectedCompany = companyId ? companies.find(co => co.id === companyId) : null;
@@ -1621,8 +1621,8 @@ function UnprocessedRow({ event: ev, companies, companyAbbrev, expectedRevenue, 
   const noClient = clientId === NO_CLIENT;
   const isProject = projectId !== null;
   const filteredClients = companyId
-    ? companies.find(co => co.id === companyId)?.clients.filter(cl => cl.active) ?? []
-    : companies.flatMap(co => co.clients.filter(cl => cl.active));
+    ? companies.find(co => co.id === companyId)?.clients.filter(cl => cl.status !== 'inactive') ?? []
+    : companies.flatMap(co => co.clients.filter(cl => cl.status !== 'inactive'));
   const filteredProjects = companyId
     ? allProjects.filter(p => p.company_id === companyId && p.active)
     : allProjects.filter(p => p.active);
@@ -1771,7 +1771,7 @@ function UnprocessedRow({ event: ev, companies, companyAbbrev, expectedRevenue, 
                   ? filteredClients.map(cl => <option key={cl.id} value={cl.id}>{cl.name}</option>)
                   : companies.map(co => (
                       <optgroup key={co.id} label={co.name}>
-                        {co.clients.filter(cl => cl.active).map(cl => <option key={cl.id} value={cl.id}>{cl.name}</option>)}
+                        {co.clients.filter(cl => cl.status !== 'inactive').map(cl => <option key={cl.id} value={cl.id}>{cl.name}</option>)}
                       </optgroup>
                     ))
                 }

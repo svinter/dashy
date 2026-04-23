@@ -8,7 +8,7 @@ import {
   useMemo,
 } from 'react';
 import { NavLink, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import cloud from 'd3-cloud';
 import { api, openExternal } from '../api/client';
 import { ClientFilterBar, HelpPopover as SharedHelpPopover } from '../components/shared/ClientFilterBar';
@@ -22,6 +22,7 @@ interface CoachingClient {
   id: number;
   name: string;
   client_type: 'company' | 'individual';
+  status: 'active' | 'infrequent';
   prepaid: boolean;
   obsidian_name: string | null;
   gdrive_coaching_docs_url: string | null;
@@ -58,7 +59,7 @@ interface CoachingClientsResponse {
 }
 
 // By-date view types
-type DateMode = 'past' | 'today' | 'next' | 'week' | 'future';
+type DateMode = 'past' | 'today' | 'next' | 'week';
 
 interface ByDateSession {
   id: number;
@@ -164,8 +165,8 @@ function useByDate(mode: DateMode | null, days?: number) {
     queryKey: ['coaching-by-date', mode, days],
     queryFn: () => {
       // When days is set (;1-;9, ;A-;Z), send mode=days to hit the rolling-window backend branch.
-      // mode=future is reserved for the smart today/tomorrow logic.
-      const backendMode = (days != null) ? 'days' : mode!;
+      // Today mode uses the backend's smart today/tomorrow logic (backend mode=future).
+      const backendMode = (days != null) ? 'days' : (mode === 'today') ? 'future' : mode!;
       const params = new URLSearchParams({ mode: backendMode });
       if (days != null) params.set('days', String(days));
       return api.get<ByDateResponse>(`/coaching/clients/by-date?${params}`);
@@ -183,7 +184,7 @@ export type HelpShortcut = SharedHelpShortcut;
 export { SharedHelpPopover as HelpPopover };
 
 const COACHING_SHORTCUTS: HelpShortcut[] = [
-  { keys: '⌘F', description: 'Focus client search box' },
+  { keys: '/', description: 'Focus client search box' },
   { keys: '⌘A', description: 'Show all clients (clear filter)' },
   { keys: '⌘.', description: 'Finish editing (collapse autocomplete)' },
   { keys: 'Escape', description: 'Clear search text' },
@@ -195,11 +196,11 @@ const COACHING_SHORTCUTS: HelpShortcut[] = [
   { keys: '- prefix', description: 'Remove from selection  (e.g. -cfs)' },
   { keys: '.c', description: 'Select active client/project (if session in progress)' },
   { keys: '⌘/ or ⌘?', description: 'Show this help' },
-  { keys: ';', description: 'Enter date mode → Future (today or tomorrow). Press ; again to exit.' },
+  { keys: ';', description: 'Enter date mode → Today (today or tomorrow). Press ; again to exit.' },
   { keys: ';p / ;t / ;n', description: 'Date mode: Past / Today / Next' },
-  { keys: ';w / ;f', description: 'Date mode: Week / Future (today or tomorrow)' },
-  { keys: ';1 – ;9', description: 'Date mode: Future N days ahead (1–9)' },
-  { keys: ';A – ;Z', description: 'Date mode: Future N days ahead (A=10, B=11 … Z=35)' },
+  { keys: ';w', description: 'Date mode: Week' },
+  { keys: ';1 – ;9', description: 'Date mode: Today N days ahead (1–9)' },
+  { keys: ';A – ;Z', description: 'Date mode: Today N days ahead (A=10, B=11 … Z=35)' },
 ];
 
 // ---------------------------------------------------------------------------
@@ -249,6 +250,9 @@ interface CoachingFilterCtx {
   setDateMode: (m: DateMode) => void;
   setDateDays: (n: number | undefined) => void;
   setFutureLabel: (s: string) => void;
+  // Sort mode
+  sortMode: 'default' | 'last';
+  setSortMode: (m: 'default' | 'last') => void;
 }
 
 const CoachingFilterContext = createContext<CoachingFilterCtx>({
@@ -264,13 +268,15 @@ const CoachingFilterContext = createContext<CoachingFilterCtx>({
   toggleDemo: () => {},
   activeResult: null,
   dateModeActive: false,
-  dateMode: 'future',
+  dateMode: 'today',
   dateDays: undefined,
   futureLabel: '',
   setDateModeActive: () => {},
   setDateMode: () => {},
   setDateDays: () => {},
   setFutureLabel: () => {},
+  sortMode: 'default',
+  setSortMode: () => {},
 });
 
 function useCoachingFilter() {
@@ -430,9 +436,10 @@ interface ClientFilterProps {
   hideChips?: boolean;
   autoFocus?: boolean;
   activeResult?: CoachingActiveResult | null;
+  onPhaseChange?: (phase: 'visible' | 'fading' | 'hidden') => void;
 }
 
-function ClientFilter({ groups, selection, allChip, onSelectionChange, hideChips, autoFocus, activeResult }: ClientFilterProps) {
+function ClientFilter({ groups, selection, allChip, onSelectionChange, hideChips, autoFocus, activeResult, onPhaseChange }: ClientFilterProps) {
   const { companies, clients, projectItems } = useMemo(() => buildSearchIndex(groups), [groups]);
 
   const activeFilterSel: FilterSelection | null = useMemo(() => {
@@ -460,11 +467,12 @@ function ClientFilter({ groups, selection, allChip, onSelectionChange, hideChips
       allChip={allChip}
       onSelectionChange={onSelectionChange}
       matchFn={matchFn}
-      placeholder="filter clients… (⌘f)"
+      placeholder="filter clients… (/)"
       helpTitle="Coaching keyboard shortcuts"
       shortcuts={COACHING_SHORTCUTS}
       hideChips={hideChips}
       autoFocus={autoFocus}
+      onPhaseChange={onPhaseChange}
     />
   );
 }
@@ -497,18 +505,17 @@ function obsidianClientUrl(obsidianName: string): string {
 // ---------------------------------------------------------------------------
 
 const DATE_BUTTONS: { mode: DateMode; label: string; key: string }[] = [
-  { mode: 'past',   label: 'Past',   key: ';p' },
-  { mode: 'today',  label: 'Today',  key: ';t' },
-  { mode: 'next',   label: 'Next',   key: ';n' },
-  { mode: 'week',   label: 'Week',   key: ';w' },
-  { mode: 'future', label: 'Future', key: ';f' },
+  { mode: 'past',  label: 'Past',  key: ';p' },
+  { mode: 'today', label: 'Today', key: ';t' },
+  { mode: 'next',  label: 'Next',  key: ';n' },
+  { mode: 'week',  label: 'Week',  key: ';w' },
 ];
 
 function DateModeBar({
   active,
   dateMode,
   dateDays,
-  futureLabelSuffix,
+  todayLabelSuffix,
   onToggle,
   onModeSelect,
   onClientsClick,
@@ -516,7 +523,7 @@ function DateModeBar({
   active: boolean;
   dateMode: DateMode;
   dateDays?: number;
-  futureLabelSuffix?: string;
+  todayLabelSuffix?: string;
   onToggle: () => void;
   onModeSelect: (m: DateMode) => void;
   onClientsClick: () => void;
@@ -537,13 +544,13 @@ function DateModeBar({
 
       {DATE_BUTTONS.map(btn => {
         const isActive = active && dateMode === btn.mode;
-        // Dynamic label for Future button
+        // Dynamic label for Today button (shows today/tomorrow submode or N-days)
         let label = btn.label;
-        if (btn.mode === 'future' && active) {
+        if (btn.mode === 'today' && active) {
           if (dateDays != null) {
-            label = `Future: ${dateDays}d`;
-          } else if (futureLabelSuffix) {
-            label = `Future: ${futureLabelSuffix}`;
+            label = `Today: ${dateDays}d`;
+          } else if (todayLabelSuffix) {
+            label = `Today: ${todayLabelSuffix}`;
           }
         }
         return (
@@ -561,7 +568,6 @@ function DateModeBar({
           </button>
         );
       })}
-      <span className="coaching-date-bar-hints">⌘a = all · ; = future</span>
     </div>
   );
 }
@@ -642,12 +648,25 @@ const NOW_BADGE = (
   </span>
 );
 
-function ClientRow({ client }: { client: CoachingClient }) {
+const INFREQUENT_BADGE = (
+  <span className="coaching-infrequent-badge">infrequent</span>
+);
+
+function ClientRow({ client, showDaysFirst }: { client: CoachingClient; showDaysFirst?: boolean }) {
   const { activeResult } = useCoachingFilter();
   const isNow = activeResult?.active && activeResult.type === 'client' && activeResult.client_id === client.id;
   return (
-    <div className="coaching-client-row">
-      <span className="coaching-client-name">{client.name}{isNow && NOW_BADGE}</span>
+    <div className={`coaching-client-row${showDaysFirst ? ' coaching-client-row--last-sort' : ''}`}>
+      {showDaysFirst && (
+        <span className="coaching-client-days-prominent">
+          {client.days_ago != null ? `${client.days_ago}d` : '—'}
+        </span>
+      )}
+      <span className="coaching-client-name">
+        {client.name}
+        {isNow && NOW_BADGE}
+        {client.status === 'infrequent' && INFREQUENT_BADGE}
+      </span>
       <span className="coaching-client-sessions">
         {(client.display_session_number ?? 0)} sessions
       </span>
@@ -735,9 +754,49 @@ function ProjectRow({ project }: { project: CoachingProject }) {
 }
 
 function ClientsPage() {
-  const { groups, selection, effectiveIds, effectiveProjectIds, demo, dateModeActive, dateMode, dateDays, setFutureLabel } = useCoachingFilter();
+  const { groups, selection, effectiveIds, effectiveProjectIds, demo, dateModeActive, dateMode, dateDays, setFutureLabel, sortMode } = useCoachingFilter();
 
   if (groups.length === 0) return <div className="coaching-loading">Loading…</div>;
+
+  // Last sort: clients grouped by status (active first, then infrequent), each sorted by days_ago DESC
+  if (sortMode === 'last' && !dateModeActive) {
+    const allClients = groups.flatMap(g => g.clients);
+    const filteredClients = effectiveIds === null ? allClients : allClients.filter(c => effectiveIds.has(c.id));
+    const sortByDays = (a: CoachingClient, b: CoachingClient) => {
+      if (a.days_ago === null && b.days_ago === null) return 0;
+      if (a.days_ago === null) return 1;
+      if (b.days_ago === null) return -1;
+      return b.days_ago - a.days_ago;
+    };
+    const activeClients = filteredClients.filter(c => c.status === 'active').sort(sortByDays);
+    const infrequentClients = filteredClients.filter(c => c.status === 'infrequent').sort(sortByDays);
+
+    const renderStatusGroup = (label: string, clients: CoachingClient[]) => {
+      if (clients.length === 0) return null;
+      return (
+        <div className="coaching-group">
+          <div className="coaching-group-header">
+            <span className="coaching-group-name">{label}</span>
+          </div>
+          {clients.map(client => (
+            <ClientRow key={client.id} client={client} showDaysFirst />
+          ))}
+        </div>
+      );
+    };
+
+    return (
+      <div className="coaching-clients-page">
+        <div className="coaching-client-list">
+          {renderStatusGroup('Active', activeClients)}
+          {renderStatusGroup('Infrequent', infrequentClients)}
+          {filteredClients.length === 0 && selection.length > 0 && (
+            <div className="coaching-empty">No clients match the current filter.</div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   const visibleGroups = (effectiveIds === null && effectiveProjectIds === null)
     ? groups
@@ -2142,12 +2201,34 @@ export function CoachingPage() {
   const toggleDemo = useCallback(() => setDemo(d => !d), []);
   const hasAutoSelected = useRef(false);
 
+  // Reimport seed
+  const qc = useQueryClient();
+  const [reimportToast, setReimportToast] = useState<{ ok: boolean; msg: string } | null>(null);
+  const reimport = useMutation({
+    mutationFn: () => api.post('/billing/seed/import?force=true', {}),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['billing-companies'] });
+      qc.invalidateQueries({ queryKey: ['coaching-clients'] });
+      setReimportToast({ ok: true, msg: 'Reimport complete' });
+      setTimeout(() => setReimportToast(null), 3000);
+    },
+    onError: (err: Error) => {
+      setReimportToast({ ok: false, msg: `Reimport failed: ${err.message}` });
+      setTimeout(() => setReimportToast(null), 4000);
+    },
+  });
+
+  // Sort mode
+  const [sortMode, setSortMode] = useState<'default' | 'last'>('default');
+  // Input phase — tracked so parent can decide Row 2 visibility
+  const [inputPhase, setInputPhase] = useState<'visible' | 'fading' | 'hidden'>('visible');
+
   // Date mode state (lifted here so DateModeBar can sit beside the filter)
   const [dateModeActive, setDateModeActive] = useState(false);
-  const [dateMode, setDateMode] = useState<DateMode>('future');
+  const [dateMode, setDateMode] = useState<DateMode>('today');
   const [dateDays, setDateDays] = useState<number | undefined>(undefined);
   const [futureLabel, setFutureLabel] = useState('');
-  const lastDateModeRef = useRef<DateMode>('future');
+  const lastDateModeRef = useRef<DateMode>('today');
   const dateModeActiveRef = useRef(false);
 
   const location = useLocation();
@@ -2186,10 +2267,10 @@ export function CoachingPage() {
           setSelection([]);
           setAllChip(true);
         } else {
-          // Enter date mode with Future
+          // Enter date mode with Today
           dateModeActiveRef.current = true;
-          lastDateModeRef.current = 'future';
-          setDateMode('future');
+          lastDateModeRef.current = 'today';
+          setDateMode('today');
           setDateDays(undefined);
           setDateModeActive(true);
         }
@@ -2199,7 +2280,7 @@ export function CoachingPage() {
       // While in date mode, intercept all valid date keys
       if (dateModeActiveRef.current) {
         const modeMap: Record<string, DateMode> = {
-          p: 'past', t: 'today', n: 'next', w: 'week', f: 'future',
+          p: 'past', t: 'today', n: 'next', w: 'week',
         };
         if (modeMap[e.key]) {
           e.preventDefault();
@@ -2213,7 +2294,7 @@ export function CoachingPage() {
         if (/^[1-9]$/.test(e.key)) {
           e.preventDefault();
           e.stopPropagation();
-          setDateMode('future');
+          setDateMode('today');
           setDateDays(parseInt(e.key, 10));
           return;
         }
@@ -2221,7 +2302,7 @@ export function CoachingPage() {
           e.preventDefault();
           e.stopPropagation();
           const days = e.key.charCodeAt(0) - 'A'.charCodeAt(0) + 10; // A=10 … Z=35
-          setDateMode('future');
+          setDateMode('today');
           setDateDays(days);
           return;
         }
@@ -2286,7 +2367,7 @@ export function CoachingPage() {
     dateModeActiveRef.current = true;
     setDateMode(m);
     setDateDays(undefined);
-    if (m !== 'future') setFutureLabel('');
+    setFutureLabel('');
   }, []);
 
   const handleDateToggle = useCallback(() => {
@@ -2325,7 +2406,9 @@ export function CoachingPage() {
     setDateMode,
     setDateDays,
     setFutureLabel,
-  }), [groups, selection, allChip, handleSelectionChange, effectiveIds, effectiveProjectIds, allClientIds, allProjectIds, demo, toggleDemo, dateModeActive, dateMode, dateDays, futureLabel]);
+    sortMode,
+    setSortMode,
+  }), [groups, selection, allChip, handleSelectionChange, effectiveIds, effectiveProjectIds, allClientIds, allProjectIds, demo, toggleDemo, dateModeActive, dateMode, dateDays, futureLabel, sortMode, setSortMode]);
 
   return (
     <CoachingFilterContext.Provider value={ctx}>
@@ -2350,67 +2433,122 @@ export function CoachingPage() {
           <button
             onClick={toggleDemo}
             className="coaching-demo-btn"
-            style={{ background: demo ? 'var(--color-accent, #6b7280)' : 'transparent', color: demo ? '#fff' : 'var(--color-text-light)' }}
+            style={{ color: 'var(--color-text-light)' }}
           >
             {demo ? 'Demo On' : 'Demo'}
           </button>
+          <button
+            onClick={() => reimport.mutate()}
+            disabled={reimport.isPending}
+            className="coaching-demo-btn"
+            style={{ color: 'var(--color-text-light)', marginLeft: 0 }}
+          >
+            {reimport.isPending ? '…' : 'Reimport'}
+          </button>
         </div>
+        {reimportToast && (
+          <div className={`coaching-reimport-toast${reimportToast.ok ? '' : ' coaching-reimport-toast--error'}`}>
+            {reimportToast.msg}
+          </div>
+        )}
 
         {/* Topbar: filter + date mode bar (all coaching pages) */}
         {!isLoading && groups.length > 0 && (
           <>
             {activeData && <ActiveClientBar result={activeData} />}
-            <div className="coaching-topbar">
-              <ClientFilter
-                groups={groups}
-                selection={selection}
-                allChip={allChip}
-                onSelectionChange={handleSelectionChange}
-                hideChips
-                autoFocus
-                activeResult={activeData}
-              />
-              <DateModeBar
-                active={dateModeActive}
-                dateMode={dateMode}
-                dateDays={dateDays}
-                futureLabelSuffix={dateDays != null ? undefined : futureLabel}
-                onToggle={handleDateToggle}
-                onModeSelect={handleModeSelect}
-                onClientsClick={handleClientsClick}
-              />
-            </div>
-            {/* Row 2: chips (all coaching pages) */}
-            {!dateModeActive && (allChip || selection.length > 0) && (
-              <div className="coaching-filter-chips coaching-topbar-chips">
-                {allChip && selection.length === 0 ? (
-                  <span className="coaching-filter-chip coaching-filter-chip--all">
-                    All
-                    <button className="coaching-filter-chip-remove" onClick={() => handleSelectionChange([], false)}>×</button>
-                  </span>
-                ) : (
-                  selection.map((item, i) => (
-                    <span
-                      key={i}
-                      className={`coaching-filter-chip${item.type === 'company' ? ' coaching-filter-chip--company' : ''}`}
-                      style={item.type === 'project' ? { color: '#7B52AB', borderColor: '#7B52AB' } : undefined}
-                    >
-                      {item.label}
+
+            {/* Row 1: Sort toggle + date bar + hint (when row 2 hidden) */}
+            {(() => {
+              const row2Visible = inputPhase !== 'hidden' || selection.length > 0 || allChip;
+              return (
+                <>
+                  <div className="coaching-topbar">
+                    {/* SORT group */}
+                    <div className="coaching-toolbar-group">
+                      <div className="coaching-toolbar-group-header">
+                        <span className="coaching-toolbar-group-label">sort</span>
+                        <div className="coaching-toolbar-group-line" />
+                      </div>
                       <button
-                        className="coaching-filter-chip-remove"
-                        onClick={() => {
-                          const next = selection.filter(s => !(s.type === item.type && s.id === item.id));
-                          handleSelectionChange(next, allChip && next.length === 0);
-                        }}
-                      >×</button>
-                    </span>
-                  ))
-                )}
-                {selection.length > 0 && (
-                  <button className="coaching-filter-clear" onClick={() => handleSelectionChange([], true)}>clear</button>
-                )}
-              </div>
-            )}
+                        className={`coaching-date-btn${sortMode === 'last' ? ' coaching-date-btn--active' : ''}`}
+                        onClick={() => setSortMode(sortMode === 'default' ? 'last' : 'default')}
+                        title="Toggle sort: Default (by company) or Last (by days since last session)"
+                      >
+                        {sortMode === 'default' ? 'Default' : 'Last'}
+                      </button>
+                    </div>
+
+                    {/* FILTER group */}
+                    <div className="coaching-toolbar-group">
+                      <div className="coaching-toolbar-group-header">
+                        <span className="coaching-toolbar-group-label">filter</span>
+                        <div className="coaching-toolbar-group-line" />
+                      </div>
+                      <DateModeBar
+                        active={dateModeActive}
+                        dateMode={dateMode}
+                        dateDays={dateDays}
+                        todayLabelSuffix={dateDays != null ? undefined : futureLabel}
+                        onToggle={handleDateToggle}
+                        onModeSelect={handleModeSelect}
+                        onClientsClick={handleClientsClick}
+                      />
+                    </div>
+
+                    {!row2Visible && (
+                      <span className="coaching-date-bar-hints" style={{ alignSelf: 'flex-end', marginBottom: 4 }}>⌘a = all · ; = today</span>
+                    )}
+                  </div>
+
+                  {/* Row 2: input + chips + hint (conditional) */}
+                  {row2Visible && (
+                    <div className="coaching-topbar-row2">
+                      <ClientFilter
+                        groups={groups}
+                        selection={selection}
+                        allChip={allChip}
+                        onSelectionChange={handleSelectionChange}
+                        hideChips
+                        autoFocus
+                        activeResult={activeData}
+                        onPhaseChange={setInputPhase}
+                      />
+                      {!dateModeActive && (allChip || selection.length > 0) && (
+                        <div className="coaching-filter-chips coaching-topbar-chips">
+                          {allChip && selection.length === 0 ? (
+                            <span className="coaching-filter-chip coaching-filter-chip--all">
+                              All
+                              <button className="coaching-filter-chip-remove" onClick={() => handleSelectionChange([], false)}>×</button>
+                            </span>
+                          ) : (
+                            selection.map((item, i) => (
+                              <span
+                                key={i}
+                                className={`coaching-filter-chip${item.type === 'company' ? ' coaching-filter-chip--company' : ''}`}
+                                style={item.type === 'project' ? { color: '#7B52AB', borderColor: '#7B52AB' } : undefined}
+                              >
+                                {item.label}
+                                <button
+                                  className="coaching-filter-chip-remove"
+                                  onClick={() => {
+                                    const next = selection.filter(s => !(s.type === item.type && s.id === item.id));
+                                    handleSelectionChange(next, allChip && next.length === 0);
+                                  }}
+                                >×</button>
+                              </span>
+                            ))
+                          )}
+                          {selection.length > 0 && (
+                            <button className="coaching-filter-clear" onClick={() => handleSelectionChange([], true)}>clear</button>
+                          )}
+                        </div>
+                      )}
+                      <span className="coaching-date-bar-hints">⌘a = all · ; = today</span>
+                    </div>
+                  )}
+                </>
+              );
+            })()}
           </>
         )}
 

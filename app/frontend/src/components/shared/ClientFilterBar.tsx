@@ -87,6 +87,8 @@ interface ClientFilterBarProps<T extends FilterItem> {
   hideChips?: boolean;
   /** When true, focus the input on mount. */
   autoFocus?: boolean;
+  /** Called whenever the auto-hide phase changes. Lets parents track input visibility. */
+  onPhaseChange?: (phase: 'visible' | 'fading' | 'hidden') => void;
 }
 
 export function ClientFilterBar<T extends FilterItem,>({
@@ -94,7 +96,7 @@ export function ClientFilterBar<T extends FilterItem,>({
   allChip,
   onSelectionChange,
   matchFn,
-  placeholder = 'filter… (⌘F · ⌘? help)',
+  placeholder = 'filter… (/ · ⌘? help)',
   helpTitle = 'Keyboard shortcuts',
   shortcuts = [],
   chipClassName = (item) =>
@@ -110,6 +112,7 @@ export function ClientFilterBar<T extends FilterItem,>({
   style,
   hideChips = false,
   autoFocus = false,
+  onPhaseChange,
 }: ClientFilterBarProps<T>) {
   const [text, setText] = useState('');
   const [matchIndex, setMatchIndex] = useState(0);
@@ -124,11 +127,16 @@ export function ClientFilterBar<T extends FilterItem,>({
     if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current);
     setInputPhase('visible');
+    onPhaseChange?.('visible');
     hideTimerRef.current = setTimeout(() => {
       setInputPhase('fading');
-      fadeTimerRef.current = setTimeout(() => setInputPhase('hidden'), 300);
+      onPhaseChange?.('fading');
+      fadeTimerRef.current = setTimeout(() => {
+        setInputPhase('hidden');
+        onPhaseChange?.('hidden');
+      }, 300);
     }, 20000);
-  }, []);
+  }, [onPhaseChange]);
 
   // Start the auto-hide timer on mount
   useEffect(() => {
@@ -153,16 +161,19 @@ export function ClientFilterBar<T extends FilterItem,>({
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.metaKey && e.key === 'f') {
-        e.preventDefault();
-        resetHideTimer();
-        inputRef.current?.focus();
-        return;
+      // '/' focuses the filter input when it is not already focused
+      if (e.key === '/' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        if (document.activeElement !== inputRef.current) {
+          e.preventDefault();
+          resetHideTimer(); // may un-hide the input (display:none → visible) via state update
+          setTimeout(() => inputRef.current?.focus(), 0); // focus after React re-renders
+          return;
+        }
       }
       if (e.metaKey && (e.key === '/' || e.key === '?')) { e.preventDefault(); setHelpOpen(h => !h); return; }
     };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
+    document.addEventListener('keydown', handler, true);
+    return () => document.removeEventListener('keydown', handler, true);
   }, [resetHideTimer]);
 
   const addToSelection = useCallback((item: T) => {

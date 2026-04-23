@@ -65,7 +65,7 @@ class ClientCreate(BaseModel):
     prepaid: bool = False
     obsidian_name: Optional[str] = None
     employee_id: Optional[int] = None
-    active: bool = True
+    status: str = 'active'  # 'active' | 'infrequent' | 'inactive'
 
 
 class ClientUpdate(BaseModel):
@@ -75,7 +75,7 @@ class ClientUpdate(BaseModel):
     prepaid: Optional[bool] = None
     obsidian_name: Optional[str] = None
     employee_id: Optional[int] = None
-    active: Optional[bool] = None
+    status: Optional[str] = None  # 'active' | 'infrequent' | 'inactive'
 
 
 class ProjectCreate(BaseModel):
@@ -111,7 +111,7 @@ COMPANY_COLS = {"name", "abbrev", "default_rate", "billing_method", "payment_met
                 "invoice_prefix", "notes", "email_subject", "email_body", "active"}
 
 CLIENT_COLS = {"name", "company_id", "rate_override", "prepaid", "obsidian_name",
-               "employee_id", "active"}
+               "employee_id", "status"}
 
 PROJECT_COLS = {"name", "company_id", "billing_type", "fixed_amount", "rate_override",
                 "obsidian_name", "gdrive_folder_url", "gdrive_coaching_docs_url", "active"}
@@ -274,7 +274,7 @@ def list_clients(company_id: Optional[int] = None, active_only: bool = False):
             q += " AND company_id = ?"
             params.append(company_id)
         if active_only:
-            q += " AND active = 1"
+            q += " AND status IN ('active', 'infrequent')"
         q += " ORDER BY name"
         rows = db.execute(q, params).fetchall()
     return [_row_to_dict(r) for r in rows]
@@ -285,10 +285,10 @@ def create_client(body: ClientCreate):
     with get_write_db() as db:
         cur = db.execute(
             """INSERT INTO billing_clients
-               (name, company_id, rate_override, prepaid, obsidian_name, employee_id, active)
+               (name, company_id, rate_override, prepaid, obsidian_name, employee_id, status)
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
             (body.name, body.company_id, body.rate_override, int(body.prepaid),
-             body.obsidian_name, body.employee_id, int(body.active)),
+             body.obsidian_name, body.employee_id, body.status),
         )
         db.commit()
         row = db.execute("SELECT * FROM billing_clients WHERE id = ?", (cur.lastrowid,)).fetchone()
@@ -298,9 +298,8 @@ def create_client(body: ClientCreate):
 @router.patch("/clients/{client_id}")
 def update_client(client_id: int, body: ClientUpdate):
     fields = {k: v for k, v in body.model_dump(exclude_unset=True).items()}
-    for bool_col in ("prepaid", "active"):
-        if bool_col in fields and fields[bool_col] is not None:
-            fields[bool_col] = int(fields[bool_col])
+    if "prepaid" in fields and fields["prepaid"] is not None:
+        fields["prepaid"] = int(fields["prepaid"])
     clause, params = _build_update(fields, CLIENT_COLS)
     if not clause:
         raise HTTPException(status_code=400, detail="No valid fields to update")
@@ -408,6 +407,17 @@ def import_seed(force: bool = False):
     if not SEED_PATH.exists():
         raise HTTPException(status_code=404, detail=f"Seed file not found: {SEED_PATH}")
 
+    # Parse JSON before touching the DB — fail fast with a clear message.
+    try:
+        seed = json.loads(SEED_PATH.read_text())
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=422, detail=f"JSON syntax error: {exc}")
+
+    companies_data = seed.get("companies", [])
+    clients_data   = seed.get("clients", [])
+    projects_data  = seed.get("projects", [])
+    provider_data  = seed.get("provider", {})
+
     with get_db_connection(readonly=True) as db:
         existing = db.execute("SELECT COUNT(*) FROM billing_companies").fetchone()[0]
     if existing > 0 and not force:
@@ -416,27 +426,7 @@ def import_seed(force: bool = False):
             detail=f"Billing data already exists ({existing} companies). Delete all first or use force=true.",
         )
 
-    if force and existing > 0:
-        with get_write_db() as db:
-            # Disable FK checks so we can clear only master-data tables
-            # without touching sessions, invoices, or payments.
-            db.execute("PRAGMA foreign_keys=OFF")
-            db.execute("DELETE FROM billing_projects")
-            db.execute("DELETE FROM billing_clients")
-            db.execute("DELETE FROM billing_companies")
-            # Reset autoincrement sequences so re-imported rows get the same
-            # IDs they had before, keeping billing_sessions FK references valid.
-            db.execute("DELETE FROM sqlite_sequence WHERE name IN ('billing_projects', 'billing_clients', 'billing_companies')")
-            db.execute("PRAGMA foreign_keys=ON")
-            db.commit()
-
-    seed = json.loads(SEED_PATH.read_text())
-    companies_data = seed.get("companies", [])
-    clients_data = seed.get("clients", [])
-    projects_data = seed.get("projects", [])
-    provider_data = seed.get("provider", {})
-
-    # Build a name→id map for employees for optional cross-referencing
+    # Build employee lookup before the write transaction (read-only, no lock needed).
     with get_db_connection(readonly=True) as db:
         emp_rows = db.execute("SELECT id, name FROM people").fetchall()
     emp_by_name = {r["name"].lower(): r["id"] for r in emp_rows}
@@ -445,93 +435,110 @@ def import_seed(force: bool = False):
     inserted_companies = 0
     inserted_clients = 0
     inserted_projects = 0
+    relinked = 0
 
-    with get_write_db() as db:
-        for co in companies_data:
-            cur = db.execute(
-                """INSERT INTO billing_companies
-                   (name, abbrev, default_rate, billing_method, payment_method,
-                    ap_email, cc_email, tax_tool, invoice_prefix, notes, active)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    co["name"],
-                    co.get("abbrev"),
-                    co.get("default_rate"),
-                    co.get("billing_method"),
-                    co.get("payment_method"),
-                    co.get("ap_email", ""),
-                    co.get("cc_email", ""),
-                    co.get("tax_tool"),
-                    co.get("invoice_prefix"),
-                    co.get("notes", ""),
-                    int(co.get("active", True)),
-                ),
-            )
-            company_by_name[co["name"]] = cur.lastrowid
-            inserted_companies += 1
+    # Single transaction: DELETE (if force) + all inserts.
+    # get_write_db() rolls back automatically on any exception.
+    try:
+        with get_write_db() as db:
+            if force and existing > 0:
+                # Disable FK checks so we can clear master-data tables without
+                # touching sessions, invoices, or payments.
+                db.execute("PRAGMA foreign_keys=OFF")
+                db.execute("DELETE FROM billing_projects")
+                db.execute("DELETE FROM billing_clients")
+                db.execute("DELETE FROM billing_companies")
+                # Reset autoincrement sequences so re-imported rows get the same
+                # IDs they had before, keeping billing_sessions FK references valid.
+                db.execute("DELETE FROM sqlite_sequence WHERE name IN ('billing_projects', 'billing_clients', 'billing_companies')")
+                db.execute("PRAGMA foreign_keys=ON")
 
-        for cl in clients_data:
-            company_name = cl.get("company", "")
-            company_id = company_by_name.get(company_name)
-            if company_id is None:
-                logger.warning("Seed client %r references unknown company %r — skipping", cl["name"], company_name)
-                continue
+            for co in companies_data:
+                cur = db.execute(
+                    """INSERT INTO billing_companies
+                       (name, abbrev, default_rate, billing_method, payment_method,
+                        ap_email, cc_email, tax_tool, invoice_prefix, notes, active)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        co["name"],
+                        co.get("abbrev"),
+                        co.get("default_rate"),
+                        co.get("billing_method"),
+                        co.get("payment_method"),
+                        co.get("ap_email", ""),
+                        co.get("cc_email", ""),
+                        co.get("tax_tool"),
+                        co.get("invoice_prefix"),
+                        co.get("notes", ""),
+                        int(co.get("active", True)),
+                    ),
+                )
+                company_by_name[co["name"]] = cur.lastrowid
+                inserted_companies += 1
 
-            employee_id = emp_by_name.get(cl["name"].lower())
+            for cl in clients_data:
+                company_name = cl.get("company", "")
+                company_id = company_by_name.get(company_name)
+                if company_id is None:
+                    raise ValueError(f"Unknown company {company_name!r} for client {cl['name']!r}")
 
-            db.execute(
-                """INSERT INTO billing_clients
-                   (name, company_id, rate_override, prepaid, obsidian_name, employee_id, active,
-                    client_type, gdrive_folder_url, gdrive_coaching_docs_url, email,
-                    manifest_gdoc_url)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    cl["name"],
-                    company_id,
-                    cl.get("rate_override"),
-                    int(cl.get("prepaid", False)),
-                    cl.get("obsidian_name", cl["name"]),
-                    employee_id,
-                    int(cl.get("active", True)),
-                    cl.get("client_type"),
-                    cl.get("gdrive_folder_url") or None,
-                    cl.get("gdrive_coaching_docs_url") or None,
-                    cl.get("email") or None,
-                    cl.get("manifest_gdoc_url") or None,
-                ),
-            )
-            inserted_clients += 1
+                db.execute(
+                    """INSERT INTO billing_clients
+                       (name, company_id, rate_override, prepaid, obsidian_name, employee_id, status,
+                        client_type, gdrive_folder_url, gdrive_coaching_docs_url, email,
+                        manifest_gdoc_url)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        cl["name"],
+                        company_id,
+                        cl.get("rate_override"),
+                        int(cl.get("prepaid", False)),
+                        cl.get("obsidian_name", cl["name"]),
+                        emp_by_name.get(cl["name"].lower()),
+                        cl.get("status") or ("active" if cl.get("active", True) else "inactive"),
+                        cl.get("client_type"),
+                        cl.get("gdrive_folder_url") or None,
+                        cl.get("gdrive_coaching_docs_url") or None,
+                        cl.get("email") or None,
+                        cl.get("manifest_gdoc_url") or None,
+                    ),
+                )
+                inserted_clients += 1
 
-        for pr in projects_data:
-            company_name = pr.get("company", "")
-            company_id = company_by_name.get(company_name)
-            if company_id is None:
-                logger.warning("Seed project %r references unknown company %r — skipping", pr["name"], company_name)
-                continue
+            for pr in projects_data:
+                company_name = pr.get("company", "")
+                company_id = company_by_name.get(company_name)
+                if company_id is None:
+                    raise ValueError(f"Unknown company {company_name!r} for project {pr['name']!r}")
 
-            db.execute(
-                """INSERT INTO billing_projects
-                   (name, company_id, billing_type, fixed_amount, rate_override,
-                    obsidian_name, gdrive_folder_url, gdrive_coaching_docs_url, active)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    pr["name"],
-                    company_id,
-                    pr.get("billing_type", "hourly"),
-                    pr.get("fixed_amount"),
-                    pr.get("rate_override"),
-                    pr.get("obsidian_name", pr["name"]),
-                    pr.get("gdrive_folder_url") or None,
-                    pr.get("gdrive_coaching_docs_url") or None,
-                    int(pr.get("active", True)),
-                ),
-            )
-            inserted_projects += 1
+                db.execute(
+                    """INSERT INTO billing_projects
+                       (name, company_id, billing_type, fixed_amount, rate_override,
+                        obsidian_name, gdrive_folder_url, gdrive_coaching_docs_url, active)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        pr["name"],
+                        company_id,
+                        pr.get("billing_type", "hourly"),
+                        pr.get("fixed_amount"),
+                        pr.get("rate_override"),
+                        pr.get("obsidian_name", pr["name"]),
+                        pr.get("gdrive_folder_url") or None,
+                        pr.get("gdrive_coaching_docs_url") or None,
+                        int(pr.get("active", True)),
+                    ),
+                )
+                inserted_projects += 1
 
-        db.commit()
-        relinked = _relink_sessions_after_import(db)
+            db.commit()
+            relinked = _relink_sessions_after_import(db)
 
-    # Upsert provider settings from seed (always, regardless of force flag)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    # Upsert provider settings from seed (outside the main transaction — safe to apply separately).
     if provider_data:
         _update_provider_settings({k: provider_data.get(k, "") for k in PROVIDER_COLS})
 
@@ -1014,7 +1021,7 @@ def get_unprocessed_sessions():
         clients = [dict(r) for r in db.execute(
             "SELECT bc.*, bco.default_rate FROM billing_clients bc "
             "JOIN billing_companies bco ON bco.id = bc.company_id "
-            "WHERE bc.active = 1"
+            "WHERE bc.status IN ('active', 'infrequent')"
         ).fetchall()]
 
         # IDs already handled: dismissed stubs OR confirmed sessions.
