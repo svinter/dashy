@@ -84,7 +84,8 @@
       "Bash(rm ~/.personal-dashboard/.google_token.json)",
       "Bash(python:*)",
       "Bash(open:*)",
-      "Bash(alembic heads:*)"
+      "Bash(alembic heads:*)",
+      "Read(//mnt/user-data/uploads/**)"
     ]
   }
 }
