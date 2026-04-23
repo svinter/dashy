@@ -589,3 +589,25 @@ def delete_entry(entry_id: int):
             raise HTTPException(status_code=404, detail="Entry not found")
         db.execute("DELETE FROM glance_entries WHERE id = ?", (entry_id,))
         db.commit()
+
+
+# ---------------------------------------------------------------------------
+# POST /gcal/import  — pull events from Glance GCal calendar, create entries/trips
+# ---------------------------------------------------------------------------
+
+@router.post("/gcal/import")
+def gcal_import():
+    """Fetch events from the configured Glance GCal calendar and import them.
+
+    Returns { imported, skipped, errors, items }.
+    Events that parse successfully are deleted from GCal after import.
+    Events that fail to parse are left in GCal and included in errors.
+    """
+    try:
+        from services.glance_gcal_import import process_glance_calendar
+    except ImportError as exc:
+        raise HTTPException(status_code=500, detail=f"Import service unavailable: {exc}") from exc
+
+    with get_db_connection() as db:
+        result = process_glance_calendar(db)
+    return result

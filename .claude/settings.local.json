@@ -76,7 +76,9 @@
       "Bash(venv/bin/python3 -c ':*)",
       "Bash(git revert:*)",
       "Bash(python -m ruff check app/backend/routers/settings.py app/backend/routers/config_api.py)",
-      "Bash(ruff check:*)"
+      "Bash(ruff check:*)",
+      "Bash(pbcopy)",
+      "Bash(launchctl load:*)"
     ]
   }
 }

@@ -4,7 +4,7 @@ import threading
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks
@@ -33,6 +33,7 @@ DEFAULT_AUTO_SYNC_INTERVAL = 900  # 15 minutes
 # Daily digest scheduler
 _daily_digest_thread: threading.Thread | None = None
 _daily_digest_stop = threading.Event()
+_daily_digest_last_sent_date: date | None = None  # track last send date for catch-up logic
 
 
 def _check_stale_sync_unlocked():
@@ -865,17 +866,7 @@ def _seconds_until_7am_et() -> float:
     """Return seconds until the next 7:00 AM US/Eastern wall-clock time."""
     from datetime import timedelta
 
-    try:
-        from zoneinfo import ZoneInfo
-        eastern = ZoneInfo("America/New_York")
-    except Exception:
-        try:
-            import pytz
-            eastern = pytz.timezone("America/New_York")
-        except Exception:
-            # Fall back to UTC 12:00 if timezone unavailable (roughly 7am ET winter)
-            eastern = timezone.utc
-
+    eastern = _get_eastern()
     now_et = datetime.now(timezone.utc).astimezone(eastern)
     target = now_et.replace(hour=7, minute=0, second=0, microsecond=0)
     if now_et >= target:
@@ -883,9 +874,48 @@ def _seconds_until_7am_et() -> float:
     return (target - now_et).total_seconds()
 
 
+def _get_eastern():
+    """Return the US/Eastern timezone object."""
+    try:
+        from zoneinfo import ZoneInfo
+        return ZoneInfo("America/New_York")
+    except Exception:
+        try:
+            import pytz
+            return pytz.timezone("America/New_York")
+        except Exception:
+            return timezone.utc
+
+
+def _today_7am_et_passed() -> bool:
+    """Return True if it is currently past 7:00 AM ET today."""
+    eastern = _get_eastern()
+    now_et = datetime.now(timezone.utc).astimezone(eastern)
+    target = now_et.replace(hour=7, minute=0, second=0, microsecond=0)
+    return now_et >= target
+
+
 def _daily_digest_loop():
-    """Background thread: wake at 7:00 AM ET, send digest, repeat."""
+    """Background thread: wake at 7:00 AM ET, send digest, repeat.
+
+    Handles missed sends when the Mac was asleep at the scheduled time:
+    after each sleep() wake, if today's 7am has passed and we haven't sent
+    today yet, fire immediately (catch-up send).
+    """
+    global _daily_digest_last_sent_date
     logger.info("Daily digest scheduler started")
+
+    # Startup catch-up: if it's already past 7am ET and we haven't sent today, send now.
+    if _today_7am_et_passed():
+        today = date.today()
+        if _daily_digest_last_sent_date != today:
+            logger.info("Daily digest: past 7am ET on startup — sending catch-up digest")
+            try:
+                sync_daily_digest()
+                _daily_digest_last_sent_date = today
+            except Exception:
+                logger.exception("Daily digest catch-up send failed")
+
     while not _daily_digest_stop.is_set():
         secs = _seconds_until_7am_et()
         logger.debug("Daily digest sleeping %.0fs until next 7am ET", secs)
@@ -893,11 +923,20 @@ def _daily_digest_loop():
             break  # stop event set
         if _daily_digest_stop.is_set():
             break
-        logger.info("Daily digest: 7am ET reached — sending")
-        try:
-            sync_daily_digest()
-        except Exception:
-            logger.exception("Daily digest send failed")
+
+        # After waking, check if today's window was genuinely reached (catch-up handles
+        # the case where we slept through 7am).
+        today = date.today()
+        if _daily_digest_last_sent_date == today:
+            logger.debug("Daily digest: already sent today, skipping")
+        elif _today_7am_et_passed():
+            logger.info("Daily digest: 7am ET reached — sending")
+            try:
+                sync_daily_digest()
+                _daily_digest_last_sent_date = today
+            except Exception:
+                logger.exception("Daily digest send failed")
+
         # Sleep 70 seconds before recalculating next 7am (prevents double-fire within the same minute)
         _daily_digest_stop.wait(70)
     logger.info("Daily digest scheduler stopped")

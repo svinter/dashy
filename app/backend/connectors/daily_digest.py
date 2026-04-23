@@ -395,6 +395,44 @@ def _backup_html(backups: list[dict]) -> str:
     return f"<table>{rows}</table>"
 
 
+def _get_glance_imports_today(db, today: date) -> list[dict]:
+    """Return glance_gcal_imports rows where imported_at is today."""
+    today_str = today.isoformat()
+    rows = db.execute(
+        "SELECT gcal_event_id, target_type, parse_result, imported_at "
+        "FROM glance_gcal_imports "
+        "WHERE date(imported_at) = ? "
+        "ORDER BY imported_at",
+        (today_str,),
+    ).fetchall()
+    results = []
+    for r in rows:
+        pr = {}
+        try:
+            pr = json.loads(r["parse_result"] or "{}")
+        except Exception:
+            pass
+        results.append({
+            "target_type": r["target_type"],
+            "member": pr.get("member", "?"),
+            "label": pr.get("label", "?"),
+            "is_travel": pr.get("is_travel", False),
+        })
+    return results
+
+
+def _glance_imports_html(imports: list[dict]) -> str:
+    if not imports:
+        return ""  # omit section entirely if no imports today
+    items = []
+    for imp in imports:
+        member = imp["member"].upper() if imp["member"] != "york" else "York"
+        label = imp["label"]
+        type_str = "travel" if imp["is_travel"] else "event"
+        items.append(f"<li style='font-size:13px'>{member} {type_str}: {label}</li>")
+    return f"<ul style='margin:4px 0 0 16px;padding:0'>{''.join(items)}</ul>"
+
+
 def build_digest_html(
     today: date,
     tomorrow: date,
@@ -404,6 +442,7 @@ def build_digest_html(
     granola_tally: dict,
     unprocessed: list[dict],
     backups: list[dict] | None,
+    glance_imports: list[dict] | None = None,
 ) -> str:
     is_sunday = today.weekday() == 6
 
@@ -424,6 +463,12 @@ def build_digest_html(
     parts.append(_section("granola sync — since midnight", _granola_html(granola_tally)))
     parts.append("<hr>")
     parts.append(_section("unprocessed past sessions", _unprocessed_html(unprocessed)))
+
+    if glance_imports:
+        glance_html = _glance_imports_html(glance_imports)
+        if glance_html:
+            parts.append("<hr>")
+            parts.append(_section(f"glance imports today ({len(glance_imports)})", glance_html))
 
     if is_sunday and backups is not None:
         parts.append("<hr>")
@@ -477,6 +522,7 @@ def send_daily_digest() -> dict:
         today_sessions    = _get_sessions_for_date(db, today)
         tomorrow_sessions = _get_sessions_for_date(db, tomorrow)
         unprocessed       = _get_unprocessed_past_sessions(db)
+        glance_imports    = _get_glance_imports_today(db, today)
 
     note_result   = _run_note_creation()
     granola_tally = _read_and_reset_granola_tally()
@@ -491,6 +537,7 @@ def send_daily_digest() -> dict:
         granola_tally=granola_tally,
         unprocessed=unprocessed,
         backups=backups,
+        glance_imports=glance_imports,
     )
 
     # Load recipient from dashy_install.json, fall back to profile

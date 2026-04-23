@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   useGlanceData,
   useGlanceMembers,
@@ -145,8 +146,11 @@ function formatPageLabel(start: Date, end: Date): string {
 
 export function GlancePage() {
   const [searchParams] = useSearchParams();
+  const queryClient = useQueryClient();
   const [pageStart, setPageStart] = useState<Date>(() => pageStartForIndex(1));
   const [isTodayWindow, setIsTodayWindow] = useState(true);
+  const [gcalImporting, setGcalImporting] = useState(false);
+  const [gcalImportMsg, setGcalImportMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
   // ?today=1 deep link — snap to today window on mount
   useEffect(() => {
@@ -630,6 +634,26 @@ export function GlancePage() {
 
   // ---------------------------------------------------------------------------
 
+  const handleGcalImport = async () => {
+    setGcalImporting(true);
+    setGcalImportMsg(null);
+    try {
+      const res = await fetch('/api/glance/gcal/import', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'import failed');
+      const n = data.imported ?? 0;
+      const msg = n === 0 ? 'nothing new' : `${n} imported`;
+      setGcalImportMsg({ text: msg, ok: true });
+      if (n > 0) queryClient.invalidateQueries({ queryKey: ['glance-weeks'] });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'import failed';
+      setGcalImportMsg({ text: msg, ok: false });
+    } finally {
+      setGcalImporting(false);
+      setTimeout(() => setGcalImportMsg(null), 4000);
+    }
+  };
+
   if (error) {
     return (
       <div style={{ padding: '24px', color: 'var(--color-text-secondary)' }}>
@@ -732,6 +756,25 @@ export function GlancePage() {
               letterSpacing: '0.02em',
             }}>f…</span>
           )}
+
+          {/* GCal import button */}
+          <button
+            onClick={handleGcalImport}
+            disabled={gcalImporting}
+            title="Import events from Glance GCal calendar"
+            style={{
+              fontSize: '11px', padding: '2px 8px',
+              border: '0.5px solid var(--color-border-secondary, #d8d6ce)',
+              borderRadius: '3px', cursor: gcalImporting ? 'default' : 'pointer',
+              background: 'transparent', fontFamily: 'inherit',
+              color: gcalImportMsg
+                ? gcalImportMsg.ok ? 'var(--color-accent, #4a90e2)' : '#c0392b'
+                : 'var(--color-text-secondary)',
+              opacity: gcalImporting ? 0.6 : 1,
+            }}
+          >
+            {gcalImporting ? '…' : gcalImportMsg ? gcalImportMsg.text : '↓ gcal'}
+          </button>
 
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '12px' }}>
             <button

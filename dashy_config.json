@@ -21,5 +21,8 @@
     "output_dir": "~/.personal-dashboard/invoices/",
     "late_threshold_days": 45,
     "payment_tolerance_dollars": 1.00
+  },
+  "glance": {
+    "gcal_calendar_id": ""
   }
 }
