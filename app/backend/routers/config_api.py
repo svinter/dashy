@@ -1,8 +1,11 @@
 """Read-only endpoints for dashy_install.json and dashy_config.json."""
 
-from fastapi import APIRouter
+import json
+
+from fastapi import APIRouter, HTTPException
 
 from app_config import get_dashy_config, get_install_config
+from config import REPO_ROOT
 
 router = APIRouter(prefix="/api/config", tags=["config"])
 
@@ -25,3 +28,12 @@ def read_install_config():
 def read_operational_config():
     """Return dashy_config.json (all sections)."""
     return get_dashy_config()
+
+
+@router.get("/sidebar")
+def read_sidebar_config():
+    """Return sidebar.config.json from the repo root."""
+    config_path = REPO_ROOT / "sidebar.config.json"
+    if not config_path.exists():
+        raise HTTPException(status_code=404, detail="sidebar.config.json not found")
+    return json.loads(config_path.read_text())

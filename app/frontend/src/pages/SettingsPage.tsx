@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useModulePrefs } from '../hooks/useModulePrefs';
 import {
   useAuthStatus,
   useGoogleAuth,
@@ -1033,7 +1034,56 @@ const CONNECTOR_GROUPS: { label: string; description: string; ids: string[] }[] 
 
 const AI_CONNECTOR_IDS = new Set(['gemini', 'anthropic', 'openai']);
 
-type SettingsTab = 'connections' | 'ai' | 'sync' | 'profile' | 'advanced' | 'feedback' | 'billing';
+function ModulesTab() {
+  const { data: modules, isLoading, hiddenIds, updatePref, isPending } = useModulePrefs();
+
+  if (isLoading) return <p className="empty-state">Loading...</p>;
+  if (!modules?.length) return <p className="empty-state">No modules configured.</p>;
+
+  // Group by section
+  const sections = new Map<string, { label: string; items: typeof modules }>();
+  for (const mod of modules) {
+    const key = mod.section_id;
+    if (!sections.has(key)) sections.set(key, { label: mod.section_label, items: [] });
+    sections.get(key)!.items.push(mod);
+  }
+
+  return (
+    <div>
+      <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-light)', marginBottom: 'var(--space-md)' }}>
+        Toggle sidebar item visibility. Hidden items are removed from the sidebar but their routes and data remain accessible.
+      </p>
+      {[...sections.entries()].map(([sectionId, section]) => (
+        <div key={sectionId} style={{ marginBottom: 'var(--space-lg)' }}>
+          <div style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--color-text-light)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 'var(--space-sm)' }}>
+            {section.label}
+          </div>
+          {section.items.map((mod) => (
+            <div key={mod.module_id} style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', marginBottom: 'var(--space-xs)', fontSize: 'var(--text-sm)' }}>
+              <input
+                type="checkbox"
+                id={`module-${mod.module_id}`}
+                checked={!hiddenIds.has(mod.module_id)}
+                disabled={isPending}
+                onChange={(e) => updatePref(mod.module_id, e.target.checked)}
+              />
+              <label htmlFor={`module-${mod.module_id}`} style={{ cursor: 'pointer', flex: 1 }}>
+                {mod.label}
+              </label>
+              {mod.connector && (
+                <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)' }}>
+                  requires {mod.connector.replace(/\|/g, ' or ')}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+type SettingsTab = 'connections' | 'ai' | 'sync' | 'profile' | 'advanced' | 'feedback' | 'billing' | 'modules';
 
 export function SettingsPage() {
   const { data: authData, isLoading: authLoading, refetch } = useAuthStatus();
@@ -1106,6 +1156,12 @@ export function SettingsPage() {
           onClick={() => setActiveTab('billing')}
         >
           Billing
+        </button>
+        <button
+          className={`tab ${activeTab === 'modules' ? 'active' : ''}`}
+          onClick={() => setActiveTab('modules')}
+        >
+          Modules
         </button>
       </div>
 
@@ -1206,6 +1262,7 @@ export function SettingsPage() {
 
       {activeTab === 'feedback' && <FeedbackTab />}
       {activeTab === 'billing' && <BillingTab />}
+      {activeTab === 'modules' && <ModulesTab />}
     </div>
   );
 }

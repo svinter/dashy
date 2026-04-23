@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { usePeople, useSync, useAuthStatus, useConnectors, useCreatePerson, useUpdatePerson, usePersonas, useGroups, useRenameGroup, useVersion, useBillingBadgeCounts } from '../../api/hooks';
 import { useSyncProgress } from '../../hooks/useSyncProgress';
+import { useModulePrefs } from '../../hooks/useModulePrefs';
 import { SyncDetailModal } from '../SyncProgressOverlay';
 import type { SyncSourceInfo } from '../../api/types';
 
@@ -33,6 +34,7 @@ export function Sidebar() {
   const { data: authStatus } = useAuthStatus();
   const [syncDetailOpen, setSyncDetailOpen] = useState(false);
   const { data: versionData } = useVersion();
+  const { hiddenIds } = useModulePrefs();
 
   const enabled = new Set(connectors?.filter(c => c.enabled).map(c => c.id));
 
@@ -140,19 +142,21 @@ export function Sidebar() {
 
         <div className="sidebar-section-label">work</div>
         <nav>
-          <NavLink to="/notes">Thoughts</NavLink>
-          <NavLink to="/issues">Issues</NavLink>
-          <NavLink to="/docs">Docs</NavLink>
-          {(active.has('google') || active.has('granola')) && <NavLink to="/meetings">Meetings</NavLink>}
-          <NavLink to="/coaching">Coaching</NavLink>
-          <NavLink to="/libby">Library</NavLink>
-          <NavLink to="/billing">
-            Billing
-            {!onBillingPage && (queueCount > 0 || unmatchedCount > 0) && (
-              <span className="nav-count-badge">{queueCount + unmatchedCount}</span>
-            )}
-          </NavLink>
-          {onBillingPage && <>
+          {!hiddenIds.has('notes') && <NavLink to="/notes">Thoughts</NavLink>}
+          {!hiddenIds.has('issues') && <NavLink to="/issues">Issues</NavLink>}
+          {!hiddenIds.has('docs') && <NavLink to="/docs">Docs</NavLink>}
+          {!hiddenIds.has('meetings') && (active.has('google') || active.has('granola')) && <NavLink to="/meetings">Meetings</NavLink>}
+          {!hiddenIds.has('coaching') && <NavLink to="/coaching">Coaching</NavLink>}
+          {!hiddenIds.has('libby') && <NavLink to="/libby">Library</NavLink>}
+          {!hiddenIds.has('billing') && (
+            <NavLink to="/billing">
+              Billing
+              {!onBillingPage && (queueCount > 0 || unmatchedCount > 0) && (
+                <span className="nav-count-badge">{queueCount + unmatchedCount}</span>
+              )}
+            </NavLink>
+          )}
+          {!hiddenIds.has('billing') && onBillingPage && <>
             <NavLink to="/billing" end className="sidebar-sub-link">
               Queue{queueCount > 0 && <span className="nav-count-badge">{queueCount}</span>}
             </NavLink>
@@ -160,21 +164,21 @@ export function Sidebar() {
               Payments{unmatchedCount > 0 && <span className="nav-count-badge">{unmatchedCount}</span>}
             </NavLink>
           </>}
-          <NavLink to="/glance">Glance</NavLink>
+          {!hiddenIds.has('glance') && <NavLink to="/glance">Glance</NavLink>}
         </nav>
 
         {(active.has('google') || active.has('slack') || active.has('notion') || active.has('github') || active.has('ramp') || active.has('news') || active.has('google_drive') || active.has('obsidian')) && (
           <>
             <div className="sidebar-section-label">sources</div>
             <nav>
-              {active.has('google') && <NavLink to="/email">Email</NavLink>}
-              {active.has('news') && <NavLink to="/news">News</NavLink>}
-              {active.has('github') && <NavLink to="/github">GitHub</NavLink>}
-              {active.has('slack') && <NavLink to="/slack">Slack</NavLink>}
-              {active.has('notion') && <NavLink to="/notion">Notion</NavLink>}
-              {active.has('google_drive') && <NavLink to="/drive">Drive</NavLink>}
-              {active.has('obsidian') && <NavLink to="/obsidian">Obsidian</NavLink>}
-              {active.has('ramp') && <>
+              {!hiddenIds.has('email') && active.has('google') && <NavLink to="/email">Email</NavLink>}
+              {!hiddenIds.has('news') && active.has('news') && <NavLink to="/news">News</NavLink>}
+              {!hiddenIds.has('github') && active.has('github') && <NavLink to="/github">GitHub</NavLink>}
+              {!hiddenIds.has('slack') && active.has('slack') && <NavLink to="/slack">Slack</NavLink>}
+              {!hiddenIds.has('notion') && active.has('notion') && <NavLink to="/notion">Notion</NavLink>}
+              {!hiddenIds.has('drive') && active.has('google_drive') && <NavLink to="/drive">Drive</NavLink>}
+              {!hiddenIds.has('obsidian') && active.has('obsidian') && <NavLink to="/obsidian">Obsidian</NavLink>}
+              {!hiddenIds.has('ramp') && active.has('ramp') && <>
                 <NavLink to="/ramp" end>Ramp</NavLink>
                 {onRampPage && <>
                   <NavLink to="/ramp/bills" className="sidebar-sub-link">Bills</NavLink>
@@ -187,14 +191,14 @@ export function Sidebar() {
 
         <div className="sidebar-section-label">tools</div>
         <nav>
-          <NavLink to="/people">People</NavLink>
-          {active.has('github') && <NavLink to="/code-search">Code Search</NavLink>}
-          {(active.has('gemini') || active.has('anthropic') || active.has('openai')) && (
+          {!hiddenIds.has('people') && <NavLink to="/people">People</NavLink>}
+          {!hiddenIds.has('code-search') && active.has('github') && <NavLink to="/code-search">Code Search</NavLink>}
+          {!hiddenIds.has('agent') && (active.has('gemini') || active.has('anthropic') || active.has('openai')) && (
             <NavLink to="/agent">Agent</NavLink>
           )}
           {active.has('claude_code') && <>
-            <NavLink to="/claude" end>Claude</NavLink>
-            {onClaudePage && personas?.filter(p => !p.is_default).map(p => (
+            {!hiddenIds.has('claude') && <NavLink to="/claude" end>Claude</NavLink>}
+            {!hiddenIds.has('claude') && onClaudePage && personas?.filter(p => !p.is_default).map(p => (
               <NavLink
                 key={p.id}
                 to={`/claude?persona=${p.id}`}
@@ -214,7 +218,7 @@ export function Sidebar() {
                 {p.name}
               </NavLink>
             ))}
-            <NavLink to="/sandbox">Sandbox</NavLink>
+            {!hiddenIds.has('sandbox') && <NavLink to="/sandbox">Sandbox</NavLink>}
           </>}
         </nav>
 
