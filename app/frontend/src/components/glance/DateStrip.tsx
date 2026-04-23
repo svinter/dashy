@@ -73,6 +73,7 @@ export function DateStrip({ week, monthLabel, dayData, visibleLanes }: DateStrip
           position: 'sticky',
           left: 0,
           zIndex: 5,
+          verticalAlign: 'middle',
         }}
       >
         <span style={{
@@ -105,6 +106,7 @@ export function DateStrip({ week, monthLabel, dayData, visibleLanes }: DateStrip
           position: 'sticky',
           left: 46,
           zIndex: 4,
+          verticalAlign: 'middle',
         }}
       >
         week {weekNum}

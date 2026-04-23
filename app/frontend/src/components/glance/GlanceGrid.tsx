@@ -6,8 +6,8 @@ import type { LaneId } from './LaneRow';
 import type { DragState, CursorCell } from '../../pages/GlancePage';
 
 const DAY_HEADERS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun',
-                    'Jul','Aug','Sep','Oct','Nov','Dec'];
+const MONTH_FULL = ['January','February','March','April','May','June',
+                    'July','August','September','October','November','December'];
 
 // 10 columns: month(46) + lane(66) + 7 day cols + 1 comment col (2× day width)
 // 9 units share (100% - 112px): each day col = 1 unit, comment col = 2 units → total 9 units = 100%
@@ -118,7 +118,9 @@ export function GlanceGrid({
     return () => el.removeEventListener('scroll', handleScroll);
   }, [weeks, scrollRef]);
 
-  const seenMonths = new Set<string>();
+  // monthWeekCounts tracks how many weeks of each month have been rendered,
+  // so we can generate "July", "July - 2", "July - 3"… labels.
+  const monthWeekCounts = new Map<string, number>();
 
   return (
     // Flex column: fixed header + scrollable body below it.
@@ -201,11 +203,10 @@ export function GlanceGrid({
             {weeks.map((week, wi) => {
               const firstDay = week[0];
               const monthKey = `${firstDay.getFullYear()}-${firstDay.getMonth()}`;
-              let monthLabel: string | null = null;
-              if (!seenMonths.has(monthKey)) {
-                seenMonths.add(monthKey);
-                monthLabel = MONTH_ABBR[firstDay.getMonth()];
-              }
+              const weekInMonth = (monthWeekCounts.get(monthKey) ?? 0) + 1;
+              monthWeekCounts.set(monthKey, weekInMonth);
+              const fullName = MONTH_FULL[firstDay.getMonth()];
+              const monthLabel = weekInMonth === 1 ? fullName : `${fullName} - ${weekInMonth}`;
 
               return (
                 <GlanceWeek
