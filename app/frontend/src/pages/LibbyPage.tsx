@@ -54,6 +54,8 @@ interface LibraryEntry {
   context?: string | null;
   synopsis?: string | null;
   summary_path?: string | null;
+  gdoc_summary_id?: string | null;
+  external_summary_url?: string | null;
   highlights_path?: string | null;
 }
 
@@ -222,6 +224,12 @@ function buildDetailLinks(entry: LibraryEntry): DetailLink[] {
   if (entry.summary_path) {
     const summaryUrl = `obsidian://open?vault=MyNotes&file=${entry.summary_path.split('/').map(encodeURIComponent).join('/')}`;
     links.push({ icon: '📝', label: 'Summary', action: () => openExternal(summaryUrl) });
+  }
+  if (entry.gdoc_summary_id) {
+    links.push({ icon: '📄', label: 'My Summary', url: `https://docs.google.com/document/d/${entry.gdoc_summary_id}` });
+  }
+  if (entry.external_summary_url) {
+    links.push({ icon: '🔗', label: 'Summary', url: entry.external_summary_url });
   }
   if (entry.highlights_path) {
     const highlightsUrl = `obsidian://open?vault=MyNotes&file=${entry.highlights_path.split('/').map(encodeURIComponent).join('/')}`;
