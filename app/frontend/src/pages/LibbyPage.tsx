@@ -145,7 +145,7 @@ function LibbyHelpPopup({ onClose }: { onClose: () => void }) {
               <tbody>
                 <tr><td className="libby-help-key">Return</td><td>select (1 result) or pick mode</td></tr>
                 <tr><td className="libby-help-key">a–z</td><td>pick from results</td></tr>
-                <tr><td className="libby-help-key">b</td><td>back to previous state</td></tr>
+                <tr><td className="libby-help-key">B</td><td>back to previous state</td></tr>
                 <tr><td className="libby-help-key">Esc</td><td>return to search</td></tr>
               </tbody>
             </table>
@@ -161,21 +161,18 @@ function LibbyHelpPopup({ onClose }: { onClose: () => void }) {
             <div className="libby-help-col-title" style={{ marginTop: '16px' }}>Actions</div>
             <table className="libby-help-keys">
               <tbody>
+                <tr><td className="libby-help-key">a</td><td>apply last label</td></tr>
+                <tr><td className="libby-help-key">B</td><td>back to pick</td></tr>
                 <tr><td className="libby-help-key">c</td><td>copy URL</td></tr>
-                <tr><td className="libby-help-key">p</td><td>print (copy title + link)</td></tr>
                 <tr><td className="libby-help-key">d</td><td>doc copy to client folder</td></tr>
                 <tr><td className="libby-help-key">e</td><td>edit entry fields inline</td></tr>
-                <tr><td className="libby-help-key">r</td><td>record share with client</td></tr>
-                <tr><td className="libby-help-key">a</td><td>apply last label</td></tr>
                 <tr><td className="libby-help-key">l</td><td>label (add/remove topic)</td></tr>
+                <tr><td className="libby-help-key">m</td><td>modify the type of this entry</td></tr>
                 <tr><td className="libby-help-key">o</td><td>open URL in browser</td></tr>
-                <tr><td className="libby-help-key">m</td><td>make webpage</td></tr>
+                <tr><td className="libby-help-key">p</td><td>print (copy title + link)</td></tr>
+                <tr><td className="libby-help-key">r</td><td>record share with client</td></tr>
                 <tr><td className="libby-help-key">v</td><td>vault (open in Obsidian)</td></tr>
-                <tr><td className="libby-help-key">y</td><td>retype (change type)</td></tr>
-                <tr><td className="libby-help-key">b</td><td>back to pick</td></tr>
                 <tr><td className="libby-help-key libby-help-key--soon">s</td><td className="libby-help-soon">synopsis <span>(coming soon)</span></td></tr>
-                <tr><td className="libby-help-key libby-help-key--soon">f</td><td className="libby-help-soon">full copy <span>(coming soon)</span></td></tr>
-                <tr><td className="libby-help-key libby-help-key--soon">x</td><td className="libby-help-soon">find related <span>(future)</span></td></tr>
               </tbody>
             </table>
           </div>
@@ -1788,7 +1785,14 @@ function CatalogPage() {
     if (uiState === 'PICK') {
       e.preventDefault();
       e.stopPropagation();
-      if (e.key === 'Escape' || e.key === 'b') {
+      if (e.key === 'Escape') {
+        setUiState('SEARCH');
+        return;
+      }
+      if (e.key === 'B') {
+        setQuery('');
+        if (searchInputRef.current) searchInputRef.current.value = '';
+        setResults([]);
         setUiState('SEARCH');
         return;
       }
@@ -1831,6 +1835,7 @@ function CatalogPage() {
         repeatRef.current = null;
         setRepeatDisplay(null);
         setQuery('');
+        if (searchInputRef.current) searchInputRef.current.value = '';
         setResults([]);
         setSearchTotal(0);
         setSelected(null);
@@ -1839,7 +1844,7 @@ function CatalogPage() {
         setUiState('SEARCH');
         return;
       }
-      if (e.key === 'b') { e.preventDefault(); transitionToPick(); return; }
+      if (e.key === 'B') { e.preventDefault(); transitionToPick(); return; }
       if (e.key === 'c') { e.preventDefault(); handleCopy(); return; }
       if (e.key === 'p') { e.preventDefault(); handlePrint(); return; }
       if (e.key === 'd') { e.preventDefault(); handleCopyDoc(); return; }
@@ -1847,9 +1852,8 @@ function CatalogPage() {
       if (e.key === 'a') { e.preventDefault(); handleApply(); return; }
       if (e.key === 'l') { e.preventDefault(); setLabelQuery(''); setLabelHighlight(0); setLabelMsg(null); setUiState('LABEL'); return; }
       if (e.key === 'o') { e.preventDefault(); handleOpenUrl(); return; }
-      if (e.key === 'm') { e.preventDefault(); handleMake(); return; }
       if (e.key === 'v') { e.preventDefault(); handleVault(); return; }
-      if (e.key === 'y') { e.preventDefault(); setRetypeSelected(null); setUiState('RETYPE'); return; }
+      if (e.key === 'm') { e.preventDefault(); setRetypeSelected(null); setUiState('RETYPE'); return; }
       if (e.key === 'e') { e.preventDefault(); setEditOpen(true); return; }
       if (e.key === 's') { e.preventDefault(); showToast('synopsis: coming soon'); return; }
       if (e.key === 'f') { e.preventDefault(); showToast('full: coming soon'); return; }
@@ -2181,8 +2185,8 @@ function CatalogPage() {
               title={repeatDisplay ? `a — apply: ${repeatDisplay}` : 'a — no label set (use l first)'}
             ><span className="libby-action-key">a</span> apply</button>
             <button className="libby-action-btn"
-              onClick={transitionToPick} title="b — back to pick">
-              <span className="libby-action-key">b</span> back</button>
+              onClick={transitionToPick} title="B — back to pick">
+              <span className="libby-action-key">B</span> back</button>
             <button className="libby-action-btn" onClick={handleCopy} title="c — copy URL">
               <span className="libby-action-key">c</span> copy</button>
             <button
@@ -2196,11 +2200,10 @@ function CatalogPage() {
               onClick={() => { setLabelQuery(''); setLabelHighlight(0); setLabelMsg(null); setUiState('LABEL'); }}
               title="l — label (add/remove topic)">
               <span className="libby-action-key">l</span> label</button>
-            <button
-              className={`libby-action-btn${selectedWebpageUrl ? ' libby-action-btn--has-page' : ''}`}
-              onClick={handleMake}
-              title={selectedWebpageUrl ? `m — page exists: ${selectedWebpageUrl}` : 'm — generate page'}
-            ><span className="libby-action-key">m</span> make{selectedWebpageUrl ? ' ✓' : ''}</button>
+            <button className="libby-action-btn"
+              onClick={() => { setRetypeSelected(null); setUiState('RETYPE'); }}
+              title="m — modify the type of this entry">
+              <span className="libby-action-key">m</span> modify</button>
             <button className="libby-action-btn" onClick={handleOpenUrl} title="o — open URL in browser">
               <span className="libby-action-key">o</span> open</button>
             <button className="libby-action-btn" onClick={handlePrint} title="p — print (copy title + link)">
@@ -2215,47 +2218,28 @@ function CatalogPage() {
               onClick={handleVault} disabled={!selected.obsidian_link}
               title={selected.obsidian_link ? 'v — open in Obsidian vault' : 'v — no Obsidian page'}
             ><span className="libby-action-key">v</span> vault</button>
-            <button className="libby-action-btn"
-              onClick={() => { setRetypeSelected(null); setUiState('RETYPE'); }}
-              title="y — retype (change type)">
-              <span className="libby-action-key">y</span> retype</button>
-            {/* Dimmed / coming soon */}
-            <button className="libby-action-btn libby-action-btn--disabled" disabled
-              onClick={() => showToast('full: coming soon')} title="f — full clipboard payload (coming soon)">
-              <span className="libby-action-key">f</span> full</button>
             <button className="libby-action-btn libby-action-btn--disabled" disabled
               onClick={() => showToast('synopsis: coming soon')} title="s — synopsis (coming soon)">
               <span className="libby-action-key">s</span> synopsis</button>
-            <button className="libby-action-btn libby-action-btn--disabled" disabled
-              onClick={() => showToast('find related: future')} title="x — find related (future)">
-              <span className="libby-action-key">x</span> find related</button>
           </div>
 
           <div className="libby-action-legend">
             <table className="libby-legend-table">
               <tbody>
-                <tr><td className="libby-legend-key">a</td><td className="libby-legend-name">apply</td><td className="libby-legend-desc">repeat last label</td></tr>
-                <tr><td className="libby-legend-key">b</td><td className="libby-legend-name">back</td><td className="libby-legend-desc">previous state</td></tr>
+                <tr><td className="libby-legend-key">a</td><td className="libby-legend-name">apply</td><td className="libby-legend-desc">repeat last label{repeatDisplay && <span className="libby-repeat-inline"> — {repeatDisplay}</span>}</td></tr>
+                <tr><td className="libby-legend-key">B</td><td className="libby-legend-name">back</td><td className="libby-legend-desc">previous state</td></tr>
                 <tr><td className="libby-legend-key">c</td><td className="libby-legend-name">copy</td><td className="libby-legend-desc">copy URL to clipboard</td></tr>
                 <tr><td className="libby-legend-key">d</td><td className="libby-legend-name">doc copy</td><td className="libby-legend-desc">copy doc to client folder + link</td></tr>
                 <tr><td className="libby-legend-key">e</td><td className="libby-legend-name">edit</td><td className="libby-legend-desc">edit entry fields inline</td></tr>
-                <tr className="libby-legend-row--future"><td className="libby-legend-key">x</td><td className="libby-legend-name">find related</td><td className="libby-legend-desc"><span className="libby-legend-tag">future</span></td></tr>
-                <tr className="libby-legend-row--soon"><td className="libby-legend-key">f</td><td className="libby-legend-name">full</td><td className="libby-legend-desc">full clipboard payload <span className="libby-legend-tag">coming soon</span></td></tr>
                 <tr><td className="libby-legend-key">l</td><td className="libby-legend-name">label</td><td className="libby-legend-desc">add or remove a topic</td></tr>
-                <tr><td className="libby-legend-key">m</td><td className="libby-legend-name">make</td><td className="libby-legend-desc">publish webpage, copy URL</td></tr>
+                <tr><td className="libby-legend-key">m</td><td className="libby-legend-name">modify</td><td className="libby-legend-desc">change the type of this entry</td></tr>
                 <tr><td className="libby-legend-key">o</td><td className="libby-legend-name">open</td><td className="libby-legend-desc">open URL in browser</td></tr>
                 <tr><td className="libby-legend-key">p</td><td className="libby-legend-name">print</td><td className="libby-legend-desc">copy formatted title + link</td></tr>
                 <tr><td className="libby-legend-key">r</td><td className="libby-legend-name">record</td><td className="libby-legend-desc">log share to Obsidian + Manifest</td></tr>
-                <tr><td className="libby-legend-key">y</td><td className="libby-legend-name">retype</td><td className="libby-legend-desc">change the type of this entry</td></tr>
                 <tr className="libby-legend-row--soon"><td className="libby-legend-key">s</td><td className="libby-legend-name">synopsis</td><td className="libby-legend-desc">generates synopsis <span className="libby-legend-tag">coming soon</span></td></tr>
                 <tr><td className="libby-legend-key">v</td><td className="libby-legend-name">vault</td><td className="libby-legend-desc">open entry page in Obsidian</td></tr>
               </tbody>
             </table>
-            {repeatDisplay && (
-              <div className="libby-repeat-indicator">
-                <span className="libby-legend-key">a</span> applies: {repeatDisplay}
-              </div>
-            )}
           </div>
 
           {statusMsg && <div className="libby-status-msg">{statusMsg}</div>}

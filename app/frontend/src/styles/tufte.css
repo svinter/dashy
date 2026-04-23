@@ -9920,6 +9920,11 @@ span.news-item-title {
   gap: 6px;
 }
 
+.libby-repeat-inline {
+  color: var(--color-accent);
+  font-size: 0.68rem;
+}
+
 /* ── Libby label popup ── */
 
 .libby-label-popup {
