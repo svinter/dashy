@@ -46,6 +46,7 @@ const BillingPage = lazy(() => import('./pages/BillingPage').then(m => ({ defaul
 const CoachingPage = lazy(() => import('./pages/CoachingPage').then(m => ({ default: m.CoachingPage })));
 const LibbyPage = lazy(() => import('./pages/LibbyPage').then(m => ({ default: m.LibbyPage })));
 const GlancePage = lazy(() => import('./pages/GlancePage').then(m => ({ default: m.GlancePage })));
+const ReportsPage = lazy(() => import('./pages/ReportsPage').then(m => ({ default: m.ReportsPage })));
 
 
 const queryClient = new QueryClient({
@@ -181,6 +182,7 @@ function AppContent() {
               <Route path="/billing/*" element={<BillingPage />} />
               <Route path="/glance" element={<GlancePage />} />
               <Route path="/glance/today" element={<Navigate to="/glance?today=1" replace />} />
+              <Route path="/reports" element={<ReportsPage />} />
 
               <Route path="/agent" element={<AgentPage />} />
               <Route path="/code-search" element={<CodeSearchPage />} />

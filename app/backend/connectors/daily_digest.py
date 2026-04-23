@@ -548,6 +548,17 @@ def send_daily_digest() -> dict:
     result = service.users().messages().send(userId="me", body={"raw": raw}).execute()
 
     logger.info("Daily digest sent to %s — subject: %s (msg id: %s)", to_addr, subject, result.get("id"))
+
+    _record_digest_run(
+        run_date=today,
+        today_sessions=today_sessions,
+        tomorrow_sessions=tomorrow_sessions,
+        note_result=note_result,
+        granola_tally=granola_tally,
+        unprocessed=unprocessed,
+        backups=backups,
+    )
+
     return {
         "sent": True,
         "subject": subject,
@@ -557,6 +568,53 @@ def send_daily_digest() -> dict:
         "tomorrow_sessions": len(tomorrow_sessions),
         "unprocessed": len(unprocessed),
     }
+
+
+def _record_digest_run(
+    run_date: date,
+    today_sessions: list[dict],
+    tomorrow_sessions: list[dict],
+    note_result: dict,
+    granola_tally: dict,
+    unprocessed: list[dict],
+    backups: list[dict] | None,
+) -> None:
+    """Insert a digest_runs row and purge rows beyond the last 30."""
+    try:
+        from database import get_db_connection
+
+        sent_at = datetime.now(timezone.utc).isoformat()
+        with get_db_connection() as db:
+            db.execute(
+                """
+                INSERT INTO digest_runs
+                    (run_date, sent_at, today_sessions, tomorrow_sessions,
+                     note_creation, granola_sync, unprocessed_sessions, backup_summary)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run_date.isoformat(),
+                    sent_at,
+                    json.dumps(today_sessions),
+                    json.dumps(tomorrow_sessions),
+                    json.dumps(note_result),
+                    json.dumps(granola_tally),
+                    json.dumps(unprocessed),
+                    json.dumps(backups) if backups is not None else None,
+                ),
+            )
+            # Purge rows beyond the last 30
+            db.execute(
+                """
+                DELETE FROM digest_runs
+                WHERE id NOT IN (
+                    SELECT id FROM digest_runs ORDER BY id DESC LIMIT 30
+                )
+                """
+            )
+            db.commit()
+    except Exception as exc:
+        logger.warning("Failed to record digest run: %s", exc)
 
 
 def _resolve_digest_address() -> str:

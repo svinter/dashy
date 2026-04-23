@@ -22,7 +22,10 @@
     "late_threshold_days": 45,
     "payment_tolerance_dollars": 1.00
   },
+  "billing": {
+    "invoice_output_dir": "/Users/stevevinter/Dropbox/Downloads/Coaching Billing/2026/"
+  },
   "glance": {
-    "gcal_calendar_id": ""
+    "gcal_calendar_id": "5hh8lhpa50fspg2un73lrcmfhg@group.calendar.google.com"
   }
 }

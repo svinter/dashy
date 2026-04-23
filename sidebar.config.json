@@ -13,7 +13,8 @@
       "id": "tools",
       "label": "tools",
       "items": [
-        { "id": "glance",   "label": "Glance",   "route": "/glance" }
+        { "id": "glance",   "label": "Glance",   "route": "/glance" },
+        { "id": "reports",  "label": "Reports",  "route": "/reports" }
       ]
     },
     {

@@ -64,6 +64,7 @@ from routers import (
     profile,
     projects_api,
     ramp_api,
+    reports,
     sandbox,
     scripty,
     search,
@@ -159,6 +160,7 @@ app.include_router(billing_pdf.router)
 app.include_router(coaching.router)
 app.include_router(libby.router)
 app.include_router(glance.router)
+app.include_router(reports.router)
 app.include_router(dashboard.router)
 app.include_router(people.router)
 app.include_router(notes.router)

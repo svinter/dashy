@@ -136,12 +136,16 @@ def _get_calendar_service():
 
 
 def _get_calendar_id() -> str | None:
+    """Read glance.gcal_calendar_id from dashy_config.json directly (no cache)."""
+    import json as _json
     try:
-        from app_config import get_dashy_config
-        cfg = get_dashy_config()
+        from config import REPO_ROOT
+        path = REPO_ROOT / "dashy_config.json"
+        cfg = _json.loads(path.read_text())
         cal_id = cfg.get("glance", {}).get("gcal_calendar_id", "").strip()
         return cal_id or None
-    except Exception:
+    except Exception as exc:
+        logger.warning("Could not read glance.gcal_calendar_id from dashy_config.json: %s", exc)
         return None
 
 
@@ -339,9 +343,12 @@ def process_glance_calendar(db) -> dict:
                 (event_id,),
             )
 
-        db.commit()
         imported += 1
         items.append(item_desc)
+
+    # Single commit after all events processed — avoids lock contention with background syncs
+    if imported > 0:
+        db.commit()
 
     return {"imported": imported, "skipped": skipped, "errors": errors, "items": items}
 
