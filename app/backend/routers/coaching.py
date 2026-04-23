@@ -651,6 +651,7 @@ def get_clients_by_date(mode: str = "today", days: int = 1):
             LEFT JOIN calendar_events ce ON ce.id = bs.calendar_event_id
             WHERE bs.is_confirmed = 1
               AND bs.client_id IS NOT NULL
+              AND COALESCE(bs.canceled, 0) = 0
             ORDER BY bs.date DESC, ce.start_time ASC
             LIMIT 10
             """
@@ -675,6 +676,7 @@ def get_clients_by_date(mode: str = "today", days: int = 1):
             WHERE bs.date = ?
               AND bs.client_id IS NOT NULL
               AND bs.color_id IN ('5', '11')
+              AND COALESCE(bs.canceled, 0) = 0
             ORDER BY ce.start_time ASC
             """,
             [today_str],
@@ -687,6 +689,7 @@ def get_clients_by_date(mode: str = "today", days: int = 1):
             _CE_SESSION_SELECT +
             "WHERE ce.color_id = '5' "
             "AND date(ce.start_time) >= ? "
+            "AND COALESCE(bs.canceled, 0) = 0 "
             "ORDER BY ce.start_time ASC "
             "LIMIT 10",
             [today_str],
@@ -699,6 +702,7 @@ def get_clients_by_date(mode: str = "today", days: int = 1):
             _CE_SESSION_SELECT +
             "WHERE ce.color_id IN ('3', '5') "
             "AND date(ce.start_time) BETWEEN ? AND ? "
+            "AND COALESCE(bs.canceled, 0) = 0 "
             "ORDER BY ce.start_time ASC",
             [week_start.isoformat(), week_end.isoformat()],
         ).fetchall()
@@ -728,6 +732,7 @@ def get_clients_by_date(mode: str = "today", days: int = 1):
         raw_rows = db.execute(
             _CE_SESSION_SELECT +
             "WHERE ce.color_id IN ('3', '5') AND date(ce.start_time) = ? "
+            "AND COALESCE(bs.canceled, 0) = 0 "
             "ORDER BY ce.start_time ASC",
             [target_date],
         ).fetchall()
@@ -740,6 +745,7 @@ def get_clients_by_date(mode: str = "today", days: int = 1):
             _CE_SESSION_SELECT +
             "WHERE ce.color_id IN ('3', '5') "
             "AND date(ce.start_time) BETWEEN ? AND ? "
+            "AND COALESCE(bs.canceled, 0) = 0 "
             "ORDER BY ce.start_time ASC",
             [today_str, end_date.isoformat()],
         ).fetchall()
@@ -847,6 +853,112 @@ def get_clients_by_date(mode: str = "today", days: int = 1):
     if mode == "future":
         result["future_submode"] = future_submode
     return result
+
+
+# ---------------------------------------------------------------------------
+# POST /api/coaching/sessions/detect-cancellations
+# ---------------------------------------------------------------------------
+
+@router.post("/sessions/detect-cancellations")
+def detect_cancellations(dry_run: bool = False):
+    """Scan billing_sessions from the last 7 days for cancelled calendar events.
+
+    For each session whose calendar event is cancelled or missing:
+    - Sets billing_sessions.canceled = 1
+    - Renames the Obsidian note to append ' - CANCELED' before the .md extension
+
+    dry_run=True reports what would change without writing anything.
+    """
+    db = get_db() if dry_run else None
+
+    seven_days_ago = (datetime.now().date() - timedelta(days=7)).isoformat()
+
+    with get_write_db() as write_db:
+        read_db = write_db  # same connection for reads + writes
+
+        rows = read_db.execute(
+            """
+            SELECT bs.id, bs.date, bs.calendar_event_id, bs.obsidian_note_path,
+                   ce.status AS event_status
+            FROM billing_sessions bs
+            LEFT JOIN calendar_events ce ON ce.id = bs.calendar_event_id
+            WHERE bs.date >= ?
+              AND COALESCE(bs.canceled, 0) = 0
+              AND bs.calendar_event_id IS NOT NULL
+            ORDER BY bs.date DESC
+            """,
+            (seven_days_ago,),
+        ).fetchall()
+
+    canceled_ids: list[int] = []
+    renamed: list[dict] = []
+    not_found: list[dict] = []
+    errors: list[str] = []
+
+    # Vault path for note renaming
+    vault_root = None
+    try:
+        from connectors.obsidian import get_vault_path
+        vault_root = get_vault_path()
+    except Exception:
+        pass
+
+    for r in rows:
+        event_status = r["event_status"]  # None if LEFT JOIN found nothing
+        calendar_event_id = r["calendar_event_id"]
+
+        # Detect: cancelled status OR event_id present but no matching row in calendar_events
+        is_cancelled = (event_status == "cancelled") or (event_status is None)
+
+        if not is_cancelled:
+            continue
+
+        session_id = r["id"]
+        note_path = r["obsidian_note_path"]  # e.g. "8 Meetings/2026-04-23 - Katie Rae.md"
+
+        canceled_ids.append(session_id)
+
+        # Rename Obsidian note
+        new_note_path = None
+        if note_path and vault_root:
+            old_file = vault_root / note_path
+            if old_file.exists():
+                stem = old_file.stem
+                if not stem.endswith(" - CANCELED"):
+                    new_name = f"{stem} - CANCELED.md"
+                    new_file = old_file.parent / new_name
+                    new_note_path = str(new_file.relative_to(vault_root))
+                    if not dry_run:
+                        try:
+                            old_file.rename(new_file)
+                            renamed.append({"id": session_id, "old": note_path, "new": new_note_path})
+                        except Exception as e:
+                            errors.append(f"Session {session_id}: rename failed — {e}")
+                            new_note_path = None
+                    else:
+                        renamed.append({"id": session_id, "old": note_path, "new": new_note_path})
+            else:
+                not_found.append({"id": session_id, "path": note_path})
+
+        if not dry_run and canceled_ids:
+            # Write in the same loop iteration to keep rename + DB update consistent
+            with get_write_db() as wdb:
+                wdb.execute(
+                    "UPDATE billing_sessions SET canceled = 1, obsidian_note_path = ? WHERE id = ?",
+                    (new_note_path or note_path, session_id),
+                )
+
+    if not dry_run and not canceled_ids:
+        pass  # nothing to do
+
+    return {
+        "dry_run": dry_run,
+        "canceled_count": len(canceled_ids),
+        "renamed": renamed,
+        "note_not_found": not_found,
+        "errors": errors,
+        "session_ids": canceled_ids,
+    }
 
 
 # ---------------------------------------------------------------------------

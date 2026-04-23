@@ -246,6 +246,19 @@ def sync_calendar():
                 logger.info("Calendar sync promoted %d banana→grape billing sessions", promoted)
         except Exception as promote_err:
             logger.warning("banana→grape promotion after calendar sync failed: %s", promote_err)
+
+        # After calendar sync, detect and mark any cancelled sessions
+        try:
+            from routers.coaching import detect_cancellations
+            result = detect_cancellations(dry_run=False)
+            if result["canceled_count"]:
+                logger.info(
+                    "Calendar sync canceled %d billing session(s): %s",
+                    result["canceled_count"],
+                    result["session_ids"],
+                )
+        except Exception as cancel_err:
+            logger.warning("Cancellation detection after calendar sync failed: %s", cancel_err)
     except ImportError:
         _update_sync_state("calendar", "error", "Calendar connector not yet implemented", 0)
     except Exception as e:

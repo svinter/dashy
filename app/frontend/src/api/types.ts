@@ -1207,6 +1207,7 @@ export interface BillingSession {
   is_confirmed: boolean;
   prepaid: boolean;
   dismissed: boolean;
+  canceled: boolean;
   session_number: number | null;
   display_session_number: number | null;
   prepaid_block_id: number | null;

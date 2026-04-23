@@ -914,6 +914,7 @@ def _session_to_dict(row) -> dict:
     d["is_confirmed"] = bool(d.get("is_confirmed"))
     d["dismissed"] = bool(d.get("dismissed"))
     d["prepaid"] = bool(d.get("prepaid"))
+    d["canceled"] = bool(d.get("canceled"))
     # Compute obsidian_link from stored path if available
     path = d.get("obsidian_note_path")
     if path:
@@ -1520,6 +1521,7 @@ def list_sessions(
     month: Optional[str] = None,  # YYYY-MM
     confirmed_only: bool = False,
     unconfirmed_only: bool = False,
+    show_canceled: bool = False,
 ):
     """Return confirmed (non-dismissed) billing sessions with client/company info."""
     with get_db_connection(readonly=True) as db:
@@ -1581,6 +1583,8 @@ def list_sessions(
             q += " AND bs.is_confirmed = 1"
         if unconfirmed_only:
             q += " AND bs.is_confirmed = 0"
+        if not show_canceled:
+            q += " AND COALESCE(bs.canceled, 0) = 0"
         q += " ORDER BY bs.date DESC"
         rows = db.execute(q, params).fetchall()
     return [_session_to_dict(r) for r in rows]

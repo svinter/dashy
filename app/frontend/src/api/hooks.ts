@@ -2345,13 +2345,14 @@ export function useBillingDismissedSessions() {
   });
 }
 
-export function useBillingSessions(filters?: { company_id?: number; client_id?: number; month?: string; confirmed_only?: boolean; unconfirmed_only?: boolean }) {
+export function useBillingSessions(filters?: { company_id?: number; client_id?: number; month?: string; confirmed_only?: boolean; unconfirmed_only?: boolean; show_canceled?: boolean }) {
   const params = new URLSearchParams();
   if (filters?.company_id) params.set('company_id', String(filters.company_id));
   if (filters?.client_id) params.set('client_id', String(filters.client_id));
   if (filters?.month) params.set('month', filters.month);
   if (filters?.confirmed_only) params.set('confirmed_only', 'true');
   if (filters?.unconfirmed_only) params.set('unconfirmed_only', 'true');
+  if (filters?.show_canceled) params.set('show_canceled', 'true');
   const qs = params.toString();
   return useQuery({
     queryKey: ['billing-sessions', filters],

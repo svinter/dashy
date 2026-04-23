@@ -161,6 +161,7 @@ def _get_sessions_for_date(db, target_date: date) -> list[dict]:
         WHERE ce.color_id IN ('3', '5')
           AND date(ce.start_time) = ?
           AND (ce.status IS NULL OR ce.status != 'cancelled')
+          AND COALESCE(bs.canceled, 0) = 0
         ORDER BY ce.start_time
         """,
         (date_str,),

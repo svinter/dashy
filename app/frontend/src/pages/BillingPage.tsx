@@ -734,8 +734,11 @@ function SessionRow({ session: s, companies, blocks = [], onUpdate, onDelete, on
   }
 
   return (
-    <tr>
-      <td style={{ whiteSpace: 'nowrap', fontSize: 'var(--text-sm)', paddingLeft: 24 }}>{formatSessionDate(s.date)}</td>
+    <tr style={s.canceled ? { opacity: 0.45, textDecoration: 'line-through' } : undefined}>
+      <td style={{ whiteSpace: 'nowrap', fontSize: 'var(--text-sm)', paddingLeft: 24 }}>
+        {formatSessionDate(s.date)}
+        {s.canceled && <span style={{ marginLeft: 4, fontSize: 'var(--text-xs)', color: 'var(--color-text-light)', textDecoration: 'none', display: 'inline-block' }}>canceled</span>}
+      </td>
       {showCompanyCol && (
         <td style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)', whiteSpace: 'nowrap' }}>
           {s.company_abbrev ?? s.company_name ?? ''}
@@ -1056,6 +1059,7 @@ function SessionsView() {
   const { year, month, effectiveCompanyIds, setBillingFilter } = useBillingScope();
   const [unconfirmedOnly, setUnconfirmedOnly] = useState(false);
   const [unlinkedOnly, setUnlinkedOnly] = useState(false);
+  const [showCanceled, setShowCanceled] = useState(false);
   const [viewTab, setViewTab] = useState<SessionViewTab>('flat');
   const [showNewForm, setShowNewForm] = useState(false);
   const [refreshMsg, setRefreshMsg] = useState('');
@@ -1067,6 +1071,7 @@ function SessionsView() {
   const { data: sessions = [], isLoading, refetch } = useBillingSessions({
     month: monthParam,
     unconfirmed_only: unconfirmedOnly || undefined,
+    show_canceled: showCanceled || undefined,
   });
   // Load invoices for the current period for side-by-side comparison in summary tab
   const periodMonthParam = month !== null
@@ -1123,6 +1128,10 @@ function SessionsView() {
         <label style={{ fontSize: 'var(--text-sm)', display: 'flex', gap: 4, alignItems: 'center' }}>
           <input type="checkbox" checked={unlinkedOnly} onChange={e => setUnlinkedOnly(e.target.checked)} />
           Unlinked only
+        </label>
+        <label style={{ fontSize: 'var(--text-sm)', display: 'flex', gap: 4, alignItems: 'center' }}>
+          <input type="checkbox" checked={showCanceled} onChange={e => setShowCanceled(e.target.checked)} />
+          Show canceled
         </label>
         {viewTab === 'flat' && (
           <select value={sortKey} onChange={e => setSortKey(e.target.value as SessionSortKey)} style={{ fontSize: 'var(--text-sm)' }}>
