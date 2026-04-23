@@ -1382,6 +1382,206 @@ def setup_list_companies():
     return {"companies": [dict(r) for r in rows]}
 
 
+@router.get("/setup/clients")
+def setup_list_clients():
+    """Return all active/infrequent clients with company name and session count."""
+    db = get_db()
+    rows = db.execute(
+        """SELECT bc.id, bc.name, bc.status, bc.email,
+                  bc.gdrive_coaching_docs_url,
+                  bco.name AS company_name,
+                  (SELECT COUNT(*) FROM billing_sessions bs WHERE bs.client_id = bc.id) AS session_count
+           FROM billing_clients bc
+           JOIN billing_companies bco ON bc.company_id = bco.id
+           WHERE bc.status IN ('active', 'infrequent')
+           ORDER BY bco.name, bc.name""",
+    ).fetchall()
+    return {"clients": [dict(r) for r in rows]}
+
+
+@router.get("/setup/projects")
+def setup_list_projects():
+    """Return all active projects with company name and session count."""
+    db = get_db()
+    rows = db.execute(
+        """SELECT bp.id, bp.name, bp.billing_type, bp.gdrive_folder_url,
+                  bco.name AS company_name,
+                  (SELECT COUNT(*) FROM billing_sessions bs WHERE bs.project_id = bp.id) AS session_count
+           FROM billing_projects bp
+           JOIN billing_companies bco ON bp.company_id = bco.id
+           WHERE bp.active = 1
+           ORDER BY bco.name, bp.name""",
+    ).fetchall()
+    return {"projects": [dict(r) for r in rows]}
+
+
+def _seed_remove(key: str, name: str) -> None:
+    """Remove all entries matching name from billing_seed.json[key] (non-fatal)."""
+    try:
+        import json as _json
+        seed_path = Path(__file__).resolve().parent.parent / "dashy_billing_seed.json"
+        if not seed_path.exists():
+            return
+        seed_data = _json.loads(seed_path.read_text(encoding="utf-8"))
+        before = len(seed_data.get(key, []))
+        seed_data[key] = [e for e in seed_data.get(key, []) if e.get("name") != name]
+        removed = before - len(seed_data[key])
+        seed_path.write_text(_json.dumps(seed_data, indent=2, ensure_ascii=False), encoding="utf-8")
+        logger.info("Removed %d entry(s) named %r from billing_seed.json[%s]", removed, name, key)
+    except Exception as exc:
+        logger.warning("billing_seed.json removal failed for %r in %r: %s", name, key, exc)
+
+
+@router.delete("/setup/company/{company_id}")
+def setup_delete_company(company_id: int):
+    from urllib.parse import quote
+    db_r = get_db()
+    company = db_r.execute(
+        "SELECT id, name, gdrive_folder_url FROM billing_companies WHERE id = ?", (company_id,)
+    ).fetchone()
+    if not company:
+        db_r.close()
+        raise HTTPException(status_code=404, detail="Company not found")
+    name = company["name"]
+    gdrive_url = company["gdrive_folder_url"] or ""
+    obsidian_url = (
+        f"obsidian://open?vault=MyNotes&file=1%20Company%2F"
+        f"{quote(name, safe='')}%2F{quote(name, safe='')}.md"
+    )
+
+    active_clients = db_r.execute(
+        """SELECT name FROM billing_clients
+           WHERE company_id = ? AND status IN ('active', 'infrequent')
+           ORDER BY name""",
+        (company_id,),
+    ).fetchall()
+    active_projects = db_r.execute(
+        "SELECT name FROM billing_projects WHERE company_id = ? AND active = 1",
+        (company_id,),
+    ).fetchall()
+    db_r.close()
+
+    if active_clients:
+        client_names = ", ".join(r["name"] for r in active_clients)
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot delete — {len(active_clients)} active client(s): {client_names}. Delete them first.",
+        )
+    if active_projects:
+        project_names = ", ".join(r["name"] for r in active_projects)
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot delete — {len(active_projects)} active project(s): {project_names}. Delete them first.",
+        )
+
+    with get_write_db() as db:
+        db.execute("DELETE FROM billing_companies WHERE id = ?", (company_id,))
+        db.commit()
+
+    _seed_remove("companies", name)
+    logger.info("Deleted company %r (id=%d)", name, company_id)
+    return {"deleted": True, "name": name, "gdrive_url": gdrive_url, "obsidian_url": obsidian_url}
+
+
+@router.delete("/setup/client/{client_id}")
+def setup_delete_client(client_id: int):
+    from urllib.parse import quote
+    db_r = get_db()
+    client = db_r.execute(
+        """SELECT bc.id, bc.name, bc.obsidian_name, bc.gdrive_coaching_docs_url,
+                  bco.name AS company_name
+           FROM billing_clients bc
+           JOIN billing_companies bco ON bc.company_id = bco.id
+           WHERE bc.id = ?""",
+        (client_id,),
+    ).fetchone()
+    if not client:
+        db_r.close()
+        raise HTTPException(status_code=404, detail="Client not found")
+    name = client["name"]
+    company_name = client["company_name"]
+    obsidian_name = client["obsidian_name"] or name
+    gdrive_url = client["gdrive_coaching_docs_url"] or ""
+    obsidian_url = f"obsidian://open?vault=MyNotes&file=1%20People%2F{quote(obsidian_name, safe='')}.md"
+
+    # Block if sessions are on open (non-draft, non-paid) invoices
+    invoiced = db_r.execute(
+        """SELECT COUNT(*) AS cnt
+           FROM billing_sessions bs
+           JOIN billing_invoice_lines bil ON bs.invoice_line_id = bil.id
+           JOIN billing_invoices bi ON bil.invoice_id = bi.id
+           WHERE bs.client_id = ? AND bi.status NOT IN ('draft', 'paid')""",
+        (client_id,),
+    ).fetchone()
+    db_r.close()
+
+    if invoiced and invoiced["cnt"] > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot delete — {invoiced['cnt']} session(s) are on unpaid invoices. Resolve invoices first.",
+        )
+
+    with get_write_db() as db:
+        db.execute("DELETE FROM billing_sessions WHERE client_id = ?", (client_id,))
+        db.execute("DELETE FROM billing_prepaid_blocks WHERE client_id = ?", (client_id,))
+        db.execute("DELETE FROM billing_clients WHERE id = ?", (client_id,))
+        db.commit()
+
+    _seed_remove("clients", name)
+    logger.info("Deleted client %r (id=%d, company=%r)", name, client_id, company_name)
+    return {"deleted": True, "name": name, "company_name": company_name, "gdrive_url": gdrive_url, "obsidian_url": obsidian_url}
+
+
+@router.delete("/setup/project/{project_id}")
+def setup_delete_project(project_id: int):
+    from urllib.parse import quote
+    db_r = get_db()
+    project = db_r.execute(
+        """SELECT bp.id, bp.name, bp.obsidian_name, bp.gdrive_folder_url,
+                  bco.name AS company_name
+           FROM billing_projects bp
+           JOIN billing_companies bco ON bp.company_id = bco.id
+           WHERE bp.id = ?""",
+        (project_id,),
+    ).fetchone()
+    if not project:
+        db_r.close()
+        raise HTTPException(status_code=404, detail="Project not found")
+    name = project["name"]
+    company_name = project["company_name"]
+    obsidian_name = project["obsidian_name"] or name
+    gdrive_url = project["gdrive_folder_url"] or ""
+    obsidian_url = (
+        f"obsidian://open?vault=MyNotes&file=1%20Company%2F"
+        f"{quote(company_name, safe='')}%2F{quote(obsidian_name, safe='')}.md"
+    )
+
+    invoiced = db_r.execute(
+        """SELECT COUNT(*) AS cnt
+           FROM billing_sessions bs
+           JOIN billing_invoice_lines bil ON bs.invoice_line_id = bil.id
+           JOIN billing_invoices bi ON bil.invoice_id = bi.id
+           WHERE bs.project_id = ? AND bi.status NOT IN ('draft', 'paid')""",
+        (project_id,),
+    ).fetchone()
+    db_r.close()
+
+    if invoiced and invoiced["cnt"] > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot delete — {invoiced['cnt']} session(s) are on unpaid invoices. Resolve invoices first.",
+        )
+
+    with get_write_db() as db:
+        db.execute("DELETE FROM billing_sessions WHERE project_id = ?", (project_id,))
+        db.execute("DELETE FROM billing_projects WHERE id = ?", (project_id,))
+        db.commit()
+
+    _seed_remove("projects", name)
+    logger.info("Deleted project %r (id=%d, company=%r)", name, project_id, company_name)
+    return {"deleted": True, "name": name, "company_name": company_name, "gdrive_url": gdrive_url, "obsidian_url": obsidian_url}
+
+
 # ---------------------------------------------------------------------------
 # Setup — shared constants and helpers
 # ---------------------------------------------------------------------------
@@ -2242,13 +2442,14 @@ def _run_client_creation(task_id: str, body: "ClientCreateRequest") -> None:
         # Look up by ID only — do NOT filter by active so Setup-created companies
         # (which may not yet be in billing_seed.json) are always found.
         company = db_r.execute(
-            "SELECT id, name, gdrive_folder_url FROM billing_companies WHERE id = ?",
+            "SELECT id, name, gdrive_folder_url, billing_method FROM billing_companies WHERE id = ?",
             (body.company_id,),
         ).fetchone()
         db_r.close()
         if not company:
             return _fatal("Validate company", f"Company id={body.company_id} not found in DB")
         company_name = company["name"]
+        company_billing_method = company["billing_method"] or ""
         company_folder_id = _folder_id_from_url(company["gdrive_folder_url"] or "")
         if not company_folder_id:
             return _fatal("Validate company", f"Company '{company_name}' has no Drive folder configured")
@@ -2269,24 +2470,7 @@ def _run_client_creation(task_id: str, body: "ClientCreateRequest") -> None:
         logger.error("Drive folder creation failed for client %r: %s", name, exc)
         return _fatal("Create Drive folders", str(exc))
 
-    # Step 3 — Share folder with client (non-fatal, skip if no email)
-    folder_shared_with: str | None = None
-    folder_share_error: str | None = None
-    if body.email:
-        _step("Share folder with client", "running")
-        try:
-            from connectors.drive import share_drive_item
-            share_drive_item(coaching_docs_id, body.email)
-            folder_shared_with = body.email
-            _finish_step("ok", body.email)
-        except Exception as exc:
-            import re as _re
-            m = _re.search(r'returned "(.+?)"', str(exc))
-            folder_share_error = m.group(1) if m else str(exc)
-            _finish_step("warning", folder_share_error)
-            logger.warning("Folder share failed for client %r (%s): %s", name, body.email, exc)
-
-    # Step 4 — Copy template files (non-fatal)
+    # Step 3 — Copy template files (non-fatal)
     _step("Copy template files", "running")
     coaching_agreement_url = ""
     coaching_agreement_doc_id: str | None = None
@@ -2337,20 +2521,14 @@ def _run_client_creation(task_id: str, body: "ClientCreateRequest") -> None:
         logger.error("DB insert failed for client %r: %s", name, exc)
         return _fatal("Save to database", str(exc))
 
-    # Step 6 — Detect client type (non-fatal)
-    _step("Detect client type", "running")
-    new_type = "company"
+    # Step 6 — Set client type from company billing_method (non-fatal)
+    _step("Set client type", "running")
+    new_type = "individual" if company_billing_method in ("payasgo", "individual") else "company"
     try:
         with get_write_db() as db:
-            count_row = db.execute(
-                "SELECT COUNT(*) AS cnt FROM billing_clients WHERE company_id = ? AND status = 'active'",
-                (body.company_id,),
-            ).fetchone()
-            active_count = count_row["cnt"] if count_row else 1
-            new_type = "individual" if active_count == 1 else "company"
             db.execute(
-                "UPDATE billing_clients SET client_type = ? WHERE company_id = ? AND status = 'active'",
-                (new_type, body.company_id),
+                "UPDATE billing_clients SET client_type = ? WHERE id = ?",
+                (new_type, client_id),
             )
             db.commit()
         _finish_step("ok", new_type)
@@ -2494,8 +2672,6 @@ def _run_client_creation(task_id: str, body: "ClientCreateRequest") -> None:
         "copied_files": [f["name"] for f in copied_files],
         "manifest_gdoc_url": manifest_gdoc_url,
         "agreement_edited": agreement_edited,
-        "folder_shared_with": folder_shared_with,
-        "folder_share_error": folder_share_error,
         "obsidian": obsidian_result,
         "obsidian_name": obsidian_name,
         "draft_id": draft_id,

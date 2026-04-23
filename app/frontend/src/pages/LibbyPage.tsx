@@ -37,6 +37,7 @@ interface LibraryEntry {
   categories: string[];
   topics: LibraryTopic[];
   last_shared_at: string | null;
+  private: boolean;
   // Rich metadata
   year?: number | null;
   isbn?: string | null;
@@ -284,7 +285,10 @@ function DetailPanel({
     <div className="libby-detail-panel">
       <div className="libby-detail-header">
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div className="libby-detail-title">{entry.name}</div>
+          <div className="libby-detail-title">
+            {entry.name}
+            {entry.private && <span className="libby-private-badge">Private</span>}
+          </div>
           {entry.author && tc !== 'q' && (
             <div className="libby-detail-author">by {entry.author}</div>
           )}
@@ -569,6 +573,7 @@ function EditForm({
   const [quoteText, setQuoteText] = useState(entry.quote_text ?? '');
   const [attribution, setAttribution] = useState(entry.attribution ?? '');
   const [context, setContext] = useState(entry.context ?? '');
+  const [isPrivate, setIsPrivate] = useState(entry.private);
   const [topicIds, setTopicIds] = useState<number[]>(entry.topics.map(t => t.id));
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -609,6 +614,7 @@ function EditForm({
         priority,
         url: url.trim() || null,
         topic_ids: topicIds,
+        private: isPrivate,
       };
       if (tc === 'b') {
         body.author = author.trim() || null;
@@ -762,6 +768,18 @@ function EditForm({
             >{t.name}</button>
           ))}
         </div>
+      </div>
+
+      <div className="libby-edit-field">
+        <label className="libby-edit-label">private</label>
+        <label className="libby-edit-checkbox-label">
+          <input
+            type="checkbox"
+            checked={isPrivate}
+            onChange={e => setIsPrivate(e.target.checked)}
+          />
+          {' '}Private (hide from sharing / record)
+        </label>
       </div>
 
       {saveError && <div className="libby-edit-error">{saveError}</div>}
@@ -1848,7 +1866,7 @@ function CatalogPage() {
       if (e.key === 'c') { e.preventDefault(); handleCopy(); return; }
       if (e.key === 'p') { e.preventDefault(); handlePrint(); return; }
       if (e.key === 'd') { e.preventDefault(); handleCopyDoc(); return; }
-      if (e.key === 'r') { e.preventDefault(); if (!sessionCopied || sessionRecorded) return; handleRecord(); return; }
+      if (e.key === 'r') { e.preventDefault(); if (selected?.private) { showToast('Cannot record a private entry', 'warning'); return; } if (!sessionCopied || sessionRecorded) return; handleRecord(); return; }
       if (e.key === 'a') { e.preventDefault(); handleApply(); return; }
       if (e.key === 'l') { e.preventDefault(); setLabelQuery(''); setLabelHighlight(0); setLabelMsg(null); setUiState('LABEL'); return; }
       if (e.key === 'o') { e.preventDefault(); handleOpenUrl(); return; }
@@ -2096,6 +2114,7 @@ function CatalogPage() {
                       ✓
                     </span>
                   )}
+                  {entry.private && <span title="Private" style={{ fontSize: '0.8em', opacity: 0.7 }}>🔒</span>}
                   {(() => {
                     const linkUrl = entry.type_code === 'b'
                       ? (entry.amazon_short_url || entry.amazon_url)
@@ -2209,9 +2228,9 @@ function CatalogPage() {
             <button className="libby-action-btn" onClick={handlePrint} title="p — print (copy title + link)">
               <span className="libby-action-key">p</span> print</button>
             <button
-              className={`libby-action-btn${(!sessionCopied || sessionRecorded) ? ' libby-action-btn--disabled' : ''}`}
-              onClick={handleRecord} disabled={!sessionCopied || sessionRecorded}
-              title={sessionRecorded ? 'r — already recorded this session' : !sessionCopied ? 'r — copy first (c/p/d), then record' : 'r — record share with client'}
+              className={`libby-action-btn${(!sessionCopied || sessionRecorded || selected.private) ? ' libby-action-btn--disabled' : ''}`}
+              onClick={handleRecord} disabled={!sessionCopied || sessionRecorded || selected.private}
+              title={selected.private ? 'r — cannot record a private entry' : sessionRecorded ? 'r — already recorded this session' : !sessionCopied ? 'r — copy first (c/p/d), then record' : 'r — record share with client'}
             ><span className="libby-action-key">r</span> record{sessionRecorded ? ' ✓' : ''}</button>
             <button
               className={`libby-action-btn${!selected.obsidian_link ? ' libby-action-btn--disabled' : ''}`}

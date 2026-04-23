@@ -179,7 +179,8 @@ def search_library(q: str = "", client_id: int | None = None):
             li.text        AS quote_text,
             li.attribution,
             li.context,
-            li.notes       AS synopsis
+            li.notes       AS synopsis,
+            e.private
         FROM library_entries e
         LEFT JOIN library_books lb ON e.type_code = 'b' AND e.entity_id = lb.id
         LEFT JOIN library_items li ON e.type_code != 'b' AND e.entity_id = li.id
@@ -297,6 +298,7 @@ def search_library(q: str = "", client_id: int | None = None):
             "attribution": row["attribution"],
             "context": row["context"],
             "synopsis": row["synopsis"],
+            "private": bool(row["private"]),
             "_rank": (
                 _PRIORITY_RANK.get(row["priority"], 0),
                 name_score,
@@ -1368,7 +1370,7 @@ def _fetch_entry_dict(db, entry_id: int) -> dict:
         SELECT
             e.id, e.name, e.type_code, e.priority, e.frequency,
             e.url, e.amazon_url, e.amazon_short_url, e.webpage_url,
-            e.gdoc_id, e.comments, e.obsidian_link,
+            e.gdoc_id, e.comments, e.obsidian_link, e.private,
             lb.categories,
             COALESCE(lb.author, li.author) AS author,
             lb.year, lb.isbn, lb.subtitle, lb.preview_link,
@@ -1446,6 +1448,7 @@ def _fetch_entry_dict(db, entry_id: int) -> dict:
         "attribution": row["attribution"],
         "context": row["context"],
         "synopsis": row["synopsis"],
+        "private": bool(row["private"]),
         "last_shared_at": None,
     }
 
@@ -1470,6 +1473,8 @@ class EntryUpdateRequest(BaseModel):
     context: str | None = None
     # Worksheet / Assessment
     gdoc_id: str | None = None
+    # Privacy flag
+    private: bool | None = None
 
 
 @router.put("/entries/{entry_id}")
@@ -1511,6 +1516,8 @@ def update_entry(entry_id: int, body: EntryUpdateRequest):
             entry_fields.append(("url", body.url.strip() or None))
         if body.gdoc_id is not None:
             entry_fields.append(("gdoc_id", body.gdoc_id.strip() or None))
+        if body.private is not None:
+            entry_fields.append(("private", int(body.private)))
 
         if entry_fields:
             set_clause = ", ".join(f"{col} = ?" for col, _ in entry_fields)

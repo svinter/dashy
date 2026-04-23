@@ -1103,6 +1103,41 @@ function useSetupCompanies() {
   });
 }
 
+interface SetupClient {
+  id: number;
+  name: string;
+  company_name: string;
+  status: string;
+  email: string | null;
+  gdrive_coaching_docs_url: string | null;
+  session_count: number;
+}
+
+function useSetupClients() {
+  return useQuery({
+    queryKey: ['setup-clients'],
+    queryFn: () => api.get<{ clients: SetupClient[] }>('/coaching/setup/clients'),
+    staleTime: 30_000,
+  });
+}
+
+interface SetupProject {
+  id: number;
+  name: string;
+  company_name: string;
+  billing_type: string;
+  gdrive_folder_url: string | null;
+  session_count: number;
+}
+
+function useSetupProjects() {
+  return useQuery({
+    queryKey: ['setup-projects'],
+    queryFn: () => api.get<{ projects: SetupProject[] }>('/coaching/setup/projects'),
+    staleTime: 30_000,
+  });
+}
+
 interface EmailTemplate {
   name: string;
   subject_raw: string;
@@ -1117,12 +1152,13 @@ function useEmailTemplates() {
   });
 }
 
-type SetupType = 'company' | 'client' | 'project';
+type SetupType = 'company' | 'client' | 'project' | 'delete-company' | 'delete-client' | 'delete-project';
 
 interface SetupConfirmation {
   type: SetupType;
   name: string;
   details: Record<string, string>;
+  mode?: 'create' | 'delete';
 }
 
 interface ClientTaskStep {
@@ -1141,8 +1177,6 @@ interface ClientCreateResult {
   copied_files: string[];
   manifest_gdoc_url: string | null;
   agreement_edited: boolean;
-  folder_shared_with: string | null;
-  folder_share_error: string | null;
   obsidian: { action: string; path?: string };
   obsidian_name: string;
   draft_id: string | null;
@@ -1207,8 +1241,7 @@ function CompanyForm({ onSuccess }: { onSuccess: (c: SetupConfirmation) => void 
         name: result.name,
         details: {
           'Drive folder': result.gdrive_folder_url,
-          'Obsidian': result.obsidian.action,
-          ...(obsidianUrl ? { 'Open in Obsidian': obsidianUrl } : {}),
+          'Obsidian': obsidianUrl ?? result.obsidian.action,
         },
       });
       // Invalidate so the new company immediately appears in the Client form dropdown
@@ -1320,11 +1353,9 @@ function ClientForm({ companies, onSuccess }: { companies: SetupCompany[]; onSuc
               'Client type': result.client_type,
               'Coaching docs': result.gdrive_coaching_docs_url,
               'Files copied': result.copied_files.length.toString(),
-              ...(result.folder_shared_with ? { 'Folder shared': `with ${result.folder_shared_with}` } : {}),
-              ...(result.folder_share_error ? { 'Folder sharing failed': result.folder_share_error } : {}),
+              'Share with client': result.gdrive_coaching_docs_url,
               'Coaching Agreement': result.agreement_edited ? 'edited' : 'skipped',
-              'Obsidian': result.obsidian.action,
-              ...(obsidianUrl ? { 'Open in Obsidian': obsidianUrl } : {}),
+              'Obsidian': obsidianUrl ?? result.obsidian.action,
               ...(result.draft_url ? { 'Email draft': result.draft_url } : {}),
             };
             if (result.manifest_gdoc_url) details['Manifest'] = result.manifest_gdoc_url;
@@ -1562,6 +1593,227 @@ function ProjectForm({ companies, onSuccess }: { companies: SetupCompany[]; onSu
   );
 }
 
+// ---------------------------------------------------------------------------
+// Delete forms
+// ---------------------------------------------------------------------------
+
+function DeleteCompanyForm({ companies, onSuccess }: { companies: SetupCompany[]; onSuccess: (c: SetupConfirmation) => void }) {
+  const [selectedId, setSelectedId] = useState<string>('');
+  const [confirmed, setConfirmed] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+
+  const selected = companies.find(c => c.id.toString() === selectedId) ?? null;
+
+  const handleDelete = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedId || !confirmed) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const result = await api.delete<{ deleted: boolean; name: string; gdrive_url: string; obsidian_url: string }>(`/coaching/setup/company/${selectedId}`);
+      queryClient.invalidateQueries({ queryKey: ['setup-companies'] });
+      onSuccess({ type: 'delete-company', name: selected!.name, details: {
+        ...(result.gdrive_url ? { 'Drive folder': result.gdrive_url } : {}),
+        'Obsidian': result.obsidian_url,
+      }, mode: 'delete' });
+      setSelectedId(''); setConfirmed(false);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Delete failed');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <form className="setup-form" onSubmit={handleDelete}>
+      <FieldRow label="Company *">
+        <select className="setup-select" value={selectedId} onChange={e => { setSelectedId(e.target.value); setConfirmed(false); setError(null); }}>
+          <option value="">— select company to delete —</option>
+          {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+      </FieldRow>
+      {selected && (
+        <div className="setup-delete-preview">
+          <span className="setup-delete-preview-name">{selected.name}</span>
+          {selected.gdrive_folder_url && (
+            <a href={selected.gdrive_folder_url} target="_blank" rel="noreferrer" className="setup-delete-preview-link">Drive folder →</a>
+          )}
+        </div>
+      )}
+      {selected && (
+        <label className="setup-confirm-check">
+          <input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} />
+          I understand this will permanently delete <strong>{selected.name}</strong> and all related data
+        </label>
+      )}
+      {error && <div className="setup-error">{error}</div>}
+      <div className="setup-actions">
+        <button className="setup-delete-btn" type="submit" disabled={!selectedId || !confirmed || submitting}>
+          {submitting ? 'Deleting…' : 'Delete Company'}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function DeleteClientForm({ onSuccess }: { onSuccess: (c: SetupConfirmation) => void }) {
+  const { data } = useSetupClients();
+  const clients = data?.clients ?? [];
+  const [companyFilter, setCompanyFilter] = useState<string>('');
+  const [selectedId, setSelectedId] = useState<string>('');
+  const [confirmed, setConfirmed] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+
+  const companyNames = Array.from(new Set(clients.map(c => c.company_name))).sort();
+  const filtered = [...clients]
+    .filter(c => !companyFilter || c.company_name === companyFilter)
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const selected = clients.find(c => c.id.toString() === selectedId) ?? null;
+
+  const handleDelete = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedId || !confirmed) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const result = await api.delete<{ deleted: boolean; name: string; gdrive_url: string; obsidian_url: string }>(`/coaching/setup/client/${selectedId}`);
+      queryClient.invalidateQueries({ queryKey: ['setup-clients'] });
+      queryClient.invalidateQueries({ queryKey: ['coaching-clients'] });
+      onSuccess({ type: 'delete-client', name: selected!.name, details: {
+        'Sessions deleted': selected!.session_count.toString(),
+        ...(result.gdrive_url ? { 'Drive folder': result.gdrive_url } : {}),
+        'Obsidian': result.obsidian_url,
+      }, mode: 'delete' });
+      setSelectedId(''); setConfirmed(false); setCompanyFilter('');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Delete failed');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <form className="setup-form" onSubmit={handleDelete}>
+      <FieldRow label="Company filter">
+        <select className="setup-select" value={companyFilter} onChange={e => { setCompanyFilter(e.target.value); setSelectedId(''); setConfirmed(false); setError(null); }}>
+          <option value="">All companies</option>
+          {companyNames.map(n => <option key={n} value={n}>{n}</option>)}
+        </select>
+      </FieldRow>
+      <FieldRow label="Client *">
+        <select className="setup-select" value={selectedId} onChange={e => { setSelectedId(e.target.value); setConfirmed(false); setError(null); }}>
+          <option value="">— select client to delete —</option>
+          {filtered.map(c => <option key={c.id} value={c.id}>{c.name}{!companyFilter ? ` (${c.company_name})` : ''}</option>)}
+        </select>
+      </FieldRow>
+      {selected && (
+        <div className="setup-delete-preview">
+          <span className="setup-delete-preview-name">{selected.name}</span>
+          <span className="setup-delete-preview-meta">{selected.company_name} · {selected.session_count} session{selected.session_count !== 1 ? 's' : ''}</span>
+          {selected.gdrive_coaching_docs_url && (
+            <a href={selected.gdrive_coaching_docs_url} target="_blank" rel="noreferrer" className="setup-delete-preview-link">Coaching docs →</a>
+          )}
+        </div>
+      )}
+      {selected && (
+        <label className="setup-confirm-check">
+          <input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} />
+          I understand this will permanently delete <strong>{selected.name}</strong> and all sessions — Drive and Obsidian pages must be cleaned up manually
+        </label>
+      )}
+      {error && <div className="setup-error">{error}</div>}
+      <div className="setup-actions">
+        <button className="setup-delete-btn" type="submit" disabled={!selectedId || !confirmed || submitting}>
+          {submitting ? 'Deleting…' : 'Delete Client'}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function DeleteProjectForm({ onSuccess }: { onSuccess: (c: SetupConfirmation) => void }) {
+  const { data } = useSetupProjects();
+  const projects = data?.projects ?? [];
+  const [companyFilter, setCompanyFilter] = useState<string>('');
+  const [selectedId, setSelectedId] = useState<string>('');
+  const [confirmed, setConfirmed] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+
+  const companyNames = Array.from(new Set(projects.map(p => p.company_name))).sort();
+  const filtered = [...projects]
+    .filter(p => !companyFilter || p.company_name === companyFilter)
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const selected = projects.find(p => p.id.toString() === selectedId) ?? null;
+
+  const handleDelete = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedId || !confirmed) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const result = await api.delete<{ deleted: boolean; name: string; gdrive_url: string; obsidian_url: string }>(`/coaching/setup/project/${selectedId}`);
+      queryClient.invalidateQueries({ queryKey: ['setup-projects'] });
+      queryClient.invalidateQueries({ queryKey: ['coaching-clients'] });
+      onSuccess({ type: 'delete-project', name: selected!.name, details: {
+        'Sessions deleted': selected!.session_count.toString(),
+        ...(result.gdrive_url ? { 'Drive folder': result.gdrive_url } : {}),
+        'Obsidian': result.obsidian_url,
+      }, mode: 'delete' });
+      setSelectedId(''); setConfirmed(false); setCompanyFilter('');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Delete failed');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <form className="setup-form" onSubmit={handleDelete}>
+      <FieldRow label="Company filter">
+        <select className="setup-select" value={companyFilter} onChange={e => { setCompanyFilter(e.target.value); setSelectedId(''); setConfirmed(false); setError(null); }}>
+          <option value="">All companies</option>
+          {companyNames.map(n => <option key={n} value={n}>{n}</option>)}
+        </select>
+      </FieldRow>
+      <FieldRow label="Project *">
+        <select className="setup-select" value={selectedId} onChange={e => { setSelectedId(e.target.value); setConfirmed(false); setError(null); }}>
+          <option value="">— select project to delete —</option>
+          {filtered.map(p => <option key={p.id} value={p.id}>{p.name}{!companyFilter ? ` (${p.company_name})` : ''}</option>)}
+        </select>
+      </FieldRow>
+      {selected && (
+        <div className="setup-delete-preview">
+          <span className="setup-delete-preview-name">{selected.name}</span>
+          <span className="setup-delete-preview-meta">{selected.company_name} · {selected.billing_type} · {selected.session_count} session{selected.session_count !== 1 ? 's' : ''}</span>
+          {selected.gdrive_folder_url && (
+            <a href={selected.gdrive_folder_url} target="_blank" rel="noreferrer" className="setup-delete-preview-link">Drive folder →</a>
+          )}
+        </div>
+      )}
+      {selected && (
+        <label className="setup-confirm-check">
+          <input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} />
+          I understand this will permanently delete <strong>{selected.name}</strong> and all sessions — Drive and Obsidian pages must be cleaned up manually
+        </label>
+      )}
+      {error && <div className="setup-error">{error}</div>}
+      <div className="setup-actions">
+        <button className="setup-delete-btn" type="submit" disabled={!selectedId || !confirmed || submitting}>
+          {submitting ? 'Deleting…' : 'Delete Project'}
+        </button>
+      </div>
+    </form>
+  );
+}
+
 function SetupPage() {
   const [activeType, setActiveType] = useState<SetupType | null>(null);
   const [confirmation, setConfirmation] = useState<SetupConfirmation | null>(null);
@@ -1577,60 +1829,90 @@ function SetupPage() {
     setConfirmation(null);
   };
 
-  const TYPE_LABELS: Record<SetupType, string> = {
-    company: 'Company',
-    client: 'Client',
-    project: 'Project',
+  const ENTITY_LABEL: Record<SetupType, string> = {
+    company: 'Company', client: 'Client', project: 'Project',
+    'delete-company': 'Company', 'delete-client': 'Client', 'delete-project': 'Project',
   };
+
+  const isDelete = activeType?.startsWith('delete-') ?? false;
 
   return (
     <div className="setup-page">
-      {/* Type selector */}
-      <div className="setup-type-selector">
-        {(['company', 'client', 'project'] as SetupType[]).map(t => (
-          <button
-            key={t}
-            className={`setup-type-btn${activeType === t ? ' setup-type-btn--active' : ''}`}
-            onClick={() => handleTypeSelect(t)}
-          >
-            {TYPE_LABELS[t]}
-          </button>
-        ))}
+      {/* Type selector — two groups: Create and Delete */}
+      <div className="setup-type-groups">
+        <div className="setup-type-group">
+          <span className="setup-type-group-label">Create</span>
+          {(['company', 'client', 'project'] as SetupType[]).map(t => (
+            <button
+              key={t}
+              className={`setup-type-btn${activeType === t ? ' setup-type-btn--active' : ''}`}
+              onClick={() => handleTypeSelect(t)}
+            >
+              {ENTITY_LABEL[t]}
+            </button>
+          ))}
+        </div>
+        <div className="setup-type-group">
+          <span className="setup-type-group-label setup-type-group-label--delete">Delete</span>
+          {(['delete-company', 'delete-client', 'delete-project'] as SetupType[]).map(t => (
+            <button
+              key={t}
+              className={`setup-type-btn setup-type-btn--delete${activeType === t ? ' setup-type-btn--delete-active' : ''}`}
+              onClick={() => handleTypeSelect(t)}
+            >
+              {ENTITY_LABEL[t]}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Empty state */}
       {!activeType && (
-        <p className="setup-prompt">Select what you'd like to create.</p>
+        <p className="setup-prompt">Select what you'd like to create or delete.</p>
       )}
 
       {/* Confirmation banner */}
       {confirmation && (
-        <div className="setup-confirmation">
+        <div className={`setup-confirmation${confirmation.mode === 'delete' ? ' setup-confirmation--deleted' : ''}`}>
           <div className="setup-confirmation-title">
-            {TYPE_LABELS[confirmation.type]} created: <strong>{confirmation.name}</strong>
+            {confirmation.mode === 'delete' ? `${ENTITY_LABEL[confirmation.type]} deleted: ` : `${ENTITY_LABEL[confirmation.type]} created: `}
+            <strong>{confirmation.name}</strong>
           </div>
-          <dl className="setup-confirmation-details">
-            {Object.entries(confirmation.details).map(([k, v]) => (
-              <div key={k} className="setup-confirmation-row">
-                <dt>{k}</dt>
-                <dd>
-                  {v.startsWith('https://') || v.startsWith('http://') || v.startsWith('obsidian://')
-                    ? <a href={v} target="_blank" rel="noreferrer">
-                        {k === 'Email draft' ? 'Open in Gmail →' : k === 'Open in Obsidian' ? 'Open in Obsidian →' : 'link'}
-                      </a>
-                    : v}
-                </dd>
-              </div>
-            ))}
-          </dl>
-          <p className="setup-confirmation-hint">Form reset — create another {TYPE_LABELS[confirmation.type].toLowerCase()}.</p>
+          {Object.keys(confirmation.details).length > 0 && (
+            <dl className="setup-confirmation-details">
+              {Object.entries(confirmation.details).map(([k, v]) => (
+                <div key={k} className="setup-confirmation-row">
+                  <dt>{k}</dt>
+                  <dd>
+                    {v.startsWith('https://') || v.startsWith('http://') || v.startsWith('obsidian://')
+                      ? <a href={v} target="_blank" rel="noreferrer">
+                          {k === 'Email draft' ? 'Open in Gmail →'
+                          : k === 'Share with client' || k === 'Drive folder' || k === 'Coaching docs' ? 'Open Drive folder →'
+                          : k === 'Obsidian' ? 'Open in Obsidian →'
+                          : 'link'}
+                        </a>
+                      : v}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          )}
+          {confirmation.mode === 'delete'
+            ? <p className="setup-confirmation-hint setup-confirmation-hint--warning">Drive folder and Obsidian page are NOT deleted — clean those up manually.</p>
+            : <p className="setup-confirmation-hint">Form reset — create another {ENTITY_LABEL[confirmation.type].toLowerCase()}.</p>
+          }
         </div>
       )}
 
-      {/* Forms */}
+      {/* Create forms */}
       {activeType === 'company' && <CompanyForm onSuccess={handleSuccess} />}
       {activeType === 'client' && <ClientForm companies={companies} onSuccess={handleSuccess} />}
       {activeType === 'project' && <ProjectForm companies={companies} onSuccess={handleSuccess} />}
+
+      {/* Delete forms */}
+      {activeType === 'delete-company' && <DeleteCompanyForm companies={companies} onSuccess={handleSuccess} />}
+      {activeType === 'delete-client' && <DeleteClientForm onSuccess={handleSuccess} />}
+      {activeType === 'delete-project' && <DeleteProjectForm onSuccess={handleSuccess} />}
     </div>
   );
 }
@@ -2544,8 +2826,8 @@ export function CoachingPage() {
           </div>
         )}
 
-        {/* Topbar: filter + date mode bar (all coaching pages) */}
-        {!isLoading && groups.length > 0 && (
+        {/* Topbar: filter + date mode bar (clients page only) */}
+        {isClientsPage && !isLoading && groups.length > 0 && (
           <>
             {activeData && <ActiveClientBar result={activeData} />}
 

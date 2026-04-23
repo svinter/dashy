@@ -18,9 +18,15 @@ _cached_creds: Credentials | None = None
 
 
 def _scopes_sufficient(creds: Credentials) -> bool:
-    """Check if the credential's granted scopes cover all required scopes."""
+    """Check if the credential's granted scopes cover all required scopes.
+
+    Returns True when scopes cannot be determined (no scope info in token) —
+    assume OK and let the API call fail naturally if scopes are wrong.
+    Returns False only when the token explicitly records scopes that don't
+    cover the required set.
+    """
     if not creds.scopes:
-        return True  # Can't verify from token — assume OK
+        return True  # No scope info — can't verify, assume OK
     required = set(get_google_scopes())
     granted = set(creds.scopes)
     return required.issubset(granted)
@@ -73,6 +79,15 @@ def _get_client_credentials() -> tuple[str, str] | None:
 
 
 def get_google_credentials() -> Credentials:
+    """Return Dashy-specific Google credentials from TOKEN_PATH only.
+
+    Never falls back to gcloud ADC — ADC tokens carry different scopes and
+    cannot be replaced without breaking the gcloud CLI for the user.
+
+    Returns None-equivalent by raising FileNotFoundError when unauthenticated,
+    or RuntimeError when the token exists but has wrong/expired scopes (token
+    is deleted so the next call will prompt re-authentication).
+    """
     global _cached_creds
     if _cached_creds and _cached_creds.valid:
         return _cached_creds
@@ -80,57 +95,53 @@ def get_google_credentials() -> Credentials:
     scopes = get_google_scopes()
     quota_project_id = _get_quota_project_id()
 
-    # Try app-specific token first
-    if TOKEN_PATH.exists():
-        _cached_creds = Credentials.from_authorized_user_file(str(TOKEN_PATH), scopes)
-        if quota_project_id:
-            _cached_creds = _cached_creds.with_quota_project(quota_project_id)
-        if not _scopes_sufficient(_cached_creds):
+    if not TOKEN_PATH.exists():
+        _cached_creds = None
+        raise FileNotFoundError(
+            "Google not authenticated. Click Authenticate in Settings → Connectors → Google."
+        )
+
+    _cached_creds = Credentials.from_authorized_user_file(str(TOKEN_PATH), scopes)
+    if quota_project_id:
+        _cached_creds = _cached_creds.with_quota_project(quota_project_id)
+
+    if not _scopes_sufficient(_cached_creds):
+        _cached_creds = None
+        TOKEN_PATH.unlink(missing_ok=True)
+        raise RuntimeError(
+            "Google token has insufficient scopes. Please Disconnect and re-Authenticate "
+            "in Settings → Connectors → Google to grant the required permissions."
+        )
+
+    if _cached_creds.expired and _cached_creds.refresh_token:
+        try:
+            _cached_creds.refresh(Request())
+            TOKEN_PATH.write_text(_cached_creds.to_json())
+            os.chmod(TOKEN_PATH, stat.S_IRUSR | stat.S_IWUSR)
+        except RefreshError as e:
+            logger.warning("Token refresh failed: %s", e)
             _cached_creds = None
             TOKEN_PATH.unlink(missing_ok=True)
-            raise RuntimeError("Google OAuth scopes have changed. Please re-authenticate at /api/auth/google")
-        if _cached_creds.expired and _cached_creds.refresh_token:
-            try:
-                _cached_creds.refresh(Request())
-            except RefreshError as e:
-                logger.warning("Token refresh failed (likely scope change): %s", e)
-                _cached_creds = None
-                TOKEN_PATH.unlink(missing_ok=True)
-                # Fall through to ADC
-            else:
-                TOKEN_PATH.write_text(_cached_creds.to_json())
-                os.chmod(TOKEN_PATH, stat.S_IRUSR | stat.S_IWUSR)
-        if _cached_creds and _cached_creds.valid:
-            return _cached_creds
+            raise RuntimeError(
+                "Google token refresh failed. Please Disconnect and re-Authenticate "
+                "in Settings → Connectors → Google."
+            ) from e
 
-    # Fall back to ADC refresh_token (only works if gcloud ADC has one)
-    if GCLOUD_CREDENTIALS_PATH.exists():
-        with open(GCLOUD_CREDENTIALS_PATH) as f:
-            cred_data = json.load(f)
+    if not (_cached_creds and _cached_creds.valid):
+        _cached_creds = None
+        raise RuntimeError(
+            "Google token is invalid. Please Disconnect and re-Authenticate "
+            "in Settings → Connectors → Google."
+        )
 
-        if cred_data.get("refresh_token"):
-            try:
-                _cached_creds = Credentials(
-                    token=None,
-                    refresh_token=cred_data.get("refresh_token"),
-                    client_id=cred_data.get("client_id"),
-                    client_secret=cred_data.get("client_secret"),
-                    token_uri="https://oauth2.googleapis.com/token",
-                    scopes=scopes,
-                    quota_project_id=cred_data.get("quota_project_id"),
-                )
-                _cached_creds.refresh(Request())
-                TOKEN_PATH.write_text(_cached_creds.to_json())
-                os.chmod(TOKEN_PATH, stat.S_IRUSR | stat.S_IWUSR)
-                return _cached_creds
-            except (RefreshError, Exception) as e:
-                logger.warning("ADC token refresh failed: %s", e)
-                _cached_creds = None
+    return _cached_creds
 
-    raise FileNotFoundError(
-        "No Google credentials found. Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET "
-        "in Settings, then click Authenticate."
-    )
+
+def _find_free_port() -> int:
+    import socket
+    with socket.socket() as s:
+        s.bind(('', 0))
+        return s.getsockname()[1]
 
 
 def run_oauth_flow() -> Credentials:
@@ -150,14 +161,16 @@ def run_oauth_flow() -> Credentials:
 
     client_id, client_secret = creds_pair
     scopes = get_google_scopes()
+    port = _find_free_port()
     logger.info("OAuth scopes: %s", scopes)
+    logger.info("OAuth callback port: %d", port)
     client_config = {
         "installed": {
             "client_id": client_id,
             "client_secret": client_secret,
             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
             "token_uri": "https://oauth2.googleapis.com/token",
-            "redirect_uris": ["http://localhost:8080"],
+            "redirect_uris": [f"http://localhost:{port}"],
         }
     }
 
@@ -179,8 +192,15 @@ def run_oauth_flow() -> Credentials:
 
     webbrowser.open = _open_via_macos
     try:
-        logger.info("Waiting for OAuth callback on port 8080...")
-        creds = flow.run_local_server(port=8080, open_browser=True)
+        logger.info("Waiting for OAuth callback on port %d...", port)
+        creds = flow.run_local_server(
+            port=port,
+            open_browser=True,
+            # Force the full consent screen so Google returns exactly the
+            # requested scopes — nothing more, nothing less.
+            prompt="consent",
+            access_type="offline",
+        )
     finally:
         webbrowser.open = _orig_open
 

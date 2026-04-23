@@ -8970,6 +8970,132 @@ span.news-item-title {
   cursor: not-allowed;
 }
 
+/* Delete button — muted red */
+.setup-delete-btn {
+  padding: 6px 20px;
+  font-size: var(--text-sm);
+  border: 1px solid rgba(192, 57, 43, 0.4);
+  border-radius: 4px;
+  background: var(--color-bg);
+  color: #c0392b;
+  cursor: pointer;
+}
+
+.setup-delete-btn:hover:not(:disabled) {
+  background: rgba(192, 57, 43, 0.08);
+  border-color: #c0392b;
+}
+
+.setup-delete-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Confirm checkbox */
+.setup-confirm-check {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  font-size: var(--text-sm);
+  color: var(--color-text);
+  line-height: 1.4;
+  cursor: pointer;
+  margin-bottom: var(--space-sm);
+}
+
+.setup-confirm-check input[type="checkbox"] {
+  margin-top: 2px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+/* Entity preview in delete forms */
+.setup-delete-preview {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-sm);
+  background: var(--color-highlight);
+  border-radius: 4px;
+  margin-bottom: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+.setup-delete-preview-name {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.setup-delete-preview-meta {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.setup-delete-preview-link {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  margin-left: auto;
+}
+
+/* Delete confirmation banner — red tint */
+.setup-confirmation--deleted {
+  background: rgba(192, 57, 43, 0.06);
+  border-color: rgba(192, 57, 43, 0.3);
+}
+
+.setup-confirmation--deleted .setup-confirmation-title {
+  color: #c0392b;
+}
+
+.setup-confirmation-hint--warning {
+  color: #c0392b;
+  opacity: 0.85;
+}
+
+/* Two-group type selector */
+.setup-type-groups {
+  display: flex;
+  gap: var(--space-lg);
+  align-items: center;
+  margin-bottom: var(--space-lg);
+  flex-wrap: wrap;
+}
+
+.setup-type-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.setup-type-group-label {
+  font-size: var(--text-xs);
+  color: var(--color-text-light);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-right: var(--space-xs);
+}
+
+.setup-type-group-label--delete {
+  color: rgba(192, 57, 43, 0.6);
+}
+
+.setup-type-btn--delete {
+  color: var(--color-text-muted);
+  border-color: var(--color-border);
+}
+
+.setup-type-btn--delete:hover {
+  border-color: rgba(192, 57, 43, 0.4);
+  color: #c0392b;
+}
+
+.setup-type-btn--delete-active {
+  background: rgba(192, 57, 43, 0.1);
+  color: #c0392b;
+  border-color: rgba(192, 57, 43, 0.5);
+}
+
 .setup-empty-notice {
   font-size: var(--text-sm);
   color: var(--color-text-light);

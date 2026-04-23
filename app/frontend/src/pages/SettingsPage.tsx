@@ -382,6 +382,9 @@ function ServiceCard({
               Access mode changed — click Authenticate below to re-authorize with new permissions.
             </div>
           )}
+          <div style={{ marginTop: 'var(--space-xs)', color: 'var(--color-text-muted)', fontSize: 'var(--text-xs)' }}>
+            Re-authenticate Google to enable folder sharing.
+          </div>
         </div>
       )}
 

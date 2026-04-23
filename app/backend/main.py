@@ -334,8 +334,46 @@ def startup():
             shutil.move(str(old_path), str(new_path))
             log.info("Migrated Google token from %s to %s", old_path, new_path)
 
+    def _check_google_token():
+        """Log Google token scopes and env var; delete token if scopes unknown/wrong."""
+        import json
+        import os
+        from config import DATA_DIR, get_google_scopes
+
+        gac = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")
+        log.info("[google] GOOGLE_APPLICATION_CREDENTIALS=%r", gac or "(not set)")
+
+        token_path = DATA_DIR / ".google_token.json"
+        if not token_path.exists():
+            log.info("[google] Token file not found: %s", token_path)
+            return
+
+        try:
+            data = json.loads(token_path.read_text())
+        except Exception as e:
+            log.warning("[google] Could not read token file: %s", e)
+            return
+
+        granted = data.get("scopes") or []
+        if isinstance(granted, str):
+            granted = granted.split()
+        log.info("[google] Token file: %s", token_path)
+        log.info("[google] Granted scopes: %s", granted)
+
+        required = set(get_google_scopes())
+        if not granted:
+            log.warning("[google] Token has no scopes recorded — deleting to force re-auth")
+            token_path.unlink(missing_ok=True)
+        elif not required.issubset(set(granted)):
+            missing = required - set(granted)
+            log.warning("[google] Token missing scopes %s — deleting to force re-auth", missing)
+            token_path.unlink(missing_ok=True)
+        else:
+            log.info("[google] Token scopes OK")
+
     _step("init_db (migrations)", init_db)
     _step("migrate_google_token", _migrate_google_token)
+    _step("check_google_token", _check_google_token)
     _step("init_registry (connectors)", init_registry)
     _step("rebuild_from_db (person matching cache)", rebuild_from_db)
     _step("sync_meeting_files", sync_meeting_files)
