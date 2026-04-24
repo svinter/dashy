@@ -30,6 +30,7 @@ interface QueueEntry {
   type_code: string;
   created_at: string;
   status: 'pending' | 'processing' | 'ready' | 'failed';
+  retrying?: boolean;
 }
 
 interface LibraryTopic {
@@ -629,6 +630,34 @@ export function LibbyNewPage() {
     setSaveSuccess(null);
   };
 
+  const handleCancelType = () => {
+    setSelectedType(null);
+    setSaveSuccess(null);
+  };
+
+  // Escape key deselects type when not in a text input
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      setSelectedType(null);
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, []);
+
+  const handleRetry = async (entryId: number) => {
+    setQueue(q => q.map(e => e.id === entryId ? { ...e, retrying: true } : e));
+    try {
+      await fetch(`/api/libby/entries/${entryId}/enrich`, { method: 'POST' });
+      setQueue(q => q.map(e => e.id === entryId ? { ...e, status: 'processing', retrying: false } : e));
+      setTimeout(loadQueue, 3000);
+    } catch {
+      setQueue(q => q.map(e => e.id === entryId ? { ...e, retrying: false } : e));
+    }
+  };
+
   const handleSaved = (name: string) => {
     setSaveSuccess(`Added: "${name}"`);
     setTimeout(() => setSaveSuccess(null), 4000);
@@ -660,51 +689,66 @@ export function LibbyNewPage() {
 
       {/* ── Creation form ── */}
       {selectedType && selectedTypeDef ? (
-        selectedType === 'b' ? (
-          <BookCreationForm topics={topics} onSaved={handleSaved} />
-        ) : (
-          <GenericCreationForm
-            typeCode={selectedType}
-            typeName={selectedTypeDef.name}
-            onSaved={handleSaved}
-          />
-        )
+        <div>
+          <div className="libby-form-header">
+            <span className="libby-form-type-label">{selectedTypeDef.name}</span>
+            <button className="libby-cancel-type" onClick={handleCancelType} title="Cancel (Escape)">✕</button>
+          </div>
+          {selectedType === 'b' ? (
+            <BookCreationForm topics={topics} onSaved={handleSaved} />
+          ) : (
+            <GenericCreationForm
+              typeCode={selectedType}
+              typeName={selectedTypeDef.name}
+              onSaved={handleSaved}
+            />
+          )}
+        </div>
       ) : (
         <div className="libby-new-prompt">Select a type above to add a new entry</div>
       )}
 
-      {/* ── Review queue ── */}
+      {/* ── Processing queue ── */}
       <div className="libby-queue-section">
-        <h3 className="libby-queue-title">Review queue</h3>
+        <h3 className="libby-queue-title">Processing queue</h3>
         <p className="libby-admin-desc">
-          Entries awaiting auto-tagging and auto-synopsis.
+          Entries are auto-tagged and summarized in the background. Click retry if a task failed.
         </p>
         {loadingQueue ? (
           <div className="libby-admin-loading">Loading…</div>
-        ) : queue.length === 0 ? (
-          <div className="libby-queue-empty">No entries in queue</div>
+        ) : queue.filter(e => e.status !== 'ready').length === 0 ? (
+          <div className="libby-queue-empty">No entries pending</div>
         ) : (
           <table className="libby-admin-table libby-queue-table">
             <thead>
               <tr>
                 <th>name</th>
                 <th>type</th>
-                <th>created</th>
-                <th>pending</th>
+                <th>added</th>
                 <th>status</th>
               </tr>
             </thead>
             <tbody>
-              {queue.map(entry => (
+              {queue.filter(e => e.status !== 'ready').map(entry => (
                 <tr key={entry.id} className="libby-admin-row libby-queue-row">
                   <td className="libby-queue-name">{entry.name}</td>
                   <td className="libby-admin-code">{entry.type_code}</td>
                   <td className="libby-queue-date">{entry.created_at.slice(0, 10)}</td>
-                  <td className="libby-queue-pending">tags · synopsis</td>
                   <td>
-                    <span className={`libby-queue-status libby-queue-status--${entry.status}`}>
-                      {entry.status}
-                    </span>
+                    {entry.status === 'failed' ? (
+                      <span className="libby-queue-status libby-queue-status--failed">
+                        failed
+                        <button
+                          className="libby-queue-retry"
+                          disabled={entry.retrying}
+                          onClick={() => handleRetry(entry.id)}
+                        >{entry.retrying ? '…' : 'retry?'}</button>
+                      </span>
+                    ) : (
+                      <span className={`libby-queue-status libby-queue-status--${entry.status}`}>
+                        {entry.status}
+                      </span>
+                    )}
                   </td>
                 </tr>
               ))}

@@ -85,7 +85,9 @@
       "Bash(python:*)",
       "Bash(open:*)",
       "Bash(alembic heads:*)",
-      "Read(//mnt/user-data/uploads/**)"
+      "Read(//mnt/user-data/uploads/**)",
+      "Bash(npm --version)",
+      "Bash(npm info:*)"
     ]
   }
 }

@@ -54,6 +54,7 @@ from routers import (
     libby,
     meetings,
     memory,
+    mobile,
     news,
     notes,
     notion_api,
@@ -194,6 +195,7 @@ app.include_router(weather.router)
 app.include_router(status_context.router)
 app.include_router(memory.router)
 app.include_router(whatsapp.router)
+app.include_router(mobile.router)
 app.include_router(agent_chat.router)
 app.include_router(changes.router)
 app.include_router(sandbox.router)
@@ -432,6 +434,14 @@ if DIST_DIR.exists():
             log.warning("[frontend] Could not list assets: %s", e)
 
     app.mount("/assets", StaticFiles(directory=DIST_DIR / "assets"), name="assets")
+
+    # Mobile PWA — served at /m
+    MOBILE_DIST = Path(__file__).parent.parent.parent / "mobile" / "dist"
+    if MOBILE_DIST.exists():
+        app.mount("/m", StaticFiles(directory=MOBILE_DIST, html=True), name="mobile")
+        log.info("[mobile] Mounted at /m from %s", MOBILE_DIST)
+    else:
+        log.info("[mobile] mobile/dist not found — run 'cd mobile && npm run build' to enable")
 
     @app.get("/{path:path}")
     def serve_spa(path: str):

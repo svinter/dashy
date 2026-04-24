@@ -1842,6 +1842,35 @@ def get_queue():
     return {"entries": entries, "count": len(entries)}
 
 
+@router.post("/entries/{entry_id}/enrich", status_code=202)
+def enrich_entry(entry_id: int, background_tasks: BackgroundTasks):
+    """Re-run auto-tagging and auto-synopsis for a single entry.
+
+    Resets any existing failed enrichment log rows to 'pending' first, then
+    queues _run_tagging_task (which chains _run_synopsis_task) as a background
+    task. Returns immediately with 202 Accepted.
+    """
+    db = get_db()
+    entry = db.execute("SELECT id FROM library_entries WHERE id = ?", (entry_id,)).fetchone()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Entry not found")
+
+    # Reset failed rows so the tasks can re-insert cleanly
+    with get_write_db() as dbw:
+        dbw.execute(
+            "DELETE FROM libby_enrichment_log WHERE entry_id = ? AND status = 'failed'",
+            (entry_id,),
+        )
+        dbw.execute(
+            "UPDATE library_entries SET needs_enrichment = 1 WHERE id = ?",
+            (entry_id,),
+        )
+        dbw.commit()
+
+    background_tasks.add_task(_run_tagging_task, entry_id)
+    return {"entry_id": entry_id, "status": "queued"}
+
+
 class EntryCreateRequest(BaseModel):
     name: str
     type_code: str
@@ -1995,9 +2024,26 @@ def lookup_book(
             candidates = _google_books_search(params)
         # Construct Amazon URL from ASIN
         amazon_url = f"https://www.amazon.com/dp/{asin}"
-        for c in candidates:
-            c["asin"] = asin
-            c["amazon_url"] = amazon_url
+        if not candidates:
+            # Kindle-only or unrecognized ASIN — return a stub so the UI can
+            # pre-fill the Amazon URL and let the user complete the form manually
+            candidates = [{
+                "google_books_id": None,
+                "title": title or "",
+                "author": author or "",
+                "isbn": None,
+                "publisher": None,
+                "year": None,
+                "description": None,
+                "cover_url": None,
+                "page_count": None,
+                "asin": asin,
+                "amazon_url": amazon_url,
+            }]
+        else:
+            for c in candidates:
+                c["asin"] = asin
+                c["amazon_url"] = amazon_url
     elif title or author:
         q_parts = []
         if title:
@@ -2336,7 +2382,8 @@ def _run_tagging_task(entry_id: int) -> None:
         dbw.commit()
 
     try:
-        client = anthropic.Anthropic()
+        from app_config import get_secret as _get_secret
+        client = anthropic.Anthropic(api_key=_get_secret("ANTHROPIC_API_KEY"))
         msg = client.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=256,
@@ -2493,7 +2540,8 @@ def _run_synopsis_task(entry_id: int) -> None:
         dbw.commit()
 
     try:
-        client = anthropic.Anthropic()
+        from app_config import get_secret as _get_secret
+        client = anthropic.Anthropic(api_key=_get_secret("ANTHROPIC_API_KEY"))
         msg = client.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=256,
