@@ -1,4 +1,4 @@
-.PHONY: start stop restart backend frontend status logs app build dev run test test-headed test-setup test-seed test-servers-start test-servers-stop test-status test-logs test-clean lint fmt blft verify dmg release db-migrate db-upgrade db-downgrade db-current db-history db-revision whatsapp whatsapp-stop setup ship demo demo-seed demo-backend demo-frontend demo-reset demo-capture enrich enrich-status enrich-notfound enrich-notfound-csv autotag autotag-status
+.PHONY: start stop restart backend frontend status logs app build dev run test test-headed test-setup test-seed test-servers-start test-servers-stop test-status test-logs test-clean lint fmt blft verify dmg release db-migrate db-upgrade db-downgrade db-current db-history db-revision whatsapp whatsapp-stop setup ship demo demo-seed demo-backend demo-frontend demo-reset demo-capture enrich enrich-status enrich-notfound enrich-notfound-csv autotag autotag-status mobile-build mobile-dev mobile-set-password
 
 BACKEND_DIR = app/backend
 FRONTEND_DIR = app/frontend
@@ -323,6 +323,24 @@ autotag-status:
 		"SELECT type_code, COUNT(*) as pending FROM library_entries \
 		WHERE needs_enrichment = 1 AND type_code != 'b' \
 		GROUP BY type_code ORDER BY type_code;"
+
+# --- Mobly (mobile PWA) ---
+
+mobile-build:
+	@echo "Building Mobly PWA..."
+	@cd mobile && npm run build
+	@echo "Mobile app built to mobile/dist/ — served at /m"
+
+mobile-dev:
+	@echo "Starting Mobly dev server (port 5174)..."
+	@cd mobile && npm run dev
+
+# Usage: make mobile-set-password p=yourpassword
+mobile-set-password:
+	@if [ -z "$(p)" ]; then echo "Usage: make mobile-set-password p=yourpassword"; exit 1; fi
+	@curl -s -X POST http://localhost:8000/api/mobile/auth/set-password \
+		-H "Content-Type: application/json" \
+		-d "{\"password\": \"$(p)\"}" | python3 -m json.tool
 
 # --- Ship (commit, push, PR, optional merge) ---
 # Usage:

@@ -1,0 +1,15 @@
+{
+	"/": [
+		"src/routes/+layout.ts",
+		"src/routes/+layout.ts"
+	],
+	"/glance": [
+		"src/routes/+layout.ts"
+	],
+	"/libby": [
+		"src/routes/+layout.ts"
+	],
+	"/login": [
+		"src/routes/+layout.ts"
+	]
+}

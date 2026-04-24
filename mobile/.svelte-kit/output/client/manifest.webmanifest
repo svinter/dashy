@@ -1,0 +1,1 @@
+{"name":"Mobly","short_name":"Mobly","description":"Dashy mobile companion","start_url":"/m/","display":"standalone","background_color":"#0f172a","theme_color":"#0f172a","lang":"en","scope":"/m/","orientation":"portrait","icons":[{"src":"/m/icons/icon-192.png","sizes":"192x192","type":"image/png"},{"src":"/m/icons/icon-512.png","sizes":"512x512","type":"image/png"}]}

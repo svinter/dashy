@@ -141,7 +141,7 @@ function CandidateGrid({
 }
 
 // ---------------------------------------------------------------------------
-// Book creation form — search + Amazon URL modes
+// Book creation form — unified search bar
 // ---------------------------------------------------------------------------
 
 function BookCreationForm({
@@ -151,8 +151,6 @@ function BookCreationForm({
   topics: LibraryTopic[];
   onSaved: (name: string) => void;
 }) {
-  const [mode, setMode] = useState<'search' | 'url'>('search');
-
   // Lookup inputs
   const [searchTitle, setSearchTitle] = useState('');
   const [searchAuthor, setSearchAuthor] = useState('');
@@ -161,7 +159,6 @@ function BookCreationForm({
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [searched, setSearched] = useState(false);
-  const [urlFallback, setUrlFallback] = useState(false); // true when ASIN lookup found nothing
 
   // Pre-filled form fields
   const [name, setName] = useState('');
@@ -180,7 +177,7 @@ function BookCreationForm({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  const fillFromCandidate = (c: BookCandidate, clearCandidates = true) => {
+  const fillFromCandidate = (c: BookCandidate) => {
     setName(c.title || '');
     setAuthor(c.author || '');
     setIsbn(c.isbn || '');
@@ -189,52 +186,50 @@ function BookCreationForm({
     setAmazonUrl(c.amazon_url || '');
     setGoogleBooksId(c.google_books_id || '');
     if (c.description) setComments(c.description.slice(0, 300));
-    if (clearCandidates) { setCandidates([]); setSearched(false); }
+    // Clear all three search fields and candidates
+    setCandidates([]);
+    setSearched(false);
+    setSearchTitle('');
+    setSearchAuthor('');
+    setLookupUrl('');
   };
 
-  const handleSearch = async () => {
-    if (!searchTitle.trim() && !searchAuthor.trim()) return;
+  const handleUnifiedSearch = async () => {
+    const hasUrl = lookupUrl.trim();
+    const hasTitle = searchTitle.trim();
+    if (!hasUrl && !hasTitle) return;
     setSearching(true);
     setSearchError(null);
     setCandidates([]);
     setSearched(false);
     try {
       const params = new URLSearchParams();
-      if (searchTitle.trim()) params.set('title', searchTitle.trim());
-      if (searchAuthor.trim()) params.set('author', searchAuthor.trim());
-      const resp = await fetch(`/api/libby/books/lookup?${params}`);
-      const data = await resp.json();
-      setCandidates(data.candidates ?? []);
-      setSearched(true);
-    } catch {
-      setSearchError('Lookup failed');
-    } finally {
-      setSearching(false);
-    }
-  };
-
-  const handleUrlLookup = async () => {
-    if (!lookupUrl.trim()) return;
-    setSearching(true);
-    setSearchError(null);
-    setCandidates([]);
-    setSearched(false);
-    setUrlFallback(false);
-    try {
-      const params = new URLSearchParams({ url: lookupUrl.trim() });
+      if (hasUrl) {
+        params.set('url', hasUrl);
+      } else {
+        params.set('title', hasTitle);
+        if (searchAuthor.trim()) params.set('author', searchAuthor.trim());
+      }
       const resp = await fetch(`/api/libby/books/lookup?${params}`);
       const data = await resp.json();
       const cands: BookCandidate[] = data.candidates ?? [];
-      const first = cands[0];
-      if (first) {
-        fillFromCandidate(first);
+      if (hasUrl && cands.length > 0) {
+        // Auto-fill from first candidate (may be a stub for Kindle ASINs)
+        const first = cands[0];
+        setName(first.title || '');
+        setAuthor(first.author || '');
+        setIsbn(first.isbn || '');
+        setPublisher(first.publisher || '');
+        setYear(first.year || '');
+        setAmazonUrl(first.amazon_url || '');
         if (first.amazon_url) setUrl(first.amazon_url);
+        setGoogleBooksId(first.google_books_id || '');
+        if (first.description) setComments(first.description.slice(0, 300));
+        // Show additional candidates (beyond first) in grid
+        setCandidates(cands.length > 1 ? cands.slice(1) : []);
       } else {
-        // Pre-fill amazon_url so the user doesn't lose the URL they pasted
-        setAmazonUrl(lookupUrl.trim());
-        setUrlFallback(true);
+        setCandidates(cands);
       }
-      setCandidates(cands);
       setSearched(true);
     } catch {
       setSearchError('Lookup failed');
@@ -256,7 +251,7 @@ function BookCreationForm({
     setYear(''); setUrl(''); setAmazonUrl(''); setGoogleBooksId('');
     setComments(''); setPriority('medium'); setSelectedTopicIds(new Set());
     setCandidates([]); setSearched(false); setSearchError(null); setSaveError(null);
-    setSearchTitle(''); setSearchAuthor(''); setLookupUrl(''); setUrlFallback(false);
+    setSearchTitle(''); setSearchAuthor(''); setLookupUrl('');
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -297,128 +292,57 @@ function BookCreationForm({
     }
   };
 
+  const triggerSearch = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') { e.preventDefault(); handleUnifiedSearch(); }
+  };
+
   return (
     <div className="libby-book-form">
-      {/* Mode toggle */}
-      <div className="libby-book-mode-toggle">
-        <button
-          type="button"
-          className={`libby-book-mode-btn${mode === 'search' ? ' active' : ''}`}
-          onClick={() => { setMode('search'); setSearched(false); setCandidates([]); }}
-        >
-          Search
-        </button>
-        <button
-          type="button"
-          className={`libby-book-mode-btn${mode === 'url' ? ' active' : ''}`}
-          onClick={() => { setMode('url'); setSearched(false); setCandidates([]); }}
-        >
-          Amazon URL
-        </button>
+      {/* Unified search bar */}
+      <div className="libby-book-lookup">
+        <div className="libby-book-lookup-row">
+          <input
+            className="libby-form-input"
+            style={{ flex: 2 }}
+            value={searchTitle}
+            onChange={e => setSearchTitle(e.target.value)}
+            onKeyDown={triggerSearch}
+            placeholder="Title..."
+            autoFocus
+          />
+          <input
+            className="libby-form-input"
+            style={{ flex: 1 }}
+            value={searchAuthor}
+            onChange={e => setSearchAuthor(e.target.value)}
+            onKeyDown={triggerSearch}
+            placeholder="Author (optional)"
+          />
+          <input
+            className="libby-form-input"
+            style={{ flex: 2 }}
+            value={lookupUrl}
+            onChange={e => setLookupUrl(e.target.value)}
+            onKeyDown={triggerSearch}
+            placeholder="amazon.com/dp/... (optional)"
+          />
+          <button
+            type="button"
+            className="libby-admin-btn libby-admin-btn--primary"
+            onClick={handleUnifiedSearch}
+            disabled={searching || (!searchTitle.trim() && !lookupUrl.trim())}
+          >
+            {searching ? '…' : 'Search'}
+          </button>
+        </div>
+        {searchError && <div className="libby-admin-error">{searchError}</div>}
+        {searched && candidates.length === 0 && !lookupUrl.trim() && (
+          <div className="libby-book-no-results">No results — fill fields manually below</div>
+        )}
+        {candidates.length > 0 && (
+          <CandidateGrid candidates={candidates} onConfirm={c => fillFromCandidate(c)} />
+        )}
       </div>
-
-      {/* Lookup section */}
-      {mode === 'search' ? (
-        <div className="libby-book-lookup">
-          <div className="libby-book-lookup-row">
-            <input
-              className="libby-form-input"
-              value={searchTitle}
-              onChange={e => setSearchTitle(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleSearch(); } }}
-              placeholder="Title…"
-              autoFocus
-            />
-            <input
-              className="libby-form-input"
-              value={searchAuthor}
-              onChange={e => setSearchAuthor(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleSearch(); } }}
-              placeholder="Author…"
-            />
-            <button
-              type="button"
-              className="libby-admin-btn libby-admin-btn--primary"
-              onClick={handleSearch}
-              disabled={searching || (!searchTitle.trim() && !searchAuthor.trim())}
-            >
-              {searching ? '…' : 'Search'}
-            </button>
-          </div>
-          {searchError && <div className="libby-admin-error">{searchError}</div>}
-          {searched && candidates.length === 0 && (
-            <div className="libby-book-no-results">No results — fill fields manually below</div>
-          )}
-          {candidates.length > 0 && (
-            <CandidateGrid candidates={candidates} onConfirm={c => fillFromCandidate(c)} />
-          )}
-        </div>
-      ) : (
-        <div className="libby-book-lookup">
-          <div className="libby-book-lookup-row">
-            <input
-              className="libby-form-input"
-              value={lookupUrl}
-              onChange={e => setLookupUrl(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleUrlLookup(); } }}
-              placeholder="https://www.amazon.com/dp/…"
-              autoFocus
-            />
-            <button
-              type="button"
-              className="libby-admin-btn libby-admin-btn--primary"
-              onClick={handleUrlLookup}
-              disabled={searching || !lookupUrl.trim()}
-            >
-              {searching ? '…' : 'Lookup'}
-            </button>
-          </div>
-          {searchError && <div className="libby-admin-error">{searchError}</div>}
-          {urlFallback && (
-            <>
-              <div className="libby-book-no-results libby-book-no-results--warn">
-                Could not find this book automatically — please fill in the details manually.
-              </div>
-              <div className="libby-book-fallback-search">
-                <span className="libby-book-fallback-label">Or search by title/author:</span>
-                <div className="libby-book-lookup-row">
-                  <input
-                    className="libby-form-input"
-                    value={searchTitle}
-                    onChange={e => setSearchTitle(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleSearch(); } }}
-                    placeholder="Title…"
-                  />
-                  <input
-                    className="libby-form-input"
-                    value={searchAuthor}
-                    onChange={e => setSearchAuthor(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleSearch(); } }}
-                    placeholder="Author…"
-                  />
-                  <button
-                    type="button"
-                    className="libby-admin-btn libby-admin-btn--primary"
-                    onClick={handleSearch}
-                    disabled={searching || (!searchTitle.trim() && !searchAuthor.trim())}
-                  >
-                    {searching ? '…' : 'Search'}
-                  </button>
-                </div>
-                {candidates.length > 0 && (
-                  <CandidateGrid
-                    candidates={candidates}
-                    onConfirm={c => { fillFromCandidate(c); setAmazonUrl(lookupUrl.trim()); setUrlFallback(false); }}
-                  />
-                )}
-              </div>
-            </>
-          )}
-          {!urlFallback && candidates.length > 1 && (
-            <CandidateGrid candidates={candidates.slice(1)} onConfirm={c => fillFromCandidate(c)} />
-          )}
-        </div>
-      )}
 
       {/* Pre-filled / manual form */}
       <form className="libby-new-form" onSubmit={handleSave}>
