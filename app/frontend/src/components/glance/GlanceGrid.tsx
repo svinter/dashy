@@ -40,7 +40,7 @@ const TABLE_STYLE: React.CSSProperties = {
 };
 
 interface GlanceGridProps {
-  scrollRef: React.RefObject<HTMLDivElement>;
+  scrollRef: React.RefObject<HTMLDivElement | null>;
   weeksData: GlanceWeeksData;
   visibleLanes: Set<LaneId>;
   visibleMembers: Set<string>;

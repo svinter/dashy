@@ -18,6 +18,7 @@ export interface SidebarConfig {
 }
 
 async function fetchSidebarConfig(): Promise<SidebarConfig> {
+  console.log('[useSidebarConfig] fetchSidebarConfig fired');
   const res = await fetch('/api/config/sidebar');
   if (!res.ok) throw new Error('Failed to load sidebar config');
   return res.json();
@@ -27,6 +28,5 @@ export function useSidebarConfig() {
   return useQuery<SidebarConfig>({
     queryKey: ['sidebar-config'],
     queryFn: fetchSidebarConfig,
-    staleTime: Infinity,
   });
 }

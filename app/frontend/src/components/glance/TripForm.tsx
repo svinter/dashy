@@ -113,8 +113,6 @@ export function TripForm({ initial, editId, existingData, members, locations, on
     }
   }
 
-  const isTravel = initial.laneId === 'fam_travel' || initial.laneId === 'steve_travel';
-
   return (
     <div style={backdropStyle} onClick={onCancel}>
       <div style={modalStyle} onClick={(e) => e.stopPropagation()}>

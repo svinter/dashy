@@ -1673,7 +1673,7 @@ function BillingTab() {
                 {co.clients.length === 0 && <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-light)', margin: 0 }}>No clients</p>}
                 {co.clients.map(cl => (
                   <div key={cl.id}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', padding: '3px 0', opacity: cl.active ? 1 : 0.5 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', padding: '3px 0', opacity: cl.status !== 'inactive' ? 1 : 0.5 }}>
                       {editingClient === cl.id ? (
                         <>
                           <input value={editClData.name ?? cl.name} onChange={e => setEditClData(d => ({ ...d, name: e.target.value }))} style={{ flex: 1 }} />
@@ -1683,7 +1683,7 @@ function BillingTab() {
                             <input type="checkbox" checked={editClData.prepaid ?? cl.prepaid} onChange={e => setEditClData(d => ({ ...d, prepaid: e.target.checked }))} /> prepaid
                           </label>
                           <label style={{ fontSize: 'var(--text-xs)', display: 'flex', gap: 3 }}>
-                            <input type="checkbox" checked={editClData.active ?? cl.active} onChange={e => setEditClData(d => ({ ...d, active: e.target.checked }))} /> active
+                            <input type="checkbox" checked={editClData.status !== undefined ? editClData.status !== 'inactive' : cl.status !== 'inactive'} onChange={e => setEditClData(d => ({ ...d, status: e.target.checked ? 'active' : 'inactive' }))} /> active
                           </label>
                           <button className="btn-primary" style={{ fontSize: 'var(--text-xs)' }} onClick={() => {
                             updateClient.mutate({ id: cl.id, ...editClData });

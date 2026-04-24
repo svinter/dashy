@@ -15,7 +15,7 @@ interface NavItemCtx {
   onClaudePage: boolean;
   queueCount: number;
   unmatchedCount: number;
-  personas: Array<{ id: string; name: string; is_default: boolean; avatar_filename?: string | null }> | undefined;
+  personas: Array<{ id: number; name: string; is_default: boolean; avatar_filename?: string | null }> | undefined;
 }
 
 function renderNavItem(item: SidebarItem, ctx: NavItemCtx) {
@@ -86,6 +86,7 @@ function formatTimeAgo(iso: string) {
 }
 
 export function Sidebar() {
+  console.log('[Sidebar] rendering');
   const { pathname } = useLocation();
   const onRampPage = pathname.startsWith('/ramp');
   const onClaudePage = pathname.startsWith('/claude');
@@ -104,7 +105,8 @@ export function Sidebar() {
   const [syncDetailOpen, setSyncDetailOpen] = useState(false);
   const { data: versionData } = useVersion();
   const { hiddenIds } = useModulePrefs();
-  const { data: sidebarConfig } = useSidebarConfig();
+  const { data: sidebarConfig, status: sidebarStatus, error: sidebarError } = useSidebarConfig();
+  console.log('[Sidebar] sidebarConfig =', sidebarConfig, '| status =', sidebarStatus, '| error =', sidebarError);
 
   const enabled = new Set(connectors?.filter(c => c.enabled).map(c => c.id));
 

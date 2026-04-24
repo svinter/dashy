@@ -1,4 +1,3 @@
-import React from 'react';
 import type { GlanceDayData } from '../../hooks/useGlanceData';
 import type { LaneId } from './LaneRow';
 
@@ -27,7 +26,7 @@ interface HiddenLaneRowProps {
   monthBg: string;
 }
 
-export function HiddenLaneRow({ week, dayData, visibleLanes, visibleMembers, monthBg }: HiddenLaneRowProps) {
+export function HiddenLaneRow({ week, dayData, visibleLanes, visibleMembers: _visibleMembers, monthBg }: HiddenLaneRowProps) {
   // Find hidden lanes that have any content this week
   const hiddenLanesWithContent = new Set<string>();
 

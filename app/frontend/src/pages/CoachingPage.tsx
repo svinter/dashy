@@ -1834,8 +1834,6 @@ function SetupPage() {
     'delete-company': 'Company', 'delete-client': 'Client', 'delete-project': 'Project',
   };
 
-  const isDelete = activeType?.startsWith('delete-') ?? false;
-
   return (
     <div className="setup-page">
       {/* Type selector — two groups: Create and Delete */}

@@ -20,7 +20,7 @@ type ConfirmState = { type: 'trip'; id: number } | { type: 'entry'; id: number }
 
 export function ViewEditPopover({
   date,
-  laneId,
+  laneId: _laneId,
   laneLabel,
   trips,
   entries,

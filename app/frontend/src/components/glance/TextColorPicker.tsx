@@ -1,5 +1,3 @@
-import React from 'react';
-
 const LABEL_W = 52;
 const SWATCH_SIZE = 20;
 

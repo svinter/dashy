@@ -1435,7 +1435,7 @@ function CatalogPage() {
   const [results, setResults] = useState<LibraryEntry[]>([]);
   const [searchTotal, setSearchTotal] = useState(0);
   const [selected, setSelected] = useState<LibraryEntry | null>(null);
-  const [selectedWebpageUrl, setSelectedWebpageUrl] = useState<string | null>(null);
+  const [_selectedWebpageUrl, setSelectedWebpageUrl] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [toastVariant, setToastVariant] = useState<'default' | 'warning'>('default');
@@ -1603,24 +1603,6 @@ function CatalogPage() {
     setTimeout(() => setStatusMsg(null), 2500);
   };
 
-  // --- Make action ---
-  const handleMake = async () => {
-    if (!selected) return;
-    try {
-      const resp = await fetch(`/api/libby/entries/${selected.id}/action/make`, { method: 'POST' });
-      const data = await resp.json();
-      if (data.status === 'exists') {
-        await navigator.clipboard.writeText(data.url).catch(() => {});
-        setStatusMsg(`Page already exists: ${data.url}`);
-        setSelectedWebpageUrl(data.url);
-      } else if (data.status === 'created') {
-        await navigator.clipboard.writeText(data.url).catch(() => {});
-        setStatusMsg(`Page created: ${data.url}`);
-        setSelectedWebpageUrl(data.url);
-      } else setStatusMsg(data.message ?? 'Make failed');
-    } catch { setStatusMsg('Make failed'); }
-    setTimeout(() => setStatusMsg(null), 4000);
-  };
 
   // --- Record action ---
   const handleRecord = async () => {
