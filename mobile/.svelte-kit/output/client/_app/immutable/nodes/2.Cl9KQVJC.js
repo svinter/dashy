@@ -1,1 +1,0 @@
-import"../chunks/Bzak7iHL.js";import{i as t}from"../chunks/D3gbBZbj.js";import{o as a}from"../chunks/mV3WEij6.js";import{m as r,n as p}from"../chunks/Bu5-Xfov.js";import{g as m,b as i}from"../chunks/B8-FHjim.js";function u(s,o){r(o,!1),a(()=>{m(`${i}/libby`,{replaceState:!0})}),t(),p()}export{u as component};

@@ -24,7 +24,7 @@ function _page($$renderer, $$props) {
     }
     function memberColor(member_id, members) {
       if (!member_id) return "#64748b";
-      return members.find((m) => m.id === member_id)?.color ?? "#64748b";
+      return members.find((m) => m.id === member_id)?.color_bg ?? "#64748b";
     }
     $$renderer2.push(`<div class="flex flex-col h-full"><header class="flex items-center justify-between px-4 pt-safe-top pb-3 bg-panel border-b border-border sticky top-0 z-10"><div><h1 class="text-lg font-semibold">Glance</h1> `);
     if (store_get($$store_subs ??= {}, "$query", query).data) {
@@ -131,7 +131,7 @@ function _page($$renderer, $$props) {
         const each_array_3 = ensure_array_like(data.members);
         for (let $$index_3 = 0, $$length = each_array_3.length; $$index_3 < $$length; $$index_3++) {
           let member = each_array_3[$$index_3];
-          $$renderer2.push(`<div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full"${attr_style(`background-color: ${stringify(member.color)}`)}></span> <span class="text-xs text-muted">${escape_html(member.name || member.id)}</span></div>`);
+          $$renderer2.push(`<div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full"${attr_style(`background-color: ${stringify(member.color_bg)}`)}></span> <span class="text-xs text-muted">${escape_html(member.display || member.id)}</span></div>`);
         }
         $$renderer2.push(`<!--]--></div>`);
       } else {

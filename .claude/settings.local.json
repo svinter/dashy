@@ -87,7 +87,9 @@
       "Bash(alembic heads:*)",
       "Read(//mnt/user-data/uploads/**)",
       "Bash(npm --version)",
-      "Bash(npm info:*)"
+      "Bash(npm info:*)",
+      "Bash(mv \"/Users/stevevinter/Obsidian/MyNotes/Libby/Books/stone-yard-devotional.md\" \"/Users/stevevinter/Obsidian/MyNotes/4 Library/Books/\")",
+      "Bash(mv \"/Users/stevevinter/Obsidian/MyNotes/Libby/Books/i-never-thought-of-it-that-way.md\" \"/Users/stevevinter/Obsidian/MyNotes/4 Library/Books/\")"
     ]
   }
 }

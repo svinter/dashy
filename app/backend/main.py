@@ -214,9 +214,19 @@ def health():
 
 @app.get("/api/version")
 def version():
+    import json as _json
     from config import REPO_ROOT
+    pkg = REPO_ROOT / "app" / "frontend" / "package.json"
+    try:
+        ver = _json.loads(pkg.read_text())["version"]
+        dashy_line = f"Dashy v{ver}"
+    except Exception:
+        dashy_line = "Dashy"
     version_file = REPO_ROOT / "VERSION"
-    text = version_file.read_text().strip() if version_file.exists() else "unknown"
+    lines = version_file.read_text().splitlines() if version_file.exists() else []
+    # Second line is the upstream Dashboard version (e.g. "Dashboard v1.2.21")
+    dashboard_line = next((l for l in lines if l.startswith("Dashboard")), "")
+    text = f"{dashy_line}\n{dashboard_line}" if dashboard_line else dashy_line
     return {"version": text}
 
 

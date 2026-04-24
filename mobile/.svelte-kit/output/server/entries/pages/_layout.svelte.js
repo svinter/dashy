@@ -74,7 +74,7 @@ function _layout($$renderer, $$props) {
     var $$store_subs;
     let isLogin;
     const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 6e4, retry: 1 } } });
-    isLogin = store_get($$store_subs ??= {}, "$page", page).url.pathname === "/m/login" || store_get($$store_subs ??= {}, "$page", page).url.pathname === "/login";
+    isLogin = store_get($$store_subs ??= {}, "$page", page).url.pathname.endsWith("/login");
     QueryClientProvider($$renderer2, {
       client: queryClient,
       children: ($$renderer3) => {

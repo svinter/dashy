@@ -32,6 +32,9 @@ if git rev-parse "v${VERSION}" >/dev/null 2>&1; then
     exit 1
 fi
 
+# --- Stamp version into frontend package.json ---
+(cd app/frontend && npm version "$VERSION" --no-git-tag-version --allow-same-version)
+
 # --- Build DMG ---
 echo ""
 ./scripts/build-dmg.sh "$VERSION"

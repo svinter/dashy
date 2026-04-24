@@ -67,16 +67,16 @@ dev: venv backend frontend whatsapp
 
 backend:
 	@lsof -ti:8000 | xargs kill -9 2>/dev/null || true
-	@cd $(BACKEND_DIR) && source venv/bin/activate && uvicorn main:app --port 8000 --reload > /tmp/dashboard-backend.log 2>&1 &
+	@cd $(BACKEND_DIR) && source venv/bin/activate && uvicorn main:app --host 0.0.0.0 --port 8000 --reload > /tmp/dashboard-backend.log 2>&1 &
 	@sleep 2
-	@curl -sf http://localhost:8000/api/health > /dev/null && echo "Backend running on :8000" || echo "Backend failed to start — check /tmp/dashboard-backend.log"
+	@curl -sf http://localhost:8000/api/health > /dev/null && echo "Backend running on :8000 (all interfaces)" || echo "Backend failed to start — check /tmp/dashboard-backend.log"
 
 frontend:
 	@lsof -ti:5173 | xargs kill -9 2>/dev/null || true
 	@if [ ! -d $(FRONTEND_DIR)/node_modules ]; then echo "Installing frontend dependencies..."; cd $(FRONTEND_DIR) && npm install; fi
-	@cd $(FRONTEND_DIR) && npx vite --port 5173 > /tmp/dashboard-frontend.log 2>&1 &
+	@cd $(FRONTEND_DIR) && npx vite --host 0.0.0.0 --port 5173 > /tmp/dashboard-frontend.log 2>&1 &
 	@sleep 2
-	@curl -sf http://localhost:5173 > /dev/null && echo "Frontend running on :5173" || echo "Frontend failed to start — check /tmp/dashboard-frontend.log"
+	@curl -sf http://localhost:5173 > /dev/null && echo "Frontend running on :5173 (all interfaces)" || echo "Frontend failed to start — check /tmp/dashboard-frontend.log"
 
 # --- Common ---
 
