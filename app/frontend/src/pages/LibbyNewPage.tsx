@@ -194,8 +194,8 @@ function BookCreationForm({
     setLookupUrl('');
   };
 
-  const handleUnifiedSearch = async () => {
-    const hasUrl = lookupUrl.trim();
+  const handleUnifiedSearch = async (urlOverride?: string) => {
+    const hasUrl = (urlOverride ?? lookupUrl).trim();
     const hasTitle = searchTitle.trim();
     if (!hasUrl && !hasTitle) return;
     setSearching(true);
@@ -324,7 +324,24 @@ function BookCreationForm({
             value={lookupUrl}
             onChange={e => setLookupUrl(e.target.value)}
             onKeyDown={triggerSearch}
-            placeholder="amazon.com/dp/... (optional)"
+            onPaste={e => {
+              const pasted = e.clipboardData.getData('text');
+              if (!pasted.includes('amazon.com/dp/')) return;
+              setLookupUrl(pasted);
+              setSearchTitle('');
+              setSearchAuthor('');
+              e.preventDefault();
+              setTimeout(() => handleUnifiedSearch(pasted), 300);
+            }}
+            onBlur={e => {
+              const val = e.target.value.trim();
+              if (val.includes('amazon.com/dp/') && !searching) {
+                setSearchTitle('');
+                setSearchAuthor('');
+                handleUnifiedSearch(val);
+              }
+            }}
+            placeholder="amazon.com/dp/..."
           />
           <button
             type="button"
@@ -542,6 +559,14 @@ export function LibbyNewPage() {
 
   useEffect(loadQueue, []);
 
+  // Poll every 3s while any entry is still pending/processing
+  useEffect(() => {
+    const hasActive = queue.some(e => e.status === 'pending' || e.status === 'processing');
+    if (!hasActive) return;
+    const timer = setInterval(loadQueue, 3000);
+    return () => clearInterval(timer);
+  }, [queue]);
+
   useEffect(() => {
     fetch('/api/libby/topics')
       .then(r => r.ok ? r.json() : { topics: [] })
@@ -559,17 +584,31 @@ export function LibbyNewPage() {
     setSaveSuccess(null);
   };
 
-  // Escape key deselects type when not in a text input
+  // Keyboard shortcuts: Escape deselects type; letter keys select type when none is active
+  const TYPE_CODES = new Set(ALL_TYPES.map(t => t.code));
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      const tag = (e.target as HTMLElement).tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
-      setSelectedType(null);
+      const tag = (document.activeElement as HTMLElement)?.tagName ?? '';
+      const inInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+
+      if (e.key === 'Escape') {
+        if (!inInput) setSelectedType(null);
+        return;
+      }
+
+      // Type-letter selection: only when no type is selected and focus is not in a form field
+      if (!selectedType && !inInput && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        const key = e.key.toLowerCase();
+        if (TYPE_CODES.has(key)) {
+          e.preventDefault();
+          setSelectedType(key);
+          setSaveSuccess(null);
+        }
+      }
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, []);
+  }, [selectedType]);
 
   const handleRetry = async (entryId: number) => {
     setQueue(q => q.map(e => e.id === entryId ? { ...e, retrying: true } : e));

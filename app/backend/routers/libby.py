@@ -1953,10 +1953,143 @@ def create_entry(body: EntryCreateRequest, background_tasks: BackgroundTasks):
 
 _ASIN_RE = re.compile(r"(?:dp|gp/product)/([A-Z0-9]{10})")
 
+_AMAZON_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "DNT": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+}
+
+_MIN_AMAZON_PAGE_BYTES = 50_000   # pages smaller than this are blocked/captcha
+
+
+def _strip_tags(s: str) -> str:
+    return re.sub(r"<[^>]+>", "", s).strip()
+
 
 def _extract_asin(url: str) -> str | None:
     m = _ASIN_RE.search(url)
     return m.group(1) if m else None
+
+
+def _fetch_amazon_metadata(amazon_url: str) -> dict | None:
+    """Fetch an Amazon product page and extract book metadata.
+
+    Returns a dict with keys: title, author, publisher, year, page_count, isbn.
+    Returns None if the page is blocked or parsing yields nothing useful.
+    """
+    import html as html_mod
+    import httpx
+
+    try:
+        resp = httpx.get(amazon_url, headers=_AMAZON_HEADERS, timeout=10.0, follow_redirects=True)
+        resp.raise_for_status()
+    except Exception as exc:
+        logger.warning("Amazon page fetch failed for %s: %s", amazon_url, exc)
+        return None
+
+    html = resp.text
+    if len(html) < _MIN_AMAZON_PAGE_BYTES:
+        logger.warning("Amazon returned a suspiciously small page (%d bytes) — likely blocked", len(html))
+        return None
+
+    def _ws(s: str) -> str:
+        """Collapse whitespace and unescape HTML entities."""
+        return re.sub(r"\s+", " ", html_mod.unescape(_strip_tags(s))).strip()
+
+    # --- Title ---
+    title = ""
+    m = re.search(r'id=["\']productTitle["\'][^>]*>(.*?)</span>', html, re.S)
+    if m:
+        title = _ws(m.group(1))
+    if not title:
+        # Fallback: parse the <title> tag (strip trailing Amazon cruft)
+        m = re.search(r"<title[^>]*>(.*?)</title>", html, re.S)
+        if m:
+            raw = _ws(m.group(1))
+            # Strip "- Kindle edition by … @ Amazon.com." suffix
+            title = re.split(r"\s*-\s*Kindle edition", raw, maxsplit=1)[0].strip()
+
+    # --- Author ---
+    author = ""
+    m = re.search(r'id=["\']bylineInfo["\'][^>]*>(.*?)</div>', html, re.S)
+    if m:
+        byline = _ws(m.group(1))
+        # "by Mónica Guzmán (Author)" → "Mónica Guzmán"
+        am = re.search(r"^by\s+(.+?)\s*\(Author\)", byline, re.I | re.S)
+        if am:
+            author = re.sub(r"\s+", " ", am.group(1)).strip()
+        else:
+            # Strip "by" prefix and format labels
+            byline = re.sub(r"^by\s+", "", byline, flags=re.I)
+            byline = re.sub(r"\s*\(.*?\)", "", byline)
+            author = byline.strip()
+
+    # --- Publisher (from rpi carousel) ---
+    publisher = None
+    m = re.search(r'data-rpi-attribute-name="book_details-publisher".*?</li>', html, re.S)
+    if m:
+        block = _ws(m.group(0))
+        pm = re.search(r"Publisher\s+(.+)", block)
+        if pm:
+            publisher = pm.group(1).split()[0:6]  # cap at 6 words
+            publisher = " ".join(publisher).rstrip(".,")
+
+    # Fallback: "Sold by <Publisher Name> Digital Sales" pattern
+    if not publisher:
+        m = re.search(r"Sold by\s+(.+?)(?:\s+Digital Sales|\s+LLC|\s+Inc\b|\.)", html, re.S)
+        if m:
+            publisher = _ws(m.group(1))
+
+    # --- Publication year ---
+    year = None
+    m = re.search(r"Publication date\s+([\w]+ \d+,\s*\d{4})", html)
+    if not m:
+        m = re.search(r"Publication date.*?(\d{4})", html, re.S)
+    if m:
+        ym = re.search(r"(\d{4})", m.group(1) if m.lastindex else m.group(0))
+        year = ym.group(1) if ym else None
+
+    # --- Page count ---
+    page_count = None
+    m = re.search(r"ebook_pages.*?(\d+)\s*pages", html, re.S)
+    if not m:
+        m = re.search(r"Print length.*?(\d+)\s*pages", html, re.S)
+    if m:
+        try:
+            page_count = int(m.group(1))
+        except ValueError:
+            pass
+
+    # --- ISBN (only from detail-bullet-list; Kindle ASINs have no print ISBN) ---
+    isbn = None
+    m = re.search(r"ISBN-13.*?(978[0-9]{10})", html)
+    if m:
+        isbn = m.group(1)
+    if not isbn:
+        m = re.search(r"ISBN-10.*?([0-9]{9}[0-9X])\b", html)
+        if m:
+            isbn = m.group(1)
+
+    if not title:
+        return None   # nothing useful extracted
+
+    return {
+        "title": title,
+        "author": author,
+        "publisher": publisher,
+        "year": year,
+        "page_count": page_count,
+        "isbn": isbn,
+    }
 
 
 def _google_books_search(params: dict) -> list[dict]:
@@ -2015,35 +2148,77 @@ def lookup_book(
         asin = _extract_asin(url)
 
     if asin:
-        # ISBN-10 and ASIN share the same format; try ISBN lookup first
-        params: dict = {"q": f"isbn:{asin}", "maxResults": 5}
-        candidates = _google_books_search(params)
-        if not candidates and title:
-            # Fallback: title search
-            params = {"q": f"intitle:{title}", "maxResults": 5}
-            candidates = _google_books_search(params)
-        # Construct Amazon URL from ASIN
         amazon_url = f"https://www.amazon.com/dp/{asin}"
-        if not candidates:
-            # Kindle-only or unrecognized ASIN — return a stub so the UI can
-            # pre-fill the Amazon URL and let the user complete the form manually
+
+        # --- Step 1: fetch the Amazon product page for primary metadata ---
+        amz = _fetch_amazon_metadata(amazon_url)
+
+        # --- Step 2: query Google Books for cover + supplemental data ---
+        gb_candidates: list[dict] = []
+        if amz:
+            # Prefer ISBN lookup; fall back to title+author
+            if amz.get("isbn"):
+                gb_candidates = _google_books_search({"q": f"isbn:{amz['isbn']}", "maxResults": 3})
+            if not gb_candidates and amz.get("title"):
+                q_parts = [f"intitle:{amz['title']}"]
+                if amz.get("author"):
+                    q_parts.append(f"inauthor:{amz['author']}")
+                gb_candidates = _google_books_search({"q": " ".join(q_parts), "maxResults": 3})
+        else:
+            # Amazon page blocked — fall back to ASIN-as-ISBN then plain-text search
+            gb_candidates = _google_books_search({"q": f"isbn:{asin}", "maxResults": 5})
+            if not gb_candidates:
+                gb_candidates = _google_books_search({"q": asin, "printType": "books", "maxResults": 5})
+
+        # --- Step 3: merge into a single best candidate ---
+        gb = gb_candidates[0] if gb_candidates else {}
+
+        # Amazon page data takes priority; Google Books fills in cover + description
+        merged_title  = (amz or {}).get("title")  or gb.get("title")  or ""
+        merged_author = (amz or {}).get("author") or gb.get("author") or ""
+        merged_isbn   = (amz or {}).get("isbn")   or gb.get("isbn")
+        merged_pub    = (amz or {}).get("publisher") or gb.get("publisher")
+        merged_year   = (amz or {}).get("year")   or gb.get("year")
+        merged_pages  = (amz or {}).get("page_count") or gb.get("page_count")
+        merged_desc   = gb.get("description")  # Google Books tends to have better descriptions
+        merged_cover  = gb.get("cover_url")
+        merged_gbid   = gb.get("google_books_id")
+
+        # Guard ISBN: must be genuine ISBN-13 (978/979) or all-numeric ISBN-10
+        if merged_isbn:
+            is_isbn13 = merged_isbn.isdigit() and len(merged_isbn) == 13 and merged_isbn[:3] in ("978", "979")
+            is_isbn10 = len(merged_isbn) == 10 and merged_isbn[:9].isdigit()
+            if not is_isbn13 and not is_isbn10:
+                merged_isbn = None
+
+        if not merged_title:
+            # Nothing found anywhere — minimal stub
             candidates = [{
                 "google_books_id": None,
-                "title": title or "",
-                "author": author or "",
-                "isbn": None,
-                "publisher": None,
-                "year": None,
-                "description": None,
-                "cover_url": None,
-                "page_count": None,
+                "title": "", "author": "", "isbn": None,
+                "publisher": None, "year": None,
+                "description": None, "cover_url": None, "page_count": None,
+                "asin": asin, "amazon_url": amazon_url,
+            }]
+        else:
+            candidates = [{
+                "google_books_id": merged_gbid,
+                "title": merged_title,
+                "author": merged_author,
+                "isbn": merged_isbn,
+                "publisher": merged_pub,
+                "year": merged_year,
+                "description": merged_desc,
+                "cover_url": merged_cover,
+                "page_count": merged_pages,
                 "asin": asin,
                 "amazon_url": amazon_url,
             }]
-        else:
-            for c in candidates:
+            # Append any additional Google Books candidates (different editions)
+            for c in gb_candidates[1:]:
                 c["asin"] = asin
                 c["amazon_url"] = amazon_url
+                candidates.append(c)
     elif title or author:
         q_parts = []
         if title:
