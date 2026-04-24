@@ -2445,12 +2445,12 @@ def _run_tagging_task(entry_id: int) -> None:
 # ---------------------------------------------------------------------------
 
 _VAULT_FOLDER_BY_TYPE: dict[str, str | None] = {
-    "b": "Books",
-    "a": "Articles", "e": "Articles", "r": "Articles",
-    "p": "Media",    "v": "Media",    "m": "Media",
-    "t": "Tools",    "w": "Tools",    "d": "Tools",
-    "f": "Tools",    "c": "Tools",    "s": "Tools",  "z": "Tools",
-    "n": None,       "q": None,
+    "b": "4 Library/Books",
+    "a": "4 Library/Articles", "e": "4 Library/Articles", "r": "4 Library/Articles",
+    "p": "4 Library/Media",    "v": "4 Library/Media",    "m": "4 Library/Media",
+    "t": "4 Library/Tools",    "w": "4 Library/Tools",    "d": "4 Library/Tools",
+    "f": "4 Library/Tools",    "c": "4 Library/Tools",    "s": "4 Library/Tools",  "z": "4 Library/Tools",
+    "n": "4 Library/Notes",    "q": None,
 }
 
 
@@ -2460,7 +2460,7 @@ def _vault_entry_path(vault: Path, type_code: str, name: str) -> Path | None:
     if folder is None:
         return None
     slug = _slugify(name)
-    return vault / "Libby" / folder / f"{slug}.md"
+    return vault / folder / f"{slug}.md"
 
 
 # ---------------------------------------------------------------------------
