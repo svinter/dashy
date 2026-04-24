@@ -138,7 +138,7 @@ def mobile_libby(mobly_session: Optional[str] = Cookie(default=None)):
                 e.loan_due_date,
                 COALESCE(lb.author, lb.authors, li.author) AS author,
                 lb.cover_url,
-                lt.label AS type_label
+                lt.name AS type_label
             FROM library_entries e
             LEFT JOIN library_books lb ON e.type_code = 'b' AND lb.id = e.entity_id
             LEFT JOIN library_items li ON e.type_code != 'b' AND li.id = e.entity_id

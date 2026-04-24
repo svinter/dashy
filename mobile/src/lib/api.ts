@@ -59,10 +59,10 @@ export interface GlanceTrip {
 
 export interface GlanceMember {
   id: string;
-  name: string;
-  display_name: string;
-  color: string;
-  text_color: string;
+  display: string;
+  color_bg: string;
+  color_text: string;
+  color_accent: string;
   sort_order: number;
 }
 

@@ -2052,7 +2052,7 @@ function UnprocessedQueue() {
     return co?.abbrev ?? co?.name ?? null;
   }
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
   const events = data?.events ?? [];
 
   const { data: vaultData } = useObsidianVault();
@@ -2063,12 +2063,11 @@ function UnprocessedQueue() {
   const activeSessions = events.filter(ev => ev.color_id === '5' && ev.is_active);
   const activeSessionIds = new Set(activeSessions.map(ev => ev.calendar_event_id));
 
-  // Past banana events: banana color, date < today, not active, matching company filter.
-  // Shown in a separate "Unprocessed" section above all month groupings.
-  const pastBanana = events
+  // Past events: date < today, not active, matching company filter.
+  // Banana (pre-session) and grape (confirmed session events) both go here.
+  const pastEvents = events
     .filter(ev => {
-      if (ev.color_id !== '5') return false;
-      if (activeSessionIds.has(ev.calendar_event_id)) return false; // shown in Active section
+      if (activeSessionIds.has(ev.calendar_event_id)) return false;
       if (ev.start_time.slice(0, 10) >= today) return false;
       if (effectiveCompanyIds) {
         const coId = ev.inferred_company_id;
@@ -2078,12 +2077,17 @@ function UnprocessedQueue() {
     })
     .sort((a, b) => b.start_time.localeCompare(a.start_time)); // newest-first
 
-  const pastBananaIds = new Set(pastBanana.map(ev => ev.calendar_event_id));
+  // Keep banana-only subset for the PastBananaRow renderer (needs recolor action)
+  const pastBanana = pastEvents.filter(ev => ev.color_id === '5');
+  // Past grape/other events — shown in Past Sessions section alongside past banana
+  const pastGrape = pastEvents.filter(ev => ev.color_id !== '5');
+
+  const pastEventIds = new Set(pastEvents.map(ev => ev.calendar_event_id));
 
   const visible = events
     .filter(ev => {
       if (activeSessionIds.has(ev.calendar_event_id)) return false; // shown in Active section
-      if (pastBananaIds.has(ev.calendar_event_id)) return false; // shown in Past section
+      if (pastEventIds.has(ev.calendar_event_id)) return false;     // shown in Past section
       if (!showBanana && ev.color_id === '5') return false;
       const dateStr = ev.start_time.slice(0, 10);
       const evYear = Number(dateStr.slice(0, 4));
@@ -2098,7 +2102,7 @@ function UnprocessedQueue() {
     })
     .sort((a, b) => a.start_time.localeCompare(b.start_time));
 
-  // Split visible into "Next" (today or next upcoming day) and "Future" (the rest)
+  // Split visible (all future/today) into "Next" (today or nearest upcoming day) and "Future"
   const nextDate = (() => {
     const todayEvents = visible.filter(ev => ev.start_time.slice(0, 10) === today);
     if (todayEvents.length > 0) return today;
@@ -2265,8 +2269,8 @@ function UnprocessedQueue() {
         </div>
       )}
 
-      {/* ── Unprocessed section (past banana) ── */}
-      {pastBanana.length > 0 && (
+      {/* ── Unprocessed section (past banana + past grape) ── */}
+      {pastEvents.length > 0 && (
         <div style={{ marginBottom: 'var(--space-xl)' }}>
           <div style={{
             fontWeight: 700, fontSize: 'var(--text-sm)', padding: '5px 8px',
@@ -2274,10 +2278,12 @@ function UnprocessedQueue() {
             marginBottom: 'var(--space-xs)',
             display: 'flex', justifyContent: 'space-between', alignItems: 'center',
           }}>
-            <span>Past Sessions ({pastBanana.length})</span>
-            <span style={{ fontWeight: 400, fontSize: 'var(--text-xs)', color: 'var(--color-text-light)' }}>
-              Check box to recolor → grape and confirm
-            </span>
+            <span>Past Sessions ({pastEvents.length})</span>
+            {pastBanana.length > 0 && (
+              <span style={{ fontWeight: 400, fontSize: 'var(--text-xs)', color: 'var(--color-text-light)' }}>
+                Check box to recolor → grape and confirm
+              </span>
+            )}
           </div>
           {needReauth && (
             <div style={{
@@ -2301,6 +2307,35 @@ function UnprocessedQueue() {
               onPrepaidWarning={msg => setBlockWarnings(w => [...w, msg])}
             />
           ))}
+          {pastGrape.map(ev => {
+            const abbrev = companyAbbrev(ev);
+            const rev = expectedRevenue(ev);
+            return (
+              <UnprocessedRow
+                key={ev.calendar_event_id}
+                event={ev}
+                companies={companies}
+                companyAbbrev={abbrev}
+                expectedRevenue={rev}
+                vaultName={vaultName || undefined}
+                onConfirm={(ev, clientId, companyId, durationHours, notes, projectId) => {
+                  confirm.mutate(
+                    { calendar_event_id: ev.calendar_event_id, client_id: clientId, company_id: companyId, duration_hours: durationHours, notes, project_id: projectId },
+                    {
+                      onSuccess: (session) => {
+                        if (session.no_active_prepaid_block) {
+                          setBlockWarnings(w => [...w, `${demo ? nameToInitials(session.client_name) || 'Client' : (session.client_name ?? 'Client')} — session confirmed but no active prepaid block found`]);
+                        }
+                      },
+                    }
+                  );
+                }}
+                onDismiss={ev => {
+                  if (window.confirm(`Dismiss "${ev.summary}"?`)) dismiss.mutate(ev.calendar_event_id);
+                }}
+              />
+            );
+          })}
         </div>
       )}
 

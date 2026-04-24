@@ -48,6 +48,11 @@ demo/screenshots/
 demo/video/
 .whatsapp_webhook_token
 
+# Mobile PWA
+mobile/node_modules/
+mobile/.svelte-kit/
+mobile/dist/
+
 # Backend specifics
 app/backend/venv/
 app/backend/.env

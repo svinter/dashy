@@ -29,12 +29,12 @@
 
   function memberColor(member_id: string | null, members: GlanceMember[]): string {
     if (!member_id) return '#64748b';
-    return members.find(m => m.id === member_id)?.color ?? '#64748b';
+    return members.find(m => m.id === member_id)?.color_bg ?? '#64748b';
   }
 
   function memberTextColor(member_id: string | null, members: GlanceMember[]): string {
     if (!member_id) return '#fff';
-    return members.find(m => m.id === member_id)?.text_color ?? '#fff';
+    return members.find(m => m.id === member_id)?.color_text ?? '#fff';
   }
 
   async function doRefresh() {
@@ -154,8 +154,8 @@
         <div class="px-4 py-3 flex flex-wrap gap-3 border-t border-border">
           {#each data.members as member}
             <div class="flex items-center gap-1.5">
-              <span class="w-3 h-3 rounded-full" style="background-color: {member.color}"></span>
-              <span class="text-xs text-muted">{member.name || member.id}</span>
+              <span class="w-3 h-3 rounded-full" style="background-color: {member.color_bg}"></span>
+              <span class="text-xs text-muted">{member.display || member.id}</span>
             </div>
           {/each}
         </div>

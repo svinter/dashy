@@ -987,7 +987,7 @@ def get_badge_counts():
         queue_count = db.execute(
             """SELECT COUNT(*) as c FROM calendar_events
                WHERE color_id IN ('3', '5')
-               AND date(start_time) < date('now')
+               AND date(start_time) < date('now', 'localtime')
                AND id NOT IN (
                    SELECT calendar_event_id FROM billing_sessions
                    WHERE calendar_event_id IS NOT NULL
@@ -998,7 +998,7 @@ def get_badge_counts():
         unmatched_payments_count = db.execute(
             """SELECT COUNT(*) as c FROM billing_payments
                WHERE company_id IS NOT NULL
-               AND date >= date('now', '-90 days')
+               AND strftime('%Y-%m', date) = strftime('%Y-%m', 'now')
                AND NOT EXISTS (
                    SELECT 1 FROM billing_invoice_payments WHERE payment_id = billing_payments.id
                )"""

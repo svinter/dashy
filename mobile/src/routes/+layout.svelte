@@ -3,6 +3,7 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
+  import { base } from '$app/paths';
   import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query';
   import { authed } from '$lib/auth';
   import { checkAuth } from '$lib/api';
@@ -17,13 +18,13 @@
     },
   });
 
-  $: isLogin = $page.url.pathname === '/m/login' || $page.url.pathname === '/login';
+  $: isLogin = $page.url.pathname.endsWith('/login');
 
   onMount(async () => {
     const ok = await checkAuth();
     authed.set(ok);
     if (!ok && !isLogin) {
-      goto('/login');
+      goto(`${base}/login`);
     }
   });
 </script>
