@@ -1,4 +1,4 @@
-import { n as noop, m as safe_not_equal, o as subscribe_to_store, r as run_all } from "./renderer.js";
+import { n as noop, m as subscribe_to_store, o as safe_not_equal, r as run_all } from "./renderer.js";
 const subscriber_queue = [];
 function readable(value, start) {
   return {

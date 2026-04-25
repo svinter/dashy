@@ -65,6 +65,18 @@ def get_type_counts():
 
 _PRIORITY_RANK = {"high": 3, "medium": 2, "low": 1}
 _VALID_TYPE_CODES = frozenset({"a", "b", "e", "p", "v", "m", "t", "w", "s", "z", "n", "d", "f", "c", "r", "q"})
+
+_ASIN_RE = re.compile(r"/(?:dp|gp/product)/([A-Z0-9]{10})")
+
+
+def _cover_from_asin(amazon_short_url: str | None) -> str | None:
+    """Derive an Amazon cover URL from an amazon_short_url containing an ASIN."""
+    if not amazon_short_url:
+        return None
+    m = _ASIN_RE.search(amazon_short_url)
+    if not m:
+        return None
+    return f"https://images-na.ssl-images-amazon.com/images/P/{m.group(1)}.01.LZZZZZZZ.jpg"
 _TYPE_NAMES = {
     "b": "Book",        "a": "Article",    "e": "Essay",
     "p": "Podcast",     "v": "Video",      "m": "Movie",
@@ -184,6 +196,7 @@ def search_library(q: str = "", client_id: int | None = None):
             li.attribution,
             li.context,
             li.notes       AS synopsis,
+            COALESCE(e.cover_url, lb.cover_url) AS cover_url,
             e.private
         FROM library_entries e
         LEFT JOIN library_books lb ON e.type_code = 'b' AND e.entity_id = lb.id
@@ -246,6 +259,7 @@ def search_library(q: str = "", client_id: int | None = None):
         return comments[idx + 3:].strip() or None
 
     # Score, rank, cap
+    _pending_covers: list[tuple[str, int]] = []
     results = []
     for row in rows:
         name_score = _name_match_score(row["name"], name_tokens) if name_tokens else 1
@@ -272,6 +286,15 @@ def search_library(q: str = "", client_id: int | None = None):
                 categories = _json.loads(row["categories"])
             except Exception:
                 pass
+
+        # Lazy-populate cover_url from Amazon ASIN when DB value is null
+        cover_url: str | None = row["cover_url"]
+        if cover_url is None:
+            derived = _cover_from_asin(row["amazon_short_url"])
+            if derived:
+                cover_url = derived
+                _pending_covers.append((derived, row["id"]))
+
         results.append({
             "id": row["id"],
             "name": row["name"],
@@ -306,6 +329,7 @@ def search_library(q: str = "", client_id: int | None = None):
             "attribution": row["attribution"],
             "context": row["context"],
             "synopsis": row["synopsis"],
+            "cover_url": cover_url,
             "private": bool(row["private"]),
             "_rank": (
                 _PRIORITY_RANK.get(row["priority"], 0),
@@ -319,6 +343,16 @@ def search_library(q: str = "", client_id: int | None = None):
     results = results[:26]
     for r in results:
         del r["_rank"]
+
+    # Persist any cover_urls we just derived so next fetch is free
+    if _pending_covers:
+        wdb = get_write_db()
+        for _cov, _eid in _pending_covers:
+            wdb.execute(
+                "UPDATE library_entries SET cover_url = ? WHERE id = ? AND cover_url IS NULL",
+                (_cov, _eid),
+            )
+        wdb.commit()
 
     # Bulk-fetch last_shared_at for active client
     if client_id and results:
@@ -1627,6 +1661,7 @@ def delete_entry(entry_id: int):
         dbw.execute("DELETE FROM library_entry_topics WHERE entry_id = ?", (entry_id,))
         dbw.execute("DELETE FROM library_share_log WHERE entry_id = ?",    (entry_id,))
         dbw.execute("DELETE FROM library_enrich_not_found WHERE entry_id = ?", (entry_id,))
+        dbw.execute("DELETE FROM libby_enrichment_log WHERE entry_id = ?", (entry_id,))
         dbw.execute("DELETE FROM library_entries WHERE id = ?", (entry_id,))
         if tc == "b":
             dbw.execute("DELETE FROM library_books WHERE id = ?",  (entity_id,))

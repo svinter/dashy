@@ -31,7 +31,7 @@ const options = {
   service_worker_options: void 0,
   server_error_boundaries: false,
   templates: {
-    app: ({ head, body, assets, nonce, env }) => '<!doctype html>\n<html lang="en">\n  <head>\n    <meta charset="utf-8" />\n    <link rel="icon" href="' + assets + '/icons/icon-192.png" />\n    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />\n    <meta name="mobile-web-app-capable" content="yes" />\n    <meta name="apple-mobile-web-app-capable" content="yes" />\n    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />\n    <meta name="theme-color" content="#0f172a" />\n    <meta name="apple-mobile-web-app-title" content="Mobly" />\n    ' + head + '\n  </head>\n  <body data-sveltekit-preload-data="hover" class="bg-surface text-text">\n    <div style="display: contents">' + body + "</div>\n  </body>\n</html>\n",
+    app: ({ head, body, assets, nonce, env }) => '<!doctype html>\n<html lang="en">\n  <head>\n    <meta charset="utf-8" />\n    <link rel="icon" href="' + assets + '/icons/icon-192.png" />\n    <link rel="manifest" href="/m/manifest.webmanifest" />\n    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />\n    <meta name="mobile-web-app-capable" content="yes" />\n    <meta name="apple-mobile-web-app-capable" content="yes" />\n    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />\n    <meta name="theme-color" content="#0f172a" />\n    <meta name="apple-mobile-web-app-title" content="Mobly" />\n    ' + head + '\n  </head>\n  <body data-sveltekit-preload-data="hover" class="bg-surface text-text" style="background:#0f172a;color:#f1f5f9;margin:0;">\n    <div style="display: contents">' + body + "</div>\n  </body>\n</html>\n",
     error: ({ status, message }) => '<!doctype html>\n<html lang="en">\n	<head>\n		<meta charset="utf-8" />\n		<title>' + message + `</title>
 
 		<style>
@@ -103,7 +103,7 @@ const options = {
 		<div class="error">
 			<span class="status">` + status + '</span>\n			<div class="message">\n				<h1>' + message + "</h1>\n			</div>\n		</div>\n	</body>\n</html>\n"
   },
-  version_hash: "11azqyg"
+  version_hash: "11zwpne"
 };
 async function get_hooks() {
   let handle;

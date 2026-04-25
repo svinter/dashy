@@ -12267,6 +12267,11 @@ span.news-item-title {
   font-size: var(--text-xs);
 }
 
+.coaching-synopsis-days-ago {
+  color: var(--color-accent);
+  font-size: var(--text-xs);
+}
+
 .coaching-synopsis-event-title {
   color: var(--color-text-light);
   font-size: var(--text-xs);

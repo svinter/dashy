@@ -125,9 +125,8 @@ export function SynopsisPanelContent({ client, past_sessions, future_sessions }:
           past_sessions.map((s, i) => (
             <div key={i} className="coaching-synopsis-past-card">
               <div className="coaching-synopsis-session-header">
-                <span className="coaching-synopsis-session-date">
-                  {s.day_label} · {s.days_ago === 0 ? 'today' : `${s.days_ago}d ago`}
-                </span>
+                <span className="coaching-synopsis-session-date">{s.day_label}</span>
+                <span className="coaching-synopsis-days-ago">{s.days_ago === 0 ? 'today' : `${s.days_ago}d ago`}</span>
                 {s.session_number != null && (
                   <span className="coaching-synopsis-session-num">#{s.session_number}</span>
                 )}

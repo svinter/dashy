@@ -103,8 +103,22 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         is_sandbox_file = request.url.path.startswith("/api/sandbox/apps/") and "/files/" in request.url.path
         # Scripty UI needs inline scripts (self-contained page, no external deps)
         is_scripty = request.url.path == "/scripty"
+        # Mobly PWA — SvelteKit bootstrap is an inline <script>; must allow unsafe-inline.
+        # connect-src uses 'self' + explicit ws/http for Tailscale access over any IP.
+        is_mobly = request.url.path == "/m" or request.url.path.startswith("/m/")
 
-        if is_scripty:
+        if is_mobly:
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'self'; "
+                "script-src 'self' 'unsafe-inline'; "
+                "style-src 'self' 'unsafe-inline'; "
+                "img-src 'self' data: blob: https: http://books.google.com http://covers.openlibrary.org; "
+                f"connect-src 'self' ws://{host} wss://{host} http://{host}; "
+                "font-src 'self'; "
+                "frame-src 'none'; "
+                "object-src 'none'"
+            )
+        elif is_scripty:
             response.headers["Content-Security-Policy"] = (
                 "default-src 'self'; "
                 "script-src 'self' 'unsafe-inline'; "
@@ -445,10 +459,26 @@ if DIST_DIR.exists():
 
     app.mount("/assets", StaticFiles(directory=DIST_DIR / "assets"), name="assets")
 
-    # Mobile PWA — served at /m
+    # Mobile PWA — served at /m with SPA fallback
     MOBILE_DIST = Path(__file__).parent.parent.parent / "mobile" / "dist"
     if MOBILE_DIST.exists():
-        app.mount("/m", StaticFiles(directory=MOBILE_DIST, html=True), name="mobile")
+        # Serve bundled JS/CSS/assets via StaticFiles (fast, no fallback needed)
+        _mobile_app_dir = MOBILE_DIST / "_app"
+        if _mobile_app_dir.exists():
+            app.mount("/m/_app", StaticFiles(directory=_mobile_app_dir), name="mobile-assets")
+
+        # SPA fallback: unknown paths (e.g. /m/libby) serve index.html for client-side routing
+        @app.get("/m")
+        def serve_mobly_root():
+            return FileResponse(MOBILE_DIST / "index.html")
+
+        @app.get("/m/{path:path}")
+        def serve_mobly_spa(path: str):
+            candidate = (MOBILE_DIST / path).resolve()
+            if candidate.is_file() and str(candidate).startswith(str(MOBILE_DIST.resolve())):
+                return FileResponse(candidate)
+            return FileResponse(MOBILE_DIST / "index.html")
+
         log.info("[mobile] Mounted at /m from %s", MOBILE_DIST)
     else:
         log.info("[mobile] mobile/dist not found — run 'cd mobile && npm run build' to enable")

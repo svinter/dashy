@@ -182,7 +182,9 @@ def enrich_google_books(db_path: Path, limit: int = None):
         new_publisher    = vol_info.get("publisher", "")
         new_year         = _extract_year(vol_info.get("publishedDate", ""))
         new_gb_id        = data.get("id", "")
-        new_cover        = (vol_info.get("imageLinks") or {}).get("thumbnail", "")
+        image_links      = vol_info.get("imageLinks") or {}
+        raw_cover        = image_links.get("thumbnail") or image_links.get("smallThumbnail") or ""
+        new_cover        = raw_cover.replace("http://", "https://", 1) if raw_cover else ""
         new_subtitle     = vol_info.get("subtitle", "")
         new_categories   = json.dumps(vol_info.get("categories", []))
         new_preview_link = vol_info.get("previewLink", "")
@@ -203,10 +205,21 @@ def enrich_google_books(db_path: Path, limit: int = None):
         """, (new_isbn, new_publisher, new_year, new_gb_id, new_cover,
               new_subtitle, new_categories, new_preview_link, new_authors, book_id))
 
-        cur.execute(
-            "UPDATE library_entries SET needs_enrichment = 0, updated_at = datetime('now') WHERE id = ?",
-            (entry_id,)
-        )
+        # Also store https cover_url on library_entries — only if not already set
+        if new_cover:
+            cur.execute(
+                "UPDATE library_entries SET cover_url = ?, needs_enrichment = 0, updated_at = datetime('now') WHERE id = ? AND cover_url IS NULL",
+                (new_cover, entry_id)
+            )
+            cur.execute(
+                "UPDATE library_entries SET needs_enrichment = 0, updated_at = datetime('now') WHERE id = ? AND cover_url IS NOT NULL",
+                (entry_id,)
+            )
+        else:
+            cur.execute(
+                "UPDATE library_entries SET needs_enrichment = 0, updated_at = datetime('now') WHERE id = ?",
+                (entry_id,)
+            )
         enriched += 1
         time.sleep(0.05)
 

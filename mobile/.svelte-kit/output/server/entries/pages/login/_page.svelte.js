@@ -1,4 +1,4 @@
-import { d as attr, j as escape_html } from "../../../chunks/renderer.js";
+import { c as attr, i as escape_html } from "../../../chunks/renderer.js";
 import "@sveltejs/kit/internal";
 import "../../../chunks/exports.js";
 import "../../../chunks/utils.js";

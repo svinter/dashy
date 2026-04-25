@@ -1,6 +1,17 @@
-import { l as setContext, g as getContext } from "./renderer.js";
 import "clsx";
+import "@sveltejs/kit/internal";
+import "./exports.js";
+import "./utils.js";
+import "@sveltejs/kit/internal/server";
+import "./root.js";
+import "./state.svelte.js";
+import { l as setContext, j as getContext } from "./renderer.js";
 import { r as readable } from "./index.js";
+function goto(url, opts = {}) {
+  {
+    throw new Error("Cannot call goto(...) on the server");
+  }
+}
 const _contextKey = "$$_queryClient";
 const getQueryClientContext = () => {
   const client = getContext(_contextKey);
@@ -22,7 +33,8 @@ const getIsRestoringContext = () => {
   }
 };
 export {
-  getQueryClientContext as a,
-  getIsRestoringContext as g,
+  getIsRestoringContext as a,
+  getQueryClientContext as b,
+  goto as g,
   setQueryClientContext as s
 };

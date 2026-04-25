@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from 'react';
+import React, { lazy, Suspense, useState } from 'react';
 import { LibbyProvider } from './contexts/LibbyContext';
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider, useIsFetching } from '@tanstack/react-query';
@@ -218,12 +218,30 @@ function AppContent() {
   );
 }
 
+function MobileGate({ children }: { children: React.ReactNode }) {
+  // On narrow viewports (phones), the desktop app is unusable — redirect to Mobly.
+  if (typeof window !== 'undefined' && window.innerWidth < 640) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', gap: '1rem', fontFamily: 'sans-serif', padding: '2rem', textAlign: 'center' }}>
+        <div style={{ fontSize: '1.1rem', fontWeight: 600 }}>Dashy is desktop-only</div>
+        <div style={{ fontSize: '0.9rem', color: '#666' }}>Open the mobile companion instead.</div>
+        <a href="/m/libby" style={{ display: 'inline-block', marginTop: '0.5rem', padding: '0.6rem 1.4rem', background: '#1a1a1a', color: '#fff', borderRadius: '6px', textDecoration: 'none', fontSize: '0.95rem' }}>
+          Open Mobly
+        </a>
+      </div>
+    );
+  }
+  return <>{children}</>;
+}
+
 export default function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <AppContent />
-      </BrowserRouter>
-    </QueryClientProvider>
+    <MobileGate>
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <AppContent />
+        </BrowserRouter>
+      </QueryClientProvider>
+    </MobileGate>
   );
 }

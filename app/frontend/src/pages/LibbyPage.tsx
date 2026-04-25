@@ -57,6 +57,7 @@ interface LibraryEntry {
   gdoc_summary_id?: string | null;
   external_summary_url?: string | null;
   highlights_path?: string | null;
+  cover_url?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -2083,6 +2084,22 @@ function CatalogPage() {
                   }}
                 >
                   <span className={`libby-result-label${isHighlit ? ' libby-result-label--active' : ''}`}>{label}</span>
+                  {entry.type_code === 'b' && (
+                    <span className="libby-result-cover">
+                      {entry.cover_url ? (
+                        <img
+                          src={entry.cover_url}
+                          alt=""
+                          width={40}
+                          height={60}
+                          style={{ display: 'block', objectFit: 'cover', borderRadius: '2px' }}
+                          onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+                        />
+                      ) : (
+                        <span style={{ fontSize: '1.25rem', lineHeight: 1 }}>📖</span>
+                      )}
+                    </span>
+                  )}
                   <span className="libby-result-name-cell">
                     <span className="libby-result-name">
                       {entry.name}

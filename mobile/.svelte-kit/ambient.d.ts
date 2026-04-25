@@ -66,7 +66,6 @@ declare module '$env/static/private' {
 	export const __CF_USER_TEXT_ENCODING: string;
 	export const npm_execpath: string;
 	export const MAKELEVEL: string;
-	export const VIRTUAL_ENV: string;
 	export const PERLBREW_ROOT: string;
 	export const MFLAGS: string;
 	export const PATH: string;
@@ -99,7 +98,6 @@ declare module '$env/static/private' {
 	export const NVM_BIN: string;
 	export const npm_config_user_agent: string;
 	export const SECURITYSESSIONID: string;
-	export const VIRTUAL_ENV_PROMPT: string;
 	export const PERL_MM_OPT: string;
 	export const npm_node_execpath: string;
 	export const npm_config_prefix: string;
@@ -218,7 +216,6 @@ declare module '$env/dynamic/private' {
 		__CF_USER_TEXT_ENCODING: string;
 		npm_execpath: string;
 		MAKELEVEL: string;
-		VIRTUAL_ENV: string;
 		PERLBREW_ROOT: string;
 		MFLAGS: string;
 		PATH: string;
@@ -251,7 +248,6 @@ declare module '$env/dynamic/private' {
 		NVM_BIN: string;
 		npm_config_user_agent: string;
 		SECURITYSESSIONID: string;
-		VIRTUAL_ENV_PROMPT: string;
 		PERL_MM_OPT: string;
 		npm_node_execpath: string;
 		npm_config_prefix: string;

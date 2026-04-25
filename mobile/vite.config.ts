@@ -7,10 +7,10 @@ export default defineConfig({
     sveltekit(),
     SvelteKitPWA({
       srcDir: 'src',
-      mode: 'development',
       strategies: 'generateSW',
       registerType: 'autoUpdate',
-      includeManifestIcons: false,
+      injectRegister: 'script',
+      includeManifestIcons: true,
       manifest: {
         name: 'Mobly',
         short_name: 'Mobly',

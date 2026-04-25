@@ -690,7 +690,7 @@ function InlineSynopsisPanel({
     return (
       <div className="coaching-synopsis-inline">
         <button className="coaching-synopsis-generate-btn" onClick={onGenerate}>
-          Generate synopsis
+          Generate summary
         </button>
       </div>
     );
@@ -725,36 +725,31 @@ function ClientRow({ client, showDaysFirst, isOnlyVisible }: {
   const [synopsisPhase, setSynopsisPhase] = useState<SynopsisPhase>('idle');
   const [synopsisData, setSynopsisData] = useState<SynopsisResponse | null>(null);
 
-  const handleSynopsisClick = useCallback(async (e: React.MouseEvent) => {
-    if (!isOnlyVisible) return; // Link navigation handles it
-    e.preventDefault();
-
-    if (inlineOpen) {
-      setInlineOpen(false);
-      return;
-    }
-
-    setInlineOpen(true);
-    if (synopsisData) return; // already loaded
-
+  // Proactively check cache when this becomes the only visible client
+  useEffect(() => {
+    if (!isOnlyVisible) return;
+    let cancelled = false;
     setSynopsisPhase('checking');
-    try {
-      const result = await api.get<{ ready: boolean } & Partial<SynopsisResponse>>(
-        `/coaching/clients/${client.id}/synopsis?generate=false`
-      );
+    api.get<{ ready: boolean } & Partial<SynopsisResponse>>(
+      `/coaching/clients/${client.id}/synopsis?generate=false`
+    ).then(result => {
+      if (cancelled) return;
       if (result.ready && result.client) {
         setSynopsisData(result as SynopsisResponse);
         setSynopsisPhase('ready');
+        setInlineOpen(true);
       } else {
         setSynopsisPhase('idle');
       }
-    } catch {
-      setSynopsisPhase('idle');
-    }
-  }, [isOnlyVisible, inlineOpen, synopsisData, client.id]);
+    }).catch(() => {
+      if (!cancelled) setSynopsisPhase('idle');
+    });
+    return () => { cancelled = true; };
+  }, [isOnlyVisible, client.id]);
 
   const handleGenerate = useCallback(async () => {
     setSynopsisPhase('generating');
+    setInlineOpen(true);
     try {
       const result = await api.get<SynopsisResponse>(`/coaching/clients/${client.id}/synopsis`);
       setSynopsisData(result);
@@ -812,13 +807,25 @@ function ClientRow({ client, showDaysFirst, isOnlyVisible }: {
           <button className="coaching-link-btn" onClick={() => openExternal(client.gdrive_coaching_docs_url!)} title="Open coaching docs in Drive">ƒolder</button>
         )}
         {isOnlyVisible ? (
-          <button
-            className={`coaching-link-btn${inlineOpen ? ' coaching-link-btn--active' : ''}`}
-            onClick={handleSynopsisClick}
-            title="Pre-meeting briefing"
-          >📋</button>
+          <>
+            {synopsisPhase === 'idle' && (
+              <button className="coaching-synopsis-generate-btn" onClick={handleGenerate}>
+                Generate summary
+              </button>
+            )}
+            {synopsisPhase === 'checking' && (
+              <span className="coaching-synopsis-inline-spinner">checking…</span>
+            )}
+            {synopsisPhase === 'ready' && (
+              <button
+                className={`coaching-link-btn${inlineOpen ? ' coaching-link-btn--active' : ''}`}
+                onClick={() => setInlineOpen(o => !o)}
+                title="Pre-meeting summary"
+              >📋</button>
+            )}
+          </>
         ) : (
-          <Link className="coaching-link-btn" to={`/coaching/clients/${client.id}/synopsis`} title="Pre-meeting briefing">📋</Link>
+          <Link className="coaching-link-btn" to={`/coaching/clients/${client.id}/synopsis`} title="Pre-meeting summary">📋</Link>
         )}
       </span>
     </div>
@@ -3006,21 +3013,20 @@ export function CoachingPage() {
                     )}
                   </div>
 
-                  {/* Row 2: input + chips + hint (conditional) */}
-                  {row2Visible && (
-                    <div className="coaching-topbar-row2">
-                      <ClientFilter
-                        groups={groups}
-                        selection={selection}
-                        allChip={allChip}
-                        onSelectionChange={handleSelectionChange}
-                        hideChips
-                        autoFocus
-                        activeResult={activeData}
-                        onPhaseChange={setInputPhase}
-                      />
-                      {!dateModeActive && (allChip || selection.length > 0) && (
-                        <div className="coaching-filter-chips coaching-topbar-chips">
+                  {/* Row 2: always mounted so '/' listener stays active; display:none when hidden */}
+                  <div className="coaching-topbar-row2" style={{ display: row2Visible ? undefined : 'none' }}>
+                    <ClientFilter
+                      groups={groups}
+                      selection={selection}
+                      allChip={allChip}
+                      onSelectionChange={handleSelectionChange}
+                      hideChips
+                      autoFocus
+                      activeResult={activeData}
+                      onPhaseChange={setInputPhase}
+                    />
+                    {!dateModeActive && (allChip || selection.length > 0) && (
+                      <div className="coaching-filter-chips coaching-topbar-chips">
                           {allChip && selection.length === 0 ? (
                             <span className="coaching-filter-chip coaching-filter-chip--all">
                               All
@@ -3049,9 +3055,8 @@ export function CoachingPage() {
                           )}
                         </div>
                       )}
-                      <span className="coaching-date-bar-hints">⌘a = all · ; = today</span>
-                    </div>
-                  )}
+                    <span className="coaching-date-bar-hints">⌘a = all · ; = today</span>
+                  </div>
                 </>
               );
             })()}

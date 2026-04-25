@@ -16,24 +16,99 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export interface LibbyItem {
+export interface LibbySearchResult {
   id: number;
   name: string;
   type_code: string;
   type_label: string | null;
   author: string | null;
   cover_url: string | null;
-  loan_due_date: string | null;
-  days_left: number | null;
+  synopsis: string | null;
+  url: string | null;
+  amazon_url: string | null;
+  amazon_short_url: string | null;
+  comments: string | null;
 }
 
-export interface LibbyResponse {
-  items: LibbyItem[];
+export interface LibbySearchResponse {
+  items: LibbySearchResult[];
   total: number;
 }
 
-export function fetchLibby(): Promise<LibbyResponse> {
-  return apiFetch<LibbyResponse>('/libby');
+export function fetchLibbySearch(q: string = ''): Promise<LibbySearchResponse> {
+  const params = new URLSearchParams();
+  if (q) params.set('q', q);
+  return apiFetch<LibbySearchResponse>(`/libby/search?${params}`);
+}
+
+export interface LibbyLookupResult {
+  matched: boolean;
+  is_url: boolean;
+  name: string;
+  author: string | null;
+  cover_url: string | null;
+  isbn: string | null;
+  info_link: string | null;
+}
+
+export async function checkLibbyExists(
+  name: string,
+): Promise<{ exists: false } | { exists: true; existing_id: number; existing_name: string }> {
+  const params = new URLSearchParams({ name });
+  return apiFetch(`/libby/exists?${params}`);
+}
+
+export async function lookupLibbyBook(name: string): Promise<LibbyLookupResult> {
+  return apiFetch('/libby/lookup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+}
+
+export interface LibbyAddResult {
+  id: number;
+  name: string;
+  type_code: string;
+  type_label: string;
+  author: string | null;
+  cover_url: string | null;
+  duplicate?: false;
+}
+
+export interface LibbyAddDuplicate {
+  duplicate: true;
+  existing_id: number;
+  existing_name: string;
+}
+
+export async function patchLibbyNotes(
+  id: number,
+  comments: string | null,
+): Promise<{ ok: boolean; comments: string | null }> {
+  return apiFetch(`/libby/${id}/notes`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ comments }),
+  });
+}
+
+export async function addLibbyItem(data: {
+  name: string;
+  author?: string | null;
+  cover_url?: string | null;
+  isbn?: string | null;
+  notes?: string | null;
+  type_code?: string | null;
+  url?: string | null;
+  amazon_url?: string | null;
+  force?: boolean;
+}): Promise<LibbyAddResult | LibbyAddDuplicate> {
+  return apiFetch('/libby/add', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
 }
 
 export interface GlanceEntry {

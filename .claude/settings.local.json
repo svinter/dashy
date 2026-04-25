@@ -89,7 +89,20 @@
       "Bash(npm --version)",
       "Bash(npm info:*)",
       "Bash(mv \"/Users/stevevinter/Obsidian/MyNotes/Libby/Books/stone-yard-devotional.md\" \"/Users/stevevinter/Obsidian/MyNotes/4 Library/Books/\")",
-      "Bash(mv \"/Users/stevevinter/Obsidian/MyNotes/Libby/Books/i-never-thought-of-it-that-way.md\" \"/Users/stevevinter/Obsidian/MyNotes/4 Library/Books/\")"
+      "Bash(mv \"/Users/stevevinter/Obsidian/MyNotes/Libby/Books/i-never-thought-of-it-that-way.md\" \"/Users/stevevinter/Obsidian/MyNotes/4 Library/Books/\")",
+      "Bash(.venv/bin/python3:*)",
+      "Bash(/Users/stevevinter/dashy/.venv/bin/python3:*)",
+      "Bash(/Users/stevevinter/dashy/.venv/bin/alembic heads:*)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(tailscale status:*)",
+      "Bash(tailscale version:*)",
+      "Bash(tailscale serve:*)",
+      "Bash(file /Users/stevevinter/dashy/mobile/static/icons/*)",
+      "Bash(.venv/bin/python -c ':*)",
+      "Bash(app/backend/venv/bin/python3 -c ':*)",
+      "Bash(node:*)",
+      "Bash(node_modules/.bin/tsc --noEmit --project app/frontend/tsconfig.json)",
+      "Bash(app/frontend/node_modules/.bin/tsc --noEmit --project app/frontend/tsconfig.json)"
     ]
   }
 }
