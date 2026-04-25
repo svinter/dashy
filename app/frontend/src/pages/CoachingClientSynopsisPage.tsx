@@ -3,10 +3,10 @@ import { useQuery } from '@tanstack/react-query';
 import { api, openExternal } from '../api/client';
 
 // ---------------------------------------------------------------------------
-// Types
+// Types (exported so CoachingPage can use them for inline panel)
 // ---------------------------------------------------------------------------
 
-interface SynopsisClient {
+export interface SynopsisClient {
   id: number;
   name: string;
   obsidian_name: string | null;
@@ -17,7 +17,7 @@ interface SynopsisClient {
   shared_notes_url: string | null;
 }
 
-interface PastSession {
+export interface PastSession {
   date: string;
   day_label: string;
   days_ago: number;
@@ -26,14 +26,15 @@ interface PastSession {
   summary: string;
 }
 
-interface FutureSession {
+export interface FutureSession {
   date: string;
   day_label: string;
   days_until: number;
   event_title: string;
 }
 
-interface SynopsisResponse {
+export interface SynopsisResponse {
+  ready: boolean;
   client: SynopsisClient;
   past_sessions: PastSession[];
   future_sessions: FutureSession[];
@@ -43,70 +44,35 @@ interface SynopsisResponse {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function obsidianNoteUrl(notePath: string): string {
+export function obsidianNoteUrl(notePath: string): string {
   return `obsidian://open?vault=MyNotes&file=${encodeURIComponent(notePath)}`;
 }
 
-function obsidianClientUrl(obsidianName: string): string {
+export function obsidianSynopsisClientUrl(obsidianName: string): string {
   return `obsidian://open?vault=MyNotes&file=${encodeURIComponent(`1 People/${obsidianName}.md`)}`;
 }
 
-function daysUntilLabel(days: number): string {
+export function daysUntilLabel(days: number): string {
   if (days === 0) return 'today';
   if (days === 1) return 'tomorrow';
   return `in ${days} days`;
 }
 
 // ---------------------------------------------------------------------------
-// CoachingClientSynopsisPage
+// SynopsisPanelContent — shared between dedicated page and inline panel
 // ---------------------------------------------------------------------------
 
-export function CoachingClientSynopsisPage() {
-  const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
-
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ['coaching-client-synopsis', id],
-    queryFn: () => api.get<SynopsisResponse>(`/coaching/clients/${id}/synopsis`),
-    staleTime: 0,
-  });
-
-  if (isLoading) {
-    return (
-      <div className="coaching-synopsis-page">
-        <div className="coaching-synopsis-loading">Generating briefing…</div>
-      </div>
-    );
-  }
-
-  if (isError || !data) {
-    return (
-      <div className="coaching-synopsis-page">
-        <button className="coaching-synopsis-back" onClick={() => navigate('/coaching/clients')}>← back</button>
-        <div className="coaching-synopsis-error">Could not load synopsis.</div>
-      </div>
-    );
-  }
-
-  const { client, past_sessions, future_sessions } = data;
-
+export function SynopsisPanelContent({ client, past_sessions, future_sessions }: {
+  client: SynopsisClient;
+  past_sessions: PastSession[];
+  future_sessions: FutureSession[];
+}) {
   return (
-    <div className="coaching-synopsis-page">
-      {/* Back */}
-      <button className="coaching-synopsis-back" onClick={() => navigate('/coaching/clients')}>← back</button>
-
-      {/* Title */}
-      <div className="coaching-synopsis-title-block">
-        <h1 className="coaching-synopsis-name">{client.name}</h1>
-        {client.company_name && (
-          <div className="coaching-synopsis-company">{client.company_name}</div>
-        )}
-      </div>
-
+    <>
       {/* Header links */}
       <div className="coaching-synopsis-links">
         {client.obsidian_name && (
-          <button className="coaching-link-btn" onClick={() => openExternal(obsidianClientUrl(client.obsidian_name!))}>
+          <button className="coaching-link-btn" onClick={() => openExternal(obsidianSynopsisClientUrl(client.obsidian_name!))}>
             📓 obsidian
           </button>
         )}
@@ -178,6 +144,59 @@ export function CoachingClientSynopsisPage() {
           ))
         )}
       </section>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// CoachingClientSynopsisPage — dedicated full page
+// ---------------------------------------------------------------------------
+
+export function CoachingClientSynopsisPage() {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['coaching-client-synopsis', id],
+    queryFn: () => api.get<SynopsisResponse>(`/coaching/clients/${id}/synopsis`),
+    staleTime: 0,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="coaching-synopsis-page">
+        <div className="coaching-synopsis-loading">Generating briefing…</div>
+      </div>
+    );
+  }
+
+  if (isError || !data) {
+    return (
+      <div className="coaching-synopsis-page">
+        <button className="coaching-synopsis-back" onClick={() => navigate('/coaching/clients')}>← back</button>
+        <div className="coaching-synopsis-error">Could not load synopsis.</div>
+      </div>
+    );
+  }
+
+  const { client, past_sessions, future_sessions } = data;
+
+  return (
+    <div className="coaching-synopsis-page">
+      <button className="coaching-synopsis-back" onClick={() => navigate('/coaching/clients')}>← back</button>
+
+      <div className="coaching-synopsis-title-block">
+        <h1 className="coaching-synopsis-name">{client.name}</h1>
+        {client.company_name && (
+          <div className="coaching-synopsis-company">{client.company_name}</div>
+        )}
+      </div>
+
+      <SynopsisPanelContent
+        client={client}
+        past_sessions={past_sessions}
+        future_sessions={future_sessions}
+      />
     </div>
   );
 }

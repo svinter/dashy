@@ -12302,6 +12302,40 @@ span.news-item-title {
   padding-left: 2px;
 }
 
+/* Inline synopsis panel (single-client expansion) */
+
+.coaching-synopsis-inline {
+  padding: var(--space-sm) var(--space-lg) var(--space-md);
+  border-left: 2px solid var(--color-border);
+  margin: 0 0 var(--space-sm) 0;
+  background: var(--color-bg-subtle, var(--color-bg));
+}
+
+.coaching-synopsis-inline-spinner {
+  font-size: var(--text-sm);
+  color: var(--color-text-light);
+  font-style: italic;
+}
+
+.coaching-synopsis-generate-btn {
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  padding: 3px 10px;
+  font-size: var(--text-sm);
+  color: var(--color-text-light);
+  cursor: pointer;
+}
+
+.coaching-synopsis-generate-btn:hover {
+  color: var(--color-text);
+  border-color: var(--color-text-light);
+}
+
+.coaching-link-btn--active {
+  opacity: 0.6;
+}
+
 /* Row 2 of the coaching topbar (input + chips + hint) */
 .coaching-topbar-row2 {
   display: flex;

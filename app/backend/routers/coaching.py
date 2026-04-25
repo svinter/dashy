@@ -3044,8 +3044,21 @@ def create_missing_manifests():
 # GET /api/coaching/clients/{client_id}/synopsis
 # ---------------------------------------------------------------------------
 
-def _summarize_session_note(obsidian_name: str | None, date_str: str, note_path: str | None) -> str:
-    """Read an Obsidian meeting note and generate a 2-3 sentence Claude summary."""
+# In-memory cache: abs_path_str → summary text
+# Persists for the server lifetime; cleared only on restart.
+_synopsis_note_cache: dict[str, str] = {}
+
+
+def _summarize_session_note(
+    obsidian_name: str | None,
+    date_str: str,
+    note_path: str | None,
+    generate: bool = True,
+) -> str | None:
+    """Read an Obsidian meeting note and return a cached or freshly generated summary.
+
+    Returns None only when generate=False and the summary is not yet cached.
+    """
     from connectors.obsidian import get_vault_path
     vault = get_vault_path()
     if not vault:
@@ -3058,13 +3071,27 @@ def _summarize_session_note(obsidian_name: str | None, date_str: str, note_path:
     else:
         return "Note not available"
 
+    cache_key = str(full_path.resolve())
+
+    # Cache hit — always fast
+    if cache_key in _synopsis_note_cache:
+        return _synopsis_note_cache[cache_key]
+
+    # Cache miss — if not generating, signal caller to show "Generate" button
+    if not generate:
+        return None
+
     if not full_path.exists():
-        return "Note not available"
+        result = "Note not available"
+        _synopsis_note_cache[cache_key] = result
+        return result
 
     try:
         content = full_path.read_text(encoding="utf-8")
     except Exception:
-        return "Note not available"
+        result = "Note not available"
+        _synopsis_note_cache[cache_key] = result
+        return result
 
     try:
         import anthropic
@@ -3082,14 +3109,17 @@ def _summarize_session_note(obsidian_name: str | None, date_str: str, note_path:
                 ),
             }],
         )
-        return msg.content[0].text.strip()
+        result = msg.content[0].text.strip()
     except Exception as exc:
         logger.warning("Claude synopsis summary failed: %s", exc)
-        return "Summary unavailable"
+        result = "Summary unavailable"
+
+    _synopsis_note_cache[cache_key] = result
+    return result
 
 
 @router.get("/clients/{client_id}/synopsis")
-def get_client_synopsis(client_id: int):
+def get_client_synopsis(client_id: int, generate: bool = True):
     """Pre-meeting briefing card for a coaching client."""
     db = get_db()
 
@@ -3188,6 +3218,13 @@ def get_client_synopsis(client_id: int):
     today = date.today()
     obsidian_name = client["obsidian_name"]
 
+    # When generate=False, check cache first — if any summary is missing, return ready=False immediately
+    if not generate:
+        for row in past_rows:
+            summary = _summarize_session_note(obsidian_name, row["date"], row["obsidian_note_path"], generate=False)
+            if summary is None:
+                return {"ready": False}
+
     past_sessions = []
     for row in past_rows:
         d = date.fromisoformat(row["date"])
@@ -3198,7 +3235,7 @@ def get_client_synopsis(client_id: int):
             "days_ago": days_ago,
             "session_number": row["session_number"],
             "obsidian_note_path": row["obsidian_note_path"],
-            "summary": _summarize_session_note(obsidian_name, row["date"], row["obsidian_note_path"]),
+            "summary": _summarize_session_note(obsidian_name, row["date"], row["obsidian_note_path"], generate=generate),
         })
 
     future_sessions = []
@@ -3223,6 +3260,7 @@ def get_client_synopsis(client_id: int):
             "coaching_agreement_url": client["coaching_agreement_url"],
             "shared_notes_url": client["shared_notes_url"],
         },
+        "ready": True,
         "past_sessions": past_sessions,
         "future_sessions": future_sessions,
         "debug": {"future_match_method": _future_match_method},

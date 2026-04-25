@@ -8,7 +8,11 @@ import {
   useMemo,
 } from 'react';
 import { NavLink, Routes, Route, Navigate, useLocation, useNavigate, Link } from 'react-router-dom';
-import { CoachingClientSynopsisPage } from './CoachingClientSynopsisPage';
+import {
+  CoachingClientSynopsisPage,
+  SynopsisResponse,
+  SynopsisPanelContent,
+} from './CoachingClientSynopsisPage';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import cloud from 'd3-cloud';
 import { api, openExternal } from '../api/client';
@@ -653,10 +657,117 @@ const INFREQUENT_BADGE = (
   <span className="coaching-infrequent-badge">infrequent</span>
 );
 
-function ClientRow({ client, showDaysFirst }: { client: CoachingClient; showDaysFirst?: boolean }) {
+// ---------------------------------------------------------------------------
+// Inline Synopsis Panel (shown when exactly one client is visible)
+// ---------------------------------------------------------------------------
+
+type SynopsisPhase = 'idle' | 'checking' | 'generating' | 'ready';
+
+function InlineSynopsisPanel({
+  clientId,
+  phase,
+  data,
+  onGenerate,
+}: {
+  clientId: number;
+  phase: SynopsisPhase;
+  data: SynopsisResponse | null;
+  onGenerate: () => void;
+}) {
+  if (phase === 'checking') {
+    return (
+      <div className="coaching-synopsis-inline">
+        <span className="coaching-synopsis-inline-spinner">Checking cache…</span>
+      </div>
+    );
+  }
+  if (phase === 'generating') {
+    return (
+      <div className="coaching-synopsis-inline">
+        <span className="coaching-synopsis-inline-spinner">Generating summaries…</span>
+      </div>
+    );
+  }
+  if (phase === 'idle') {
+    return (
+      <div className="coaching-synopsis-inline">
+        <button className="coaching-synopsis-generate-btn" onClick={onGenerate}>
+          Generate synopsis
+        </button>
+      </div>
+    );
+  }
+  if (phase === 'ready' && data) {
+    return (
+      <div className="coaching-synopsis-inline">
+        <SynopsisPanelContent
+          client={data.client}
+          past_sessions={data.past_sessions}
+          future_sessions={data.future_sessions}
+        />
+      </div>
+    );
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// ClientRow
+// ---------------------------------------------------------------------------
+
+function ClientRow({ client, showDaysFirst, isOnlyVisible }: {
+  client: CoachingClient;
+  showDaysFirst?: boolean;
+  isOnlyVisible?: boolean;
+}) {
   const { activeResult } = useCoachingFilter();
   const isNow = activeResult?.active && activeResult.type === 'client' && activeResult.client_id === client.id;
+
+  const [inlineOpen, setInlineOpen] = useState(false);
+  const [synopsisPhase, setSynopsisPhase] = useState<SynopsisPhase>('idle');
+  const [synopsisData, setSynopsisData] = useState<SynopsisResponse | null>(null);
+
+  const handleSynopsisClick = useCallback(async (e: React.MouseEvent) => {
+    if (!isOnlyVisible) return; // Link navigation handles it
+    e.preventDefault();
+
+    if (inlineOpen) {
+      setInlineOpen(false);
+      return;
+    }
+
+    setInlineOpen(true);
+    if (synopsisData) return; // already loaded
+
+    setSynopsisPhase('checking');
+    try {
+      const result = await api.get<{ ready: boolean } & Partial<SynopsisResponse>>(
+        `/coaching/clients/${client.id}/synopsis?generate=false`
+      );
+      if (result.ready && result.client) {
+        setSynopsisData(result as SynopsisResponse);
+        setSynopsisPhase('ready');
+      } else {
+        setSynopsisPhase('idle');
+      }
+    } catch {
+      setSynopsisPhase('idle');
+    }
+  }, [isOnlyVisible, inlineOpen, synopsisData, client.id]);
+
+  const handleGenerate = useCallback(async () => {
+    setSynopsisPhase('generating');
+    try {
+      const result = await api.get<SynopsisResponse>(`/coaching/clients/${client.id}/synopsis`);
+      setSynopsisData(result);
+      setSynopsisPhase('ready');
+    } catch {
+      setSynopsisPhase('idle');
+    }
+  }, [client.id]);
+
   return (
+    <>
     <div className={`coaching-client-row${showDaysFirst ? ' coaching-client-row--last-sort' : ''}`}>
       {showDaysFirst && (
         <span className="coaching-client-days-prominent">
@@ -702,9 +813,26 @@ function ClientRow({ client, showDaysFirst }: { client: CoachingClient; showDays
         {client.gdrive_coaching_docs_url && (
           <button className="coaching-link-btn" onClick={() => openExternal(client.gdrive_coaching_docs_url!)} title="Open coaching docs in Drive">ƒolder</button>
         )}
-        <Link className="coaching-link-btn" to={`/coaching/clients/${client.id}/synopsis`} title="Pre-meeting briefing">📋</Link>
+        {isOnlyVisible ? (
+          <button
+            className={`coaching-link-btn${inlineOpen ? ' coaching-link-btn--active' : ''}`}
+            onClick={handleSynopsisClick}
+            title="Pre-meeting briefing"
+          >📋</button>
+        ) : (
+          <Link className="coaching-link-btn" to={`/coaching/clients/${client.id}/synopsis`} title="Pre-meeting briefing">📋</Link>
+        )}
       </span>
     </div>
+    {inlineOpen && isOnlyVisible && (
+      <InlineSynopsisPanel
+        clientId={client.id}
+        phase={synopsisPhase}
+        data={synopsisData}
+        onGenerate={handleGenerate}
+      />
+    )}
+    </>
   );
 }
 
@@ -760,6 +888,13 @@ function ClientsPage() {
 
   if (groups.length === 0) return <div className="coaching-loading">Loading…</div>;
 
+  // Exactly one client visible → 📋 expands inline instead of navigating
+  const totalVisibleClients = useMemo(() => {
+    const allClients = groups.flatMap(g => g.clients);
+    return effectiveIds === null ? allClients.length : allClients.filter(c => effectiveIds.has(c.id)).length;
+  }, [effectiveIds, groups]);
+  const isOnlyClient = !dateModeActive && totalVisibleClients === 1;
+
   // Last sort: clients grouped by status (active first, then infrequent), each sorted by days_ago DESC
   if (sortMode === 'last' && !dateModeActive) {
     const allClients = groups.flatMap(g => g.clients);
@@ -781,7 +916,7 @@ function ClientsPage() {
             <span className="coaching-group-name">{label}</span>
           </div>
           {clients.map(client => (
-            <ClientRow key={client.id} client={client} showDaysFirst />
+            <ClientRow key={client.id} client={client} showDaysFirst isOnlyVisible={isOnlyClient} />
           ))}
         </div>
       );
@@ -827,7 +962,7 @@ function ClientsPage() {
                 )}
               </div>
               {group.clients.map(client => (
-                <ClientRow key={client.id} client={client} />
+                <ClientRow key={client.id} client={client} isOnlyVisible={isOnlyClient} />
               ))}
               {group.projects.length > 0 && (
                 <>
