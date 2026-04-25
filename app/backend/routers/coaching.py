@@ -3038,3 +3038,138 @@ def create_missing_manifests():
         "errors": sum(1 for r in results if r["status"] == "error"),
         "results": results,
     }
+
+
+# ---------------------------------------------------------------------------
+# GET /api/coaching/clients/{client_id}/synopsis
+# ---------------------------------------------------------------------------
+
+def _summarize_session_note(obsidian_name: str | None, date_str: str, note_path: str | None) -> str:
+    """Read an Obsidian meeting note and generate a 2-3 sentence Claude summary."""
+    from connectors.obsidian import get_vault_path
+    vault = get_vault_path()
+    if not vault:
+        return "Note not available"
+
+    if note_path:
+        full_path = vault / note_path
+    elif obsidian_name:
+        full_path = vault / "8 Meetings" / f"{date_str} - {obsidian_name}.md"
+    else:
+        return "Note not available"
+
+    if not full_path.exists():
+        return "Note not available"
+
+    try:
+        content = full_path.read_text(encoding="utf-8")
+    except Exception:
+        return "Note not available"
+
+    try:
+        import anthropic
+        from app_config import get_secret
+        client = anthropic.Anthropic(api_key=get_secret("ANTHROPIC_API_KEY"))
+        msg = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=300,
+            messages=[{
+                "role": "user",
+                "content": (
+                    "Summarize this coaching session note in 2-3 sentences. "
+                    "Focus on key topics discussed, decisions made, and any commitments or actions. "
+                    "Be concise and specific.\n\n" + content
+                ),
+            }],
+        )
+        return msg.content[0].text.strip()
+    except Exception as exc:
+        logger.warning("Claude synopsis summary failed: %s", exc)
+        return "Summary unavailable"
+
+
+@router.get("/clients/{client_id}/synopsis")
+def get_client_synopsis(client_id: int):
+    """Pre-meeting briefing card for a coaching client."""
+    db = get_db()
+
+    client = db.execute(
+        """
+        SELECT bc.id, bc.name, bc.obsidian_name,
+               bc.gdrive_coaching_docs_url, bc.manifest_gdoc_url,
+               bc.coaching_agreement_url, bc.shared_notes_url,
+               bco.name AS company_name
+        FROM billing_clients bc
+        JOIN billing_companies bco ON bc.company_id = bco.id
+        WHERE bc.id = ?
+        """,
+        (client_id,),
+    ).fetchone()
+
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    # Last 3 confirmed sessions (most recent first)
+    past_rows = db.execute(
+        """
+        SELECT date, session_number, obsidian_note_path
+        FROM billing_sessions
+        WHERE client_id = ? AND is_confirmed = 1 AND (canceled IS NULL OR canceled = 0)
+        ORDER BY date DESC LIMIT 3
+        """,
+        (client_id,),
+    ).fetchall()
+
+    # Next 2 upcoming sessions (future billing_sessions, unconfirmed)
+    future_rows = db.execute(
+        """
+        SELECT bs.date, bs.session_number, ce.summary AS event_title
+        FROM billing_sessions bs
+        LEFT JOIN calendar_events ce ON bs.calendar_event_id = ce.id
+        WHERE bs.client_id = ?
+          AND bs.date >= date('now')
+          AND (bs.canceled IS NULL OR bs.canceled = 0)
+        ORDER BY bs.date ASC LIMIT 2
+        """,
+        (client_id,),
+    ).fetchall()
+
+    today = date.today()
+    obsidian_name = client["obsidian_name"]
+
+    past_sessions = []
+    for row in past_rows:
+        d = date.fromisoformat(row["date"])
+        past_sessions.append({
+            "date": row["date"],
+            "day_label": d.strftime("%a %b %-d"),
+            "session_number": row["session_number"],
+            "obsidian_note_path": row["obsidian_note_path"],
+            "summary": _summarize_session_note(obsidian_name, row["date"], row["obsidian_note_path"]),
+        })
+
+    future_sessions = []
+    for row in future_rows:
+        d = date.fromisoformat(row["date"])
+        days_until = (d - today).days
+        future_sessions.append({
+            "date": row["date"],
+            "day_label": d.strftime("%a %b %-d"),
+            "days_until": days_until,
+            "event_title": row["event_title"] or "",
+        })
+
+    return {
+        "client": {
+            "id": client["id"],
+            "name": client["name"],
+            "obsidian_name": client["obsidian_name"],
+            "company_name": client["company_name"],
+            "gdrive_coaching_docs_url": client["gdrive_coaching_docs_url"],
+            "manifest_gdoc_url": client["manifest_gdoc_url"],
+            "coaching_agreement_url": client["coaching_agreement_url"],
+            "shared_notes_url": client["shared_notes_url"],
+        },
+        "past_sessions": past_sessions,
+        "future_sessions": future_sessions,
+    }

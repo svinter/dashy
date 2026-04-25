@@ -7,7 +7,8 @@ import {
   useContext,
   useMemo,
 } from 'react';
-import { NavLink, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { NavLink, Routes, Route, Navigate, useLocation, useNavigate, Link } from 'react-router-dom';
+import { CoachingClientSynopsisPage } from './CoachingClientSynopsisPage';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import cloud from 'd3-cloud';
 import { api, openExternal } from '../api/client';
@@ -701,6 +702,7 @@ function ClientRow({ client, showDaysFirst }: { client: CoachingClient; showDays
         {client.gdrive_coaching_docs_url && (
           <button className="coaching-link-btn" onClick={() => openExternal(client.gdrive_coaching_docs_url!)} title="Open coaching docs in Drive">ƒolder</button>
         )}
+        <Link className="coaching-link-btn" to={`/coaching/clients/${client.id}/synopsis`} title="Pre-meeting briefing">📋</Link>
       </span>
     </div>
   );
@@ -2927,6 +2929,7 @@ export function CoachingPage() {
         <Routes>
           <Route index element={<Navigate to="clients" replace />} />
           <Route path="clients" element={<ClientsPage />} />
+          <Route path="clients/:id/synopsis" element={<CoachingClientSynopsisPage />} />
           <Route path="wordcloud" element={<WordCloudPage />} />
           <Route path="setup" element={<SetupPage />} />
           <Route path="vinny" element={<VinnyPage />} />
