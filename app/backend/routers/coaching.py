@@ -22,6 +22,53 @@ router = APIRouter(prefix="/api/coaching", tags=["coaching"])
 _client_tasks: dict[str, dict] = {}
 
 # ---------------------------------------------------------------------------
+# Email-based client-event matching helpers
+# ---------------------------------------------------------------------------
+
+_RESOURCE_EMAIL_RE = re.compile(r"@resource\.calendar\.google\.com$", re.IGNORECASE)
+
+
+def _parse_attendee_emails(attendees_json_str: str) -> set[str]:
+    """Return lowercase attendee emails from a calendar_events.attendees_json string.
+
+    Excludes Google Calendar resource emails (conference rooms etc.).
+    Does NOT exclude the coach's own email — billing_clients won't contain it anyway.
+    """
+    try:
+        return {
+            a["email"].strip().lower()
+            for a in json.loads(attendees_json_str or "[]")
+            if (a.get("email") or "").strip()
+            and not _RESOURCE_EMAIL_RE.search((a.get("email") or ""))
+        }
+    except Exception:
+        return set()
+
+
+def _find_client_for_event(attendees_json_str: str, db) -> dict | None:
+    """Given a calendar event's attendees_json, return the matching billing_client row or None.
+
+    Strategy:
+    1. Email match — parse attendees, look up each email in billing_clients.email.
+    2. Returns the first match; None if no client email matches an attendee.
+
+    Callers that need name-based fallback must implement it themselves.
+    """
+    emails = _parse_attendee_emails(attendees_json_str or "")
+    if not emails:
+        return None
+    for email in emails:
+        row = db.execute(
+            """SELECT id, name, obsidian_name, email, company_id
+               FROM billing_clients
+               WHERE LOWER(email) = ? AND status IN ('active', 'infrequent')""",
+            (email,),
+        ).fetchone()
+        if row:
+            return dict(row)
+    return None
+
+# ---------------------------------------------------------------------------
 # GET /api/coaching/active — detect in-progress grape/banana session
 # ---------------------------------------------------------------------------
 
@@ -39,7 +86,7 @@ def get_coaching_active():
     # Pull today's grape/banana events and filter by overlap in Python
     # (avoids timezone parsing issues in SQLite)
     rows = db.execute(
-        """SELECT id, summary, start_time, end_time
+        """SELECT id, summary, start_time, end_time, attendees_json
            FROM calendar_events
            WHERE color_id IN ('3', '5')
              AND date(start_time) = ?
@@ -115,7 +162,21 @@ def get_coaching_active():
                 "company_name": project["company_name"],
             }
 
-    # Fallback: word-level fuzzy match of event summary against client and project names.
+    # Fallback tier A: email match on attendees_json
+    email_matched = _find_client_for_event(event.get("attendees_json") or "", db)
+    if email_matched:
+        logger.info("coaching/active: resolved via email match to client %r", email_matched["name"])
+        return {
+            "active": True,
+            "type": "client",
+            "client_id": email_matched["id"],
+            "project_id": None,
+            "client_name": email_matched["name"],
+            "obsidian_name": email_matched["obsidian_name"],
+            "company_name": None,
+        }
+
+    # Fallback tier B: word-level fuzzy match of event summary against client and project names.
     # Splits on whitespace/punctuation; strips the coach's own name tokens to avoid
     # matching clients whose names share words with the coach (e.g. "Steve Renter").
     summary_raw = (event["summary"] or "")
@@ -3125,7 +3186,7 @@ def get_client_synopsis(client_id: int, generate: bool = True):
 
     client = db.execute(
         """
-        SELECT bc.id, bc.name, bc.obsidian_name,
+        SELECT bc.id, bc.name, bc.obsidian_name, bc.email,
                bc.gdrive_coaching_docs_url, bc.manifest_gdoc_url,
                bc.coaching_agreement_url, bc.shared_notes_url,
                bco.name AS company_name
@@ -3150,11 +3211,12 @@ def get_client_synopsis(client_id: int, generate: bool = True):
         (client_id,),
     ).fetchall()
 
-    # Next 2 upcoming sessions — three-tier fallback, never match on first name alone
-    _future_match_method = "none"
+    # Next 2 upcoming sessions — email-primary matching
+    client_email = (client["email"] or "").strip().lower() if client["email"] else ""
+    future_rows: list = []
 
-    # Tier 1: confirmed link via billing_sessions
-    future_rows = db.execute(
+    # Tier 1: confirmed link via billing_sessions (most reliable — exact ID join)
+    bs_future = db.execute(
         """
         SELECT ce.summary AS event_title, ce.start_time
         FROM calendar_events ce
@@ -3168,14 +3230,33 @@ def get_client_synopsis(client_id: int, generate: bool = True):
         """,
         (client_id,),
     ).fetchall()
-    if future_rows:
-        _future_match_method = "billing_sessions_join"
+    if bs_future:
+        future_rows = list(bs_future)
 
-    # Tier 2: full obsidian_name or full client name in event summary
-    if not future_rows:
+    # Tier 2: email match on attendees_json (replaces fragile name matching)
+    if not future_rows and client_email:
+        all_future_events = db.execute(
+            """
+            SELECT ce.summary AS event_title, ce.start_time, ce.attendees_json
+            FROM calendar_events ce
+            WHERE ce.start_time > datetime('now', 'localtime')
+              AND ce.color_id IN ('5', '3')
+              AND (ce.status IS NULL OR ce.status != 'cancelled')
+            ORDER BY ce.start_time ASC
+            """,
+        ).fetchall()
+        for event in all_future_events:
+            if len(future_rows) >= 2:
+                break
+            attendee_emails = _parse_attendee_emails(event["attendees_json"] or "")
+            if client_email in attendee_emails:
+                future_rows.append(event)
+
+    # Tier 3: name-based fallback only when client has no email on record
+    if not future_rows and not client_email:
         for candidate in filter(None, [client["obsidian_name"], client["name"]]):
             if len(candidate.split()) < 2:
-                continue  # single-word name — skip, too ambiguous
+                continue
             rows = db.execute(
                 """
                 SELECT ce.summary AS event_title, ce.start_time
@@ -3188,32 +3269,8 @@ def get_client_synopsis(client_id: int, generate: bool = True):
                 (f"%{candidate}%",),
             ).fetchall()
             if rows:
-                future_rows = rows
-                _future_match_method = f"full_name:{candidate}"
+                future_rows = list(rows)
                 break
-
-    # Tier 3: company name in event summary (skip short abbreviations and solo-company names)
-    if not future_rows:
-        company_name = client["company_name"]
-        if (
-            company_name
-            and company_name != client["name"]
-            and len(company_name) >= 6
-        ):
-            rows = db.execute(
-                """
-                SELECT ce.summary AS event_title, ce.start_time
-                FROM calendar_events ce
-                WHERE ce.start_time > datetime('now', 'localtime')
-                  AND ce.color_id IN ('5', '3')
-                  AND ce.summary LIKE ?
-                ORDER BY ce.start_time ASC LIMIT 2
-                """,
-                (f"%{company_name}%",),
-            ).fetchall()
-            if rows:
-                future_rows = rows
-                _future_match_method = f"company_name:{company_name}"
 
     today = date.today()
     obsidian_name = client["obsidian_name"]
@@ -3263,5 +3320,4 @@ def get_client_synopsis(client_id: int, generate: bool = True):
         "ready": True,
         "past_sessions": past_sessions,
         "future_sessions": future_sessions,
-        "debug": {"future_match_method": _future_match_method},
     }

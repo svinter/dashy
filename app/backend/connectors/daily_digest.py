@@ -167,10 +167,45 @@ def _get_sessions_for_date(db, target_date: date) -> list[dict]:
         (date_str,),
     ).fetchall()
 
+    # Build email→client lookup for unlinked events
+    _client_by_email: dict[str, dict] = {}
+    try:
+        _resource_re = __import__('re').compile(r"@resource\.calendar\.google\.com$", __import__('re').IGNORECASE)
+        for row in db.execute(
+            "SELECT bc.id, bc.name, bc.email, bco.name AS company_name "
+            "FROM billing_clients bc "
+            "LEFT JOIN billing_companies bco ON bco.id = bc.company_id "
+            "WHERE bc.email IS NOT NULL AND bc.status IN ('active', 'infrequent')"
+        ).fetchall():
+            if row["email"]:
+                _client_by_email[row["email"].strip().lower()] = dict(row)
+    except Exception:
+        pass
+
+    def _email_match_client(attendees_json_str: str) -> dict | None:
+        try:
+            for a in json.loads(attendees_json_str or "[]"):
+                email = (a.get("email") or "").strip().lower()
+                if not email or _resource_re.search(email):
+                    continue
+                if email in _client_by_email:
+                    return _client_by_email[email]
+        except Exception:
+            pass
+        return None
+
     out = []
     for r in rows:
-        client = r["client_name"] or r["project_name"] or r["summary"] or "Unknown"
+        client = r["client_name"] or r["project_name"]
         company = r["company_name"] or ""
+        # For events not yet linked via billing_sessions, try email matching
+        if not client and r["attendees_json"]:
+            matched = _email_match_client(r["attendees_json"])
+            if matched:
+                client = matched["name"]
+                company = company or matched.get("company_name") or ""
+        if not client:
+            client = r["summary"] or "Unknown"
         out.append({
             "time": _format_time_12h(r["start_time"]),
             "client": client,
