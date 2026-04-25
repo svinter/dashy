@@ -3120,19 +3120,36 @@ def get_client_synopsis(client_id: int):
         (client_id,),
     ).fetchall()
 
-    # Next 2 upcoming sessions (future billing_sessions, unconfirmed)
+    # Next 2 upcoming sessions — prefer billing_sessions join, fall back to name match
     future_rows = db.execute(
         """
-        SELECT bs.date, bs.session_number, ce.summary AS event_title
-        FROM billing_sessions bs
-        LEFT JOIN calendar_events ce ON bs.calendar_event_id = ce.id
+        SELECT ce.summary AS event_title, ce.start_time
+        FROM calendar_events ce
+        JOIN billing_sessions bs ON bs.calendar_event_id = ce.id
         WHERE bs.client_id = ?
-          AND bs.date >= date('now')
-          AND (bs.canceled IS NULL OR bs.canceled = 0)
-        ORDER BY bs.date ASC LIMIT 2
+          AND ce.start_time > datetime('now', 'localtime')
+          AND ce.color_id IN ('5', '3')
+          AND COALESCE(bs.canceled, 0) = 0
+          AND COALESCE(bs.dismissed, 0) = 0
+        ORDER BY ce.start_time ASC LIMIT 2
         """,
         (client_id,),
     ).fetchall()
+
+    if not future_rows and client["obsidian_name"]:
+        # Future sessions not yet in billing_sessions — match by first name in event summary
+        first_name = client["obsidian_name"].split()[0]
+        future_rows = db.execute(
+            """
+            SELECT ce.summary AS event_title, ce.start_time
+            FROM calendar_events ce
+            WHERE ce.start_time > datetime('now', 'localtime')
+              AND ce.color_id IN ('5', '3')
+              AND ce.summary LIKE ?
+            ORDER BY ce.start_time ASC LIMIT 2
+            """,
+            (f"%{first_name}%",),
+        ).fetchall()
 
     today = date.today()
     obsidian_name = client["obsidian_name"]
@@ -3150,10 +3167,10 @@ def get_client_synopsis(client_id: int):
 
     future_sessions = []
     for row in future_rows:
-        d = date.fromisoformat(row["date"])
+        d = date.fromisoformat(row["start_time"][:10])
         days_until = (d - today).days
         future_sessions.append({
-            "date": row["date"],
+            "date": d.isoformat(),
             "day_label": d.strftime("%a %b %-d"),
             "days_until": days_until,
             "event_title": row["event_title"] or "",
