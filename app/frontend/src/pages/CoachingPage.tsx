@@ -10,7 +10,7 @@ import {
 import { NavLink, Routes, Route, Navigate, useLocation, useNavigate, Link } from 'react-router-dom';
 import {
   CoachingClientSynopsisPage,
-  SynopsisResponse,
+  type SynopsisResponse,
   SynopsisPanelContent,
 } from './CoachingClientSynopsisPage';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -664,12 +664,10 @@ const INFREQUENT_BADGE = (
 type SynopsisPhase = 'idle' | 'checking' | 'generating' | 'ready';
 
 function InlineSynopsisPanel({
-  clientId,
   phase,
   data,
   onGenerate,
 }: {
-  clientId: number;
   phase: SynopsisPhase;
   data: SynopsisResponse | null;
   onGenerate: () => void;
@@ -826,7 +824,6 @@ function ClientRow({ client, showDaysFirst, isOnlyVisible }: {
     </div>
     {inlineOpen && isOnlyVisible && (
       <InlineSynopsisPanel
-        clientId={client.id}
         phase={synopsisPhase}
         data={synopsisData}
         onGenerate={handleGenerate}
