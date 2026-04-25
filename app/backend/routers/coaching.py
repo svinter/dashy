@@ -3120,7 +3120,10 @@ def get_client_synopsis(client_id: int):
         (client_id,),
     ).fetchall()
 
-    # Next 2 upcoming sessions — prefer billing_sessions join, fall back to name match
+    # Next 2 upcoming sessions — three-tier fallback, never match on first name alone
+    _future_match_method = "none"
+
+    # Tier 1: confirmed link via billing_sessions
     future_rows = db.execute(
         """
         SELECT ce.summary AS event_title, ce.start_time
@@ -3135,21 +3138,52 @@ def get_client_synopsis(client_id: int):
         """,
         (client_id,),
     ).fetchall()
+    if future_rows:
+        _future_match_method = "billing_sessions_join"
 
-    if not future_rows and client["obsidian_name"]:
-        # Future sessions not yet in billing_sessions — match by first name in event summary
-        first_name = client["obsidian_name"].split()[0]
-        future_rows = db.execute(
-            """
-            SELECT ce.summary AS event_title, ce.start_time
-            FROM calendar_events ce
-            WHERE ce.start_time > datetime('now', 'localtime')
-              AND ce.color_id IN ('5', '3')
-              AND ce.summary LIKE ?
-            ORDER BY ce.start_time ASC LIMIT 2
-            """,
-            (f"%{first_name}%",),
-        ).fetchall()
+    # Tier 2: full obsidian_name or full client name in event summary
+    if not future_rows:
+        for candidate in filter(None, [client["obsidian_name"], client["name"]]):
+            if len(candidate.split()) < 2:
+                continue  # single-word name — skip, too ambiguous
+            rows = db.execute(
+                """
+                SELECT ce.summary AS event_title, ce.start_time
+                FROM calendar_events ce
+                WHERE ce.start_time > datetime('now', 'localtime')
+                  AND ce.color_id IN ('5', '3')
+                  AND ce.summary LIKE ?
+                ORDER BY ce.start_time ASC LIMIT 2
+                """,
+                (f"%{candidate}%",),
+            ).fetchall()
+            if rows:
+                future_rows = rows
+                _future_match_method = f"full_name:{candidate}"
+                break
+
+    # Tier 3: company name in event summary (skip short abbreviations and solo-company names)
+    if not future_rows:
+        company_name = client["company_name"]
+        if (
+            company_name
+            and company_name != client["name"]
+            and len(company_name) >= 6
+        ):
+            rows = db.execute(
+                """
+                SELECT ce.summary AS event_title, ce.start_time
+                FROM calendar_events ce
+                WHERE ce.start_time > datetime('now', 'localtime')
+                  AND ce.color_id IN ('5', '3')
+                  AND ce.summary LIKE ?
+                ORDER BY ce.start_time ASC LIMIT 2
+                """,
+                (f"%{company_name}%",),
+            ).fetchall()
+            if rows:
+                future_rows = rows
+                _future_match_method = f"company_name:{company_name}"
 
     today = date.today()
     obsidian_name = client["obsidian_name"]
@@ -3157,9 +3191,11 @@ def get_client_synopsis(client_id: int):
     past_sessions = []
     for row in past_rows:
         d = date.fromisoformat(row["date"])
+        days_ago = (today - d).days
         past_sessions.append({
             "date": row["date"],
             "day_label": d.strftime("%a %b %-d"),
+            "days_ago": days_ago,
             "session_number": row["session_number"],
             "obsidian_note_path": row["obsidian_note_path"],
             "summary": _summarize_session_note(obsidian_name, row["date"], row["obsidian_note_path"]),
@@ -3189,4 +3225,5 @@ def get_client_synopsis(client_id: int):
         },
         "past_sessions": past_sessions,
         "future_sessions": future_sessions,
+        "debug": {"future_match_method": _future_match_method},
     }
