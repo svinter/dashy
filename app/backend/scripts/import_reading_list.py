@@ -422,8 +422,8 @@ def run(xlsx_path: Path, dry_run: bool) -> None:
 
         conn.execute("""
             INSERT INTO library_entries
-                (name, type_code, priority, frequency, entity_id, created_at, updated_at)
-            VALUES (?, 'b', ?, 0, ?, ?, ?)
+                (name, type_code, priority, frequency, entity_id, needs_enrichment, created_at, updated_at)
+            VALUES (?, 'b', ?, 0, ?, 1, ?, ?)
         """, (
             row["title"],
             priority,
