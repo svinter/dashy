@@ -152,7 +152,6 @@ def main():
     updated = 0
     skipped_complete = 0
     skipped_no_file = 0
-    sample: dict | None = None  # store one before/after for reporting
 
     for book in books:
         path = obsidian_link_to_path(book["obsidian_link"])
@@ -212,40 +211,14 @@ def main():
             skipped_complete += 1
             continue
 
-        # Capture sample before/after
-        before_fm = None
-        if sample is None:
-            before_fm = "\n".join(
-                line for line in text.splitlines()
-                if text.splitlines().index(line) < 20
-            ) if text.startswith("---") else "(no frontmatter)"
-
         if update_file(path, missing):
             updated += 1
-            if sample is None and before_fm is not None:
-                after_text = path.read_text(encoding="utf-8", errors="ignore")
-                after_fm = "\n".join(after_text.splitlines()[:20])
-                sample = {
-                    "name": book["name"],
-                    "path": str(path),
-                    "added": list(missing.keys()),
-                    "before": before_fm,
-                    "after": after_fm,
-                }
+            print(f"  Updated: {path.name} — added: {', '.join(missing.keys())}")
 
     print(f"\nResults:")
     print(f"  Updated:           {updated}")
     print(f"  Already complete:  {skipped_complete}")
     print(f"  File not found:    {skipped_no_file}")
-
-    if sample:
-        print(f"\nSample — {sample['name']}")
-        print(f"  Path: {sample['path']}")
-        print(f"  Fields added: {', '.join(sample['added'])}")
-        print(f"\n  BEFORE (first 20 lines):\n{sample['before']}")
-        print(f"\n  AFTER (first 20 lines):\n{sample['after']}")
-    else:
-        print("\n(No sample — all files were already complete or not found)")
 
 
 if __name__ == "__main__":

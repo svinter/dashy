@@ -42,8 +42,8 @@ STATUS_MAP: dict[str, str] = {
     "read":       "read",
     "in progress": "reading",
     "started":    "reading",
-    "canceled":   "abandoned",
-    "abandoned":  "abandoned",
+    "canceled":   "discarded",
+    "abandoned":  "discarded",
 }
 
 GENRE_MAP: dict[str, str] = {
@@ -56,7 +56,7 @@ GENRE_MAP: dict[str, str] = {
 STATUS_RANK: dict[str, int] = {
     "unread":    1,
     "reading":   2,
-    "abandoned": 3,
+    "discarded": 3,
     "read":      4,
 }
 
@@ -345,7 +345,7 @@ def run(xlsx_path: Path, dry_run: bool) -> None:
         print(f"Skipped (no title):    {skipped_no_title}")
         print()
         print("Status breakdown of matched:")
-        for status in ("read", "unread", "reading", "abandoned"):
+        for status in ("read", "unread", "reading", "discarded"):
             count = status_counts.get(status, 0)
             if count:
                 print(f"  {status:<10} {count}")

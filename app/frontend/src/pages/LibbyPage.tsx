@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback, Fragment } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Routes, Route, Navigate, NavLink } from 'react-router-dom';
+import { Routes, Route, Navigate, NavLink, useSearchParams, useNavigate } from 'react-router-dom';
 import { useLibbyContext } from '../contexts/LibbyContext';
 import type { LibbyFilterSelection, LibbyGroup } from '../contexts/LibbyContext';
 import { ClientFilterBar } from '../components/shared/ClientFilterBar';
@@ -59,6 +59,13 @@ interface LibraryEntry {
   external_summary_url?: string | null;
   highlights_path?: string | null;
   cover_url?: string | null;
+  // Reading fields (books only)
+  genre?: string | null;
+  reading_status?: string | null;
+  date_finished?: string | null;
+  owned_format?: string | null;
+  reading_priority?: number | null;
+  reading_notes?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -325,6 +332,20 @@ function DetailPanel({
           )}
           {tc === 'b' && entry.isbn && (
             <div className="libby-detail-meta-line libby-detail-isbn">ISBN: {entry.isbn}</div>
+          )}
+          {tc === 'b' && (entry.reading_status || entry.genre || entry.date_finished || entry.owned_format || entry.reading_priority != null || entry.reading_notes) && (
+            <div className="libby-detail-reading-meta">
+              {[
+                entry.reading_status,
+                entry.genre,
+                entry.reading_priority != null ? `priority ${entry.reading_priority}` : null,
+                entry.date_finished ? `finished ${entry.date_finished}` : null,
+                entry.owned_format,
+              ].filter(Boolean).join(' · ')}
+              {entry.reading_notes && (
+                <div className="libby-detail-reading-notes">{entry.reading_notes}</div>
+              )}
+            </div>
           )}
           {descText && (
             <div className="libby-detail-description">{descText}</div>
@@ -595,6 +616,12 @@ function EditForm({
   const [context, setContext] = useState(entry.context ?? '');
   const [isPrivate, setIsPrivate] = useState(entry.private);
   const [topicIds, setTopicIds] = useState<number[]>(entry.topics.map(t => t.id));
+  const [readingStatus, setReadingStatus] = useState(entry.reading_status ?? 'unread');
+  const [genre, setGenre] = useState(entry.genre ?? '');
+  const [readingPriority, setReadingPriority] = useState(entry.reading_priority != null ? String(entry.reading_priority) : '');
+  const [dateFinished, setDateFinished] = useState(entry.date_finished ?? '');
+  const [ownedFormat, setOwnedFormat] = useState(entry.owned_format ?? '');
+  const [readingNotes, setReadingNotes] = useState(entry.reading_notes ?? '');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
@@ -640,6 +667,12 @@ function EditForm({
         body.author = author.trim() || null;
         body.year = year ? parseInt(year, 10) : null;
         body.isbn = isbn.trim() || null;
+        body.genre = genre.trim() || null;
+        body.reading_status = readingStatus || null;
+        body.date_finished = dateFinished.trim() || null;
+        body.owned_format = ownedFormat.trim() || null;
+        body.reading_priority = readingPriority ? parseInt(readingPriority, 10) : null;
+        body.reading_notes = readingNotes.trim() || null;
       } else if (tc === 'q') {
         body.text = quoteText.trim() || null;
         body.attribution = attribution.trim() || null;
@@ -731,6 +764,46 @@ function EditForm({
             <label className="libby-edit-label">isbn <span className="libby-edit-optional">(optional)</span></label>
             <input className="libby-edit-input" type="text" value={isbn}
               onChange={e => setIsbn(e.target.value)} />
+          </div>
+          <div className="libby-edit-field">
+            <label className="libby-edit-label">reading status</label>
+            <div className="libby-edit-priority-row">
+              {(['unread', 'reading', 'read', 'discarded'] as const).map(s => (
+                <button key={s} type="button"
+                  className={`libby-edit-pri-btn${readingStatus === s ? ' libby-edit-pri-btn--active' : ''}`}
+                  onClick={() => setReadingStatus(s)}>{s}</button>
+              ))}
+            </div>
+          </div>
+          <div className="libby-edit-field">
+            <label className="libby-edit-label">genre <span className="libby-edit-optional">(optional)</span></label>
+            <select className="libby-edit-input libby-edit-input--short" value={genre}
+              onChange={e => setGenre(e.target.value)}>
+              <option value="">—</option>
+              <option value="fiction">fiction</option>
+              <option value="nonfiction">nonfiction</option>
+              <option value="coaching">coaching</option>
+            </select>
+          </div>
+          <div className="libby-edit-field">
+            <label className="libby-edit-label">reading priority <span className="libby-edit-optional">(optional)</span></label>
+            <input className="libby-edit-input libby-edit-input--short" type="number" min={1} value={readingPriority}
+              onChange={e => setReadingPriority(e.target.value)} />
+          </div>
+          <div className="libby-edit-field">
+            <label className="libby-edit-label">date finished <span className="libby-edit-optional">(optional)</span></label>
+            <input className="libby-edit-input libby-edit-input--short" type="text" placeholder="YYYY-MM-DD"
+              value={dateFinished} onChange={e => setDateFinished(e.target.value)} />
+          </div>
+          <div className="libby-edit-field">
+            <label className="libby-edit-label">owned format <span className="libby-edit-optional">(optional)</span></label>
+            <input className="libby-edit-input" type="text" placeholder="e.g. kindle, paperback"
+              value={ownedFormat} onChange={e => setOwnedFormat(e.target.value)} />
+          </div>
+          <div className="libby-edit-field">
+            <label className="libby-edit-label">reading notes <span className="libby-edit-optional">(optional)</span></label>
+            <textarea className="libby-edit-textarea" rows={3} value={readingNotes}
+              onChange={e => setReadingNotes(e.target.value)} />
           </div>
         </>
       )}
@@ -1047,6 +1120,7 @@ function QuickAddModal({
   onCreated: (name: string, typeCode: string) => void;
 }) {
   const backdropRef = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
 
   const [step, setStep] = useState<'TYPE' | 'FILL'>('TYPE');
   const [typeCode, setTypeCode] = useState<string | null>(null);
@@ -1074,6 +1148,11 @@ function QuickAddModal({
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onClose(); return; }
       if (step === 'TYPE' && !e.metaKey && !e.altKey && !e.ctrlKey) {
+        if (e.key.toLowerCase() === 'b') {
+          e.preventDefault(); e.stopPropagation();
+          onClose(); navigate('/libby/new?type=b');
+          return;
+        }
         const match = NONBOOK_TYPES_ALPHA.find(t => t.code === e.key.toLowerCase());
         if (match) { e.preventDefault(); e.stopPropagation(); selectType(match.code); }
       }
@@ -1219,6 +1298,14 @@ function QuickAddModal({
         {step === 'TYPE' && (
           <div className="libby-quickadd-body">
             <div className="libby-quickadd-type-hint">pick a type (or press its letter)</div>
+            <button
+              className="libby-quickadd-type-btn libby-quickadd-type-btn--book"
+              onClick={() => { onClose(); navigate('/libby/new?type=b'); }}
+              style={{ fontWeight: 600, width: '100%' }}
+            >
+              <span className="libby-quickadd-type-key">b</span>
+              <span className="libby-quickadd-type-name">book</span>
+            </button>
             <div className="libby-quickadd-type-grid">
               {leftCol.map((t, i) => {
                 const r = rightCol[i];
@@ -1474,6 +1561,18 @@ function CatalogPage() {
 
   // Inline edit form
   const [editOpen, setEditOpen] = useState(false);
+
+  // URL ?q= pre-fill on mount
+  const [searchParams] = useSearchParams();
+  useEffect(() => {
+    const q = searchParams.get('q');
+    if (q) {
+      if (searchInputRef.current) searchInputRef.current.value = q;
+      setQuery(q);
+      runSearch(q, activeClientId);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Hover preview
   const [hoverEntry, setHoverEntry] = useState<LibraryEntry | null>(null);

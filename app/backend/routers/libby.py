@@ -197,7 +197,13 @@ def search_library(q: str = "", client_id: int | None = None):
             li.context,
             li.notes       AS synopsis,
             COALESCE(e.cover_url, lb.cover_url) AS cover_url,
-            e.private
+            e.private,
+            lb.genre,
+            lb.status        AS reading_status,
+            lb.date_finished,
+            lb.owned_format,
+            lb.reading_priority,
+            lb.reading_notes
         FROM library_entries e
         LEFT JOIN library_books lb ON e.type_code = 'b' AND e.entity_id = lb.id
         LEFT JOIN library_items li ON e.type_code != 'b' AND e.entity_id = li.id
@@ -331,6 +337,12 @@ def search_library(q: str = "", client_id: int | None = None):
             "synopsis": row["synopsis"],
             "cover_url": cover_url,
             "private": bool(row["private"]),
+            "genre": row["genre"],
+            "reading_status": row["reading_status"],
+            "date_finished": row["date_finished"],
+            "owned_format": row["owned_format"],
+            "reading_priority": row["reading_priority"],
+            "reading_notes": row["reading_notes"],
             "_rank": (
                 _PRIORITY_RANK.get(row["priority"], 0),
                 name_score,
@@ -1416,6 +1428,8 @@ def _fetch_entry_dict(db, entry_id: int) -> dict:
             lb.categories,
             COALESCE(lb.author, li.author) AS author,
             lb.year, lb.isbn, lb.subtitle, lb.preview_link,
+            lb.genre, lb.status AS reading_status, lb.date_finished,
+            lb.owned_format, lb.reading_priority, lb.reading_notes,
             li.publication, li.published_date,
             li.show_name, li.episode, li.host,
             li.text AS quote_text, li.attribution, li.context,
@@ -1491,6 +1505,12 @@ def _fetch_entry_dict(db, entry_id: int) -> dict:
         "context": row["context"],
         "synopsis": row["synopsis"],
         "private": bool(row["private"]),
+        "genre": row["genre"],
+        "reading_status": row["reading_status"],
+        "date_finished": row["date_finished"],
+        "owned_format": row["owned_format"],
+        "reading_priority": row["reading_priority"],
+        "reading_notes": row["reading_notes"],
         "last_shared_at": None,
     }
 
@@ -1505,6 +1525,12 @@ class EntryUpdateRequest(BaseModel):
     author: str | None = None
     year: int | None = None
     isbn: str | None = None
+    genre: str | None = None
+    reading_status: str | None = None
+    date_finished: str | None = None
+    owned_format: str | None = None
+    reading_priority: int | None = None
+    reading_notes: str | None = None
     # Non-book item fields
     publication: str | None = None
     published_date: str | None = None
@@ -1578,6 +1604,21 @@ def update_entry(entry_id: int, body: EntryUpdateRequest):
                 book_fields.append(("year", body.year))
             if body.isbn is not None:
                 book_fields.append(("isbn", body.isbn.strip() or None))
+            if body.genre is not None:
+                book_fields.append(("genre", body.genre.strip() or None))
+            if body.reading_status is not None:
+                valid_statuses = {"unread", "reading", "read", "discarded"}
+                s = body.reading_status.strip()
+                if s in valid_statuses:
+                    book_fields.append(("status", s))
+            if body.date_finished is not None:
+                book_fields.append(("date_finished", body.date_finished.strip() or None))
+            if body.owned_format is not None:
+                book_fields.append(("owned_format", body.owned_format.strip() or None))
+            if body.reading_priority is not None:
+                book_fields.append(("reading_priority", body.reading_priority))
+            if body.reading_notes is not None:
+                book_fields.append(("reading_notes", body.reading_notes.strip() or None))
             if book_fields:
                 set_clause = ", ".join(f"{col} = ?" for col, _ in book_fields)
                 values = [v for _, v in book_fields]
@@ -2939,13 +2980,15 @@ def _create_vault_home_page(
 # GET /api/libby/reading
 # ---------------------------------------------------------------------------
 
-_READING_VIEWS = frozenset({"now", "queue", "read", "abandoned"})
+_READING_VIEWS = frozenset({"all", "now", "queue", "read", "discarded", "abandoned"})
 
-_VIEW_STATUS: dict[str, list[str]] = {
+_VIEW_STATUS: dict[str, list[str] | None] = {
+    "all":       None,            # no status filter
     "now":       ["reading"],
     "queue":     ["unread"],
     "read":      ["read"],
-    "abandoned": ["abandoned"],
+    "discarded": ["discarded"],
+    "abandoned": ["discarded"],   # backward-compat alias
 }
 
 
@@ -2953,33 +2996,49 @@ _VIEW_STATUS: dict[str, list[str]] = {
 def get_reading_list(view: str = "queue"):
     """Return books filtered by reading status for the Reading page.
 
+    ?view=all       → all books, sorted by reading_priority asc nulls last, title asc
     ?view=now       → status='reading', sorted by date_added desc
     ?view=queue     → status='unread',  sorted by reading_priority asc (nulls last), date_added asc
-    ?view=read      → status='read',    sorted by date_finished desc
-    ?view=abandoned → status='abandoned', sorted by date_added desc
+    ?view=read      → status='read',    sorted by date_finished desc nulls last
+    ?view=discarded → status='discarded', sorted by date_added desc
+    ?view=abandoned → alias for discarded (backward compat)
     """
     if view not in _READING_VIEWS:
         view = "queue"
+    if view == "abandoned":
+        view = "discarded"
 
     statuses = _VIEW_STATUS[view]
-    placeholders = ",".join("?" * len(statuses))
 
-    if view == "queue":
+    if view == "all":
+        where_clause = "WHERE e.type_code = 'b'"
+        order = "ORDER BY CASE WHEN b.reading_priority IS NULL THEN 9999 ELSE b.reading_priority END ASC, e.name ASC"
+        params: list = []
+    elif view == "queue":
+        placeholders = ",".join("?" * len(statuses))
+        where_clause = f"WHERE e.type_code = 'b' AND b.status IN ({placeholders})"
         order = "ORDER BY CASE WHEN b.reading_priority IS NULL THEN 9999 ELSE b.reading_priority END ASC, b.date_added ASC"
+        params = statuses
     elif view == "read":
+        placeholders = ",".join("?" * len(statuses))
+        where_clause = f"WHERE e.type_code = 'b' AND b.status IN ({placeholders})"
         order = "ORDER BY b.date_finished DESC NULLS LAST, b.date_added DESC"
+        params = statuses
     else:
+        placeholders = ",".join("?" * len(statuses))
+        where_clause = f"WHERE e.type_code = 'b' AND b.status IN ({placeholders})"
         order = "ORDER BY b.date_added DESC NULLS LAST"
+        params = statuses
 
     db = get_db()
     rows = db.execute(f"""
         SELECT
-            e.id          AS entry_id,
-            e.name        AS title,
+            e.id              AS entry_id,
+            e.name            AS title,
             e.amazon_url,
             e.amazon_short_url,
             e.obsidian_link,
-            b.id          AS book_id,
+            b.id              AS book_id,
             b.author,
             b.status,
             b.genre,
@@ -2987,31 +3046,62 @@ def get_reading_list(view: str = "queue"):
             b.reading_priority,
             b.reading_notes,
             b.date_finished,
-            b.date_added
+            b.date_added,
+            b.year,
+            b.publisher,
+            b.isbn,
+            b.subtitle,
+            b.summary_path,
+            b.gdoc_summary_id,
+            b.highlights_path,
+            b.external_summary_url
         FROM library_entries e
         JOIN library_books b ON b.id = e.entity_id
-        WHERE e.type_code = 'b'
-          AND b.status IN ({placeholders})
+        {where_clause}
         {order}
-    """, statuses).fetchall()
+    """, params).fetchall()
+
+    # Bulk-fetch topics for returned entries
+    topics_by_entry: dict[int, list[dict]] = {}
+    if rows:
+        entry_ids = [r[0] for r in rows]
+        ph = ",".join("?" * len(entry_ids))
+        topic_rows = db.execute(
+            f"SELECT jet.entry_id, lt.code, lt.name "
+            f"FROM library_entry_topics jet "
+            f"JOIN library_topics lt ON jet.topic_id = lt.id "
+            f"WHERE jet.entry_id IN ({ph})",
+            entry_ids,
+        ).fetchall()
+        for tr in topic_rows:
+            topics_by_entry.setdefault(tr[0], []).append({"code": tr[1], "name": tr[2]})
 
     books = []
     for r in rows:
         books.append({
-            "entry_id":        r[0],
-            "title":           r[1],
-            "amazon_url":      r[2],
-            "amazon_short_url": r[3],
-            "obsidian_link":   r[4],
-            "book_id":         r[5],
-            "author":          r[6],
-            "status":          r[7],
-            "genre":           r[8],
-            "owned_format":    r[9],
-            "reading_priority": r[10],
-            "reading_notes":   r[11],
-            "date_finished":   r[12],
-            "date_added":      r[13],
+            "entry_id":             r[0],
+            "title":                r[1],
+            "amazon_url":           r[2],
+            "amazon_short_url":     r[3],
+            "obsidian_link":        r[4],
+            "book_id":              r[5],
+            "author":               r[6],
+            "status":               r[7],
+            "genre":                r[8],
+            "owned_format":         r[9],
+            "reading_priority":     r[10],
+            "reading_notes":        r[11],
+            "date_finished":        r[12],
+            "date_added":           r[13],
+            "year":                 r[14],
+            "publisher":            r[15],
+            "isbn":                 r[16],
+            "subtitle":             r[17],
+            "summary_path":         r[18],
+            "gdoc_summary_id":      r[19],
+            "highlights_path":      r[20],
+            "external_summary_url": r[21],
+            "topics":               topics_by_entry.get(r[0], []),
         })
 
     return {"books": books, "view": view, "count": len(books)}
@@ -3024,7 +3114,7 @@ class ReadingStatusUpdate(BaseModel):
 @router.patch("/reading/{entry_id}/status")
 def update_reading_status(entry_id: int, body: ReadingStatusUpdate):
     """Update the reading status of a book from the Reading page."""
-    valid = {"unread", "reading", "read", "abandoned"}
+    valid = {"unread", "reading", "read", "discarded"}
     if body.status not in valid:
         raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {sorted(valid)}")
 
@@ -3046,5 +3136,3 @@ def update_reading_status(entry_id: int, body: ReadingStatusUpdate):
         dbw.commit()
 
     return {"ok": True, "entry_id": entry_id, "status": body.status}
-
-    return link

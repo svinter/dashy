@@ -11874,6 +11874,17 @@ span.news-item-title {
   opacity: 0.7;
 }
 
+.libby-detail-reading-meta {
+  font-size: 0.75rem;
+  color: var(--color-text-muted, #888);
+  margin-top: 0.25rem;
+}
+
+.libby-detail-reading-notes {
+  margin-top: 0.25rem;
+  font-style: italic;
+}
+
 .libby-detail-context {
   font-style: italic;
 }
@@ -12758,4 +12769,90 @@ span.news-item-title {
 .libby-reading-status-btn--abandon:hover {
   color: var(--color-accent);
   border-color: var(--color-accent);
+}
+
+/* Status badge (All view) */
+.libby-reading-status-cell {
+  white-space: nowrap;
+}
+
+.libby-reading-status-badge {
+  display: inline-block;
+  font-size: var(--text-xs);
+  border-radius: 3px;
+  padding: 1px 6px;
+  background: var(--color-bg-alt);
+  color: var(--color-text-light);
+}
+
+.libby-reading-status-badge--reading {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.libby-reading-status-badge--read {
+  background: #e3f2fd;
+  color: #1565c0;
+}
+
+.libby-reading-status-badge--discarded {
+  background: #fce4ec;
+  color: #c62828;
+}
+
+/* Detail panel — metadata */
+.libby-reading-detail-meta {
+  margin-bottom: var(--space-sm);
+}
+
+.libby-reading-detail-title {
+  font-weight: 600;
+  font-size: var(--text-sm);
+  margin-bottom: 2px;
+}
+
+.libby-reading-detail-subtitle {
+  font-style: italic;
+  color: var(--color-text-light);
+  font-size: var(--text-sm);
+  margin-bottom: var(--space-xs);
+}
+
+.libby-reading-detail-field {
+  font-size: var(--text-sm);
+  color: var(--color-text);
+  margin-top: 3px;
+}
+
+.libby-reading-detail-label {
+  color: var(--color-text-light);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-right: 4px;
+}
+
+/* Detail panel — links row */
+.libby-reading-detail-links {
+  display: flex;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-sm);
+  padding-bottom: var(--space-sm);
+  border-bottom: 1px solid var(--color-border-faint);
+}
+
+.libby-reading-detail-link-btn {
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  padding: 2px 8px;
+  font-size: var(--text-xs);
+  cursor: pointer;
+  color: var(--color-text-light);
+}
+
+.libby-reading-detail-link-btn:hover {
+  color: var(--color-text);
+  border-color: var(--color-text);
 }

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useLibbyContext } from '../contexts/LibbyContext';
 
 // ---------------------------------------------------------------------------
@@ -346,7 +347,7 @@ function BookCreationForm({
           <button
             type="button"
             className="libby-admin-btn libby-admin-btn--primary"
-            onClick={handleUnifiedSearch}
+            onClick={() => handleUnifiedSearch()}
             disabled={searching || (!searchTitle.trim() && !lookupUrl.trim())}
           >
             {searching ? '…' : 'Search'}
@@ -543,8 +544,13 @@ function GenericCreationForm({
 
 export function LibbyNewPage() {
   const { refreshQueueCount } = useLibbyContext();
+  const [searchParams] = useSearchParams();
 
-  const [selectedType, setSelectedType] = useState<string | null>(null);
+  const [selectedType, setSelectedType] = useState<string | null>(() => {
+    const t = searchParams.get('type');
+    const valid = new Set(ALL_TYPES.map(x => x.code));
+    return t && valid.has(t) ? t : null;
+  });
   const [queue, setQueue] = useState<QueueEntry[]>([]);
   const [loadingQueue, setLoadingQueue] = useState(true);
   const [topics, setTopics] = useState<LibraryTopic[]>([]);
