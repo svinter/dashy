@@ -35,6 +35,10 @@ DEFAULT_AUTO_SYNC_INTERVAL = 900  # 15 minutes
 _daily_digest_thread: threading.Thread | None = None
 _daily_digest_stop = threading.Event()
 
+# Synopsis prewarm scheduler
+_synopsis_prewarm_thread: threading.Thread | None = None
+_synopsis_prewarm_stop = threading.Event()
+
 _DIGEST_LAST_SENT_PATH = DATA_DIR / "digest_last_sent.txt"
 
 
@@ -996,6 +1000,65 @@ def start_daily_digest():
 def stop_daily_digest():
     """Signal the daily digest thread to stop. Called on app shutdown."""
     _daily_digest_stop.set()
+
+
+# ---------------------------------------------------------------------------
+# Synopsis prewarm scheduler — fires 60s after startup, then daily at 7am ET
+# ---------------------------------------------------------------------------
+
+def _synopsis_prewarm_loop():
+    """Background thread: pre-warm coaching synopsis cache.
+
+    Waits 60s on startup (server init), runs immediately, then fires again
+    each day at 7am ET alongside the daily digest.
+    """
+    logger.info("Synopsis prewarm scheduler started")
+
+    # 60-second startup delay — let uvicorn and DB fully initialize
+    if _synopsis_prewarm_stop.wait(60):
+        logger.info("Synopsis prewarm scheduler stopped before startup run")
+        return
+
+    # Initial run
+    try:
+        from routers.coaching import _prewarm_synopsis_cache
+        _prewarm_synopsis_cache()
+    except Exception:
+        logger.exception("Synopsis prewarm: startup run failed")
+
+    while not _synopsis_prewarm_stop.is_set():
+        secs = _seconds_until_7am_et()
+        logger.debug("Synopsis prewarm sleeping %.0fs until next 7am ET", secs)
+        if _synopsis_prewarm_stop.wait(secs):
+            break
+        if _synopsis_prewarm_stop.is_set():
+            break
+        try:
+            from routers.coaching import _prewarm_synopsis_cache
+            _prewarm_synopsis_cache()
+        except Exception:
+            logger.exception("Synopsis prewarm: daily run failed")
+        # Prevent double-fire within the same minute
+        _synopsis_prewarm_stop.wait(70)
+
+    logger.info("Synopsis prewarm scheduler stopped")
+
+
+def start_synopsis_prewarm():
+    """Start the synopsis prewarm background thread. Called from app startup."""
+    global _synopsis_prewarm_thread
+    if _synopsis_prewarm_thread and _synopsis_prewarm_thread.is_alive():
+        return
+    _synopsis_prewarm_stop.clear()
+    _synopsis_prewarm_thread = threading.Thread(
+        target=_synopsis_prewarm_loop, daemon=True, name="synopsis-prewarm"
+    )
+    _synopsis_prewarm_thread.start()
+
+
+def stop_synopsis_prewarm():
+    """Signal the synopsis prewarm thread to stop. Called on app shutdown."""
+    _synopsis_prewarm_stop.set()
 
 
 @router.post("")

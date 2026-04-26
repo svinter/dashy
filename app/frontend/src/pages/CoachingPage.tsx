@@ -728,6 +728,12 @@ function ClientRow({ client, showDaysFirst, isOnlyVisible }: {
   // Proactively check cache when this becomes the only visible client
   useEffect(() => {
     if (!isOnlyVisible) return;
+    if (synopsisData) {
+      // Already loaded — re-show panel without hitting the backend
+      setSynopsisPhase('ready');
+      setInlineOpen(true);
+      return;
+    }
     let cancelled = false;
     setSynopsisPhase('checking');
     api.get<{ ready: boolean } & Partial<SynopsisResponse>>(
@@ -2084,6 +2090,174 @@ function VinnyPage() {
 }
 
 // ---------------------------------------------------------------------------
+// Claude API Usage Panel (inside OperationsPage)
+// ---------------------------------------------------------------------------
+
+interface ClaudeUsagePeriod {
+  period: string;
+  call_count: number;
+  input_tokens: number;
+  output_tokens: number;
+  cost_usd: number;
+}
+
+interface ClaudeUsageFeature {
+  feature: string;
+  call_count: number;
+  input_tokens: number;
+  output_tokens: number;
+  cost_usd: number;
+}
+
+interface ClaudeUsageData {
+  all_time: { call_count: number; input_tokens: number; output_tokens: number; cost_usd: number };
+  daily: ClaudeUsagePeriod[];
+  weekly: ClaudeUsagePeriod[];
+  monthly: ClaudeUsagePeriod[];
+  by_feature: ClaudeUsageFeature[];
+}
+
+function fmtCost(usd: number): string {
+  if (usd < 0.001) return '<$0.001';
+  return `$${usd.toFixed(4)}`;
+}
+
+function fmtTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
+}
+
+type UsageTab = 'day' | 'week' | 'month';
+
+function ClaudeUsagePanel() {
+  const [tab, setTab] = useState<UsageTab>('day');
+  const { data, isLoading } = useQuery<ClaudeUsageData>({
+    queryKey: ['claude-usage'],
+    queryFn: () => api.get<ClaudeUsageData>('/operations/claude-usage'),
+    staleTime: 60_000,
+  });
+
+  const periods: ClaudeUsagePeriod[] = tab === 'day' ? (data?.daily ?? [])
+    : tab === 'week' ? (data?.weekly ?? [])
+    : (data?.monthly ?? []);
+
+  const totalRow: ClaudeUsagePeriod | null = periods.length > 0 ? {
+    period: 'Total',
+    call_count: periods.reduce((s, r) => s + r.call_count, 0),
+    input_tokens: periods.reduce((s, r) => s + r.input_tokens, 0),
+    output_tokens: periods.reduce((s, r) => s + r.output_tokens, 0),
+    cost_usd: periods.reduce((s, r) => s + r.cost_usd, 0),
+  } : null;
+
+  return (
+    <div className="ops-card">
+      <div className="ops-card-header">
+        <div>
+          <div className="ops-card-title">Claude API Usage</div>
+          <div className="ops-card-desc">Token consumption and cost across all Dashy features.</div>
+        </div>
+      </div>
+
+      <div style={{ marginTop: 8 }}>
+        {isLoading && <div className="ops-card-status">Loading…</div>}
+        {data && (
+          <>
+            {/* All-time summary */}
+            <div className="ops-card-status" style={{ marginBottom: 10 }}>
+                <strong>All time:</strong>{' '}
+                {fmtCost(data.all_time.cost_usd)} · {data.all_time.call_count.toLocaleString()} calls ·{' '}
+                {fmtTokens(data.all_time.input_tokens)} in / {fmtTokens(data.all_time.output_tokens)} out
+              </div>
+
+              {/* Tab bar */}
+              <div className="ops-tab-bar">
+                {(['day', 'week', 'month'] as UsageTab[]).map(t => (
+                  <button
+                    key={t}
+                    className={`ops-tab-btn${tab === t ? ' ops-tab-btn--active' : ''}`}
+                    onClick={() => setTab(t)}
+                  >
+                    {t === 'day' ? 'Day' : t === 'week' ? 'Week' : 'Month'}
+                  </button>
+                ))}
+              </div>
+
+              {/* Period table */}
+              {periods.length === 0 ? (
+                <div className="ops-card-status">No data yet.</div>
+              ) : (
+                <table className="ops-usage-table">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th className="ops-usage-num">Calls</th>
+                      <th className="ops-usage-num">Input</th>
+                      <th className="ops-usage-num">Output</th>
+                      <th className="ops-usage-num">Cost</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {periods.map((r, i) => (
+                      <tr key={i}>
+                        <td>{r.period}</td>
+                        <td className="ops-usage-num">{r.call_count}</td>
+                        <td className="ops-usage-num">{fmtTokens(r.input_tokens)}</td>
+                        <td className="ops-usage-num">{fmtTokens(r.output_tokens)}</td>
+                        <td className="ops-usage-num">{fmtCost(r.cost_usd)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  {totalRow && (
+                    <tfoot>
+                      <tr className="ops-usage-total">
+                        <td>Total</td>
+                        <td className="ops-usage-num">{totalRow.call_count}</td>
+                        <td className="ops-usage-num">{fmtTokens(totalRow.input_tokens)}</td>
+                        <td className="ops-usage-num">{fmtTokens(totalRow.output_tokens)}</td>
+                        <td className="ops-usage-num">{fmtCost(totalRow.cost_usd)}</td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              )}
+
+              {/* Feature breakdown */}
+              {data.by_feature.length > 0 && (
+                <>
+                  <div className="ops-card-title" style={{ marginTop: 16, marginBottom: 6 }}>By feature</div>
+                  <table className="ops-usage-table">
+                    <thead>
+                      <tr>
+                        <th>Feature</th>
+                        <th className="ops-usage-num">Calls</th>
+                        <th className="ops-usage-num">Input</th>
+                        <th className="ops-usage-num">Output</th>
+                        <th className="ops-usage-num">Cost</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.by_feature.map((r, i) => (
+                        <tr key={i}>
+                          <td>{r.feature}</td>
+                          <td className="ops-usage-num">{r.call_count}</td>
+                          <td className="ops-usage-num">{fmtTokens(r.input_tokens)}</td>
+                          <td className="ops-usage-num">{fmtTokens(r.output_tokens)}</td>
+                          <td className="ops-usage-num">{fmtCost(r.cost_usd)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </>
+              )}
+            </>
+          )}
+        </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // OperationsPage
 // ---------------------------------------------------------------------------
 
@@ -2697,6 +2871,8 @@ function OperationsPage() {
           </div>
         )}
       </div>
+
+      <ClaudeUsagePanel />
     </div>
   );
 }

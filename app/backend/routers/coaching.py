@@ -2,6 +2,7 @@ import json
 import logging
 import re
 import threading
+import time
 import traceback
 import uuid
 from datetime import date, datetime, timedelta, timezone
@@ -12,7 +13,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app_config import load_config
-from database import get_db, get_write_db
+from database import get_db, get_db_connection, get_write_db
 
 logger = logging.getLogger(__name__)
 
@@ -3109,6 +3110,9 @@ def create_missing_manifests():
 # Persists for the server lifetime; cleared only on restart.
 _synopsis_note_cache: dict[str, str] = {}
 
+# Prewarm timestamp: client_id → time.monotonic() when last successfully prewarmed
+_synopsis_prewarm_ts: dict[int, float] = {}
+
 
 def _summarize_session_note(
     obsidian_name: str | None,
@@ -3171,6 +3175,17 @@ def _summarize_session_note(
             }],
         )
         result = msg.content[0].text.strip()
+        try:
+            from claude_utils import log_claude_usage
+            log_claude_usage(
+                feature="synopsis",
+                input_tokens=msg.usage.input_tokens,
+                output_tokens=msg.usage.output_tokens,
+                model=msg.model,
+                notes=obsidian_name,
+            )
+        except Exception as log_exc:
+            logger.debug("Claude usage log failed: %s", log_exc)
     except Exception as exc:
         logger.warning("Claude synopsis summary failed: %s", exc)
         result = "Summary unavailable"
@@ -3321,3 +3336,158 @@ def get_client_synopsis(client_id: int, generate: bool = True):
         "past_sessions": past_sessions,
         "future_sessions": future_sessions,
     }
+
+
+# ---------------------------------------------------------------------------
+# Synopsis pre-warming — called by the scheduler in sync.py
+# ---------------------------------------------------------------------------
+
+def _prewarm_synopsis_cache() -> None:
+    """Pre-generate session note summaries for clients with coaching events in the next 48 hours.
+
+    Staleness check: skips a client if all their session-note summaries are already
+    in _synopsis_note_cache AND no new confirmed session has been added since the
+    last prewarm run for that client.
+    """
+    from connectors.obsidian import get_vault_path
+
+    logger.info("Synopsis prewarm: starting")
+    now = datetime.now(timezone.utc)
+    cutoff = (now + timedelta(hours=48)).isoformat()
+    now_str = now.isoformat()
+
+    with get_db_connection(readonly=True) as db:
+        events = db.execute(
+            """
+            SELECT id, summary, start_time, attendees_json
+            FROM calendar_events
+            WHERE color_id IN ('3', '5')
+              AND start_time > ?
+              AND start_time <= ?
+              AND (status IS NULL OR status != 'cancelled')
+            ORDER BY start_time ASC
+            """,
+            (now_str, cutoff),
+        ).fetchall()
+
+    if not events:
+        logger.info("Synopsis prewarm: no upcoming coaching events in next 48h — nothing to do")
+        return
+
+    vault = get_vault_path()
+    seen_client_ids: set[int] = set()
+
+    with get_db_connection(readonly=True) as db:
+        for event in events:
+            # Tier 1: confirmed billing_sessions link
+            session_row = db.execute(
+                """SELECT client_id FROM billing_sessions
+                   WHERE calendar_event_id = ? AND client_id IS NOT NULL LIMIT 1""",
+                (event["id"],),
+            ).fetchone()
+
+            client_row = None
+            if session_row:
+                client_row = db.execute(
+                    """SELECT bc.id, bc.name, bc.obsidian_name, bc.email
+                       FROM billing_clients bc WHERE bc.id = ?""",
+                    (session_row["client_id"],),
+                ).fetchone()
+
+            # Tier 2: email match on attendees
+            if not client_row:
+                matched = _find_client_for_event(event["attendees_json"] or "", db)
+                if matched:
+                    client_row = db.execute(
+                        """SELECT id, name, obsidian_name, email
+                           FROM billing_clients WHERE id = ?""",
+                        (matched["id"],),
+                    ).fetchone()
+
+            if not client_row:
+                continue
+
+            client_id = client_row["id"]
+            if client_id in seen_client_ids:
+                continue
+            seen_client_ids.add(client_id)
+
+            email = (client_row["email"] or "").strip()
+            past_rows = db.execute(
+                """SELECT date, obsidian_note_path
+                   FROM billing_sessions
+                   WHERE client_id = ? AND is_confirmed = 1
+                     AND (canceled IS NULL OR canceled = 0)
+                   ORDER BY date DESC LIMIT 3""",
+                (client_id,),
+            ).fetchall()
+
+            # Skip: no email and no confirmed sessions
+            if not email and not past_rows:
+                logger.debug(
+                    "Synopsis prewarm: skipping %s — no email and no confirmed sessions",
+                    client_row["name"],
+                )
+                continue
+
+            # Check cache completeness
+            obsidian_name = client_row["obsidian_name"]
+            all_cached = True
+            if vault:
+                for row in past_rows:
+                    if row["obsidian_note_path"]:
+                        key = str((vault / row["obsidian_note_path"]).resolve())
+                    elif obsidian_name:
+                        key = str(
+                            (vault / "8 Meetings" / f"{row['date']} - {obsidian_name}.md").resolve()
+                        )
+                    else:
+                        key = None
+                    if key and key not in _synopsis_note_cache:
+                        all_cached = False
+                        break
+            else:
+                all_cached = False  # can't verify without vault path
+
+            # Check for new sessions since last prewarm
+            last_prewarm = _synopsis_prewarm_ts.get(client_id)
+            new_session_since_prewarm = False
+            if last_prewarm and past_rows:
+                latest_date = past_rows[0]["date"]
+                prewarm_date = datetime.fromtimestamp(last_prewarm).date().isoformat()
+                if latest_date > prewarm_date:
+                    new_session_since_prewarm = True
+
+            if all_cached and last_prewarm and not new_session_since_prewarm:
+                logger.info("Synopsis prewarm: %s already warm — skipping", client_row["name"])
+                continue
+
+            # Calculate hours until the event for the log message
+            try:
+                ev_start = datetime.fromisoformat(event["start_time"])
+                if ev_start.tzinfo is None:
+                    ev_start = ev_start.replace(tzinfo=timezone.utc)
+                hours_until = (ev_start.astimezone(timezone.utc) - now).total_seconds() / 3600
+            except (ValueError, TypeError):
+                hours_until = 0.0
+
+            logger.info(
+                "Synopsis prewarm: generating for %s — meeting in %.0f hours",
+                client_row["name"], hours_until,
+            )
+
+            for row in past_rows:
+                try:
+                    _summarize_session_note(
+                        obsidian_name, row["date"], row["obsidian_note_path"], generate=True
+                    )
+                except Exception:
+                    logger.exception(
+                        "Synopsis prewarm: error summarizing session for %s", client_row["name"]
+                    )
+
+            _synopsis_prewarm_ts[client_id] = time.monotonic()
+
+    logger.info(
+        "Synopsis prewarm: complete — checked %d upcoming client(s)", len(seen_client_ids)
+    )

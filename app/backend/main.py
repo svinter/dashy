@@ -173,6 +173,7 @@ if is_demo_mode():
 app.include_router(billing.router)
 app.include_router(billing_pdf.router)
 app.include_router(coaching.router)
+from routers import operations as operations_router; app.include_router(operations_router.router)
 app.include_router(libby.router)
 app.include_router(glance.router)
 app.include_router(reports.router)
@@ -412,10 +413,11 @@ def startup():
 
         _step("sync_note_creation", sync_note_creation)
 
-        from routers.sync import start_auto_sync, start_daily_digest
+        from routers.sync import start_auto_sync, start_daily_digest, start_synopsis_prewarm
 
         _step("start_auto_sync", start_auto_sync)
         _step("start_daily_digest", start_daily_digest)
+        _step("start_synopsis_prewarm", start_synopsis_prewarm)
     else:
         log.info("[startup] Demo mode — skipping sync and auto-sync")
     log.info("[startup] All startup steps completed in %.2fs", time.time() - t_total)
@@ -423,10 +425,11 @@ def startup():
 
 @app.on_event("shutdown")
 def shutdown():
-    from routers.sync import stop_auto_sync, stop_daily_digest
+    from routers.sync import stop_auto_sync, stop_daily_digest, stop_synopsis_prewarm
 
     stop_auto_sync()
     stop_daily_digest()
+    stop_synopsis_prewarm()
 
 
 # Serve built frontend — must be last so it doesn't shadow API routes

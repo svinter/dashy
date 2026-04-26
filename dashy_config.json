@@ -27,5 +27,9 @@
   },
   "glance": {
     "gcal_calendar_id": "5hh8lhpa50fspg2un73lrcmfhg@group.calendar.google.com"
+  },
+  "claude": {
+    "sonnet_input_cost_per_million": 3.00,
+    "sonnet_output_cost_per_million": 15.00
   }
 }
