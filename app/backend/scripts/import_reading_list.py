@@ -35,7 +35,7 @@ from rapidfuzz import fuzz
 
 DB_PATH = Path.home() / ".personal-dashboard/dashboard.db"
 SCRIPT_DIR = Path(__file__).parent
-DEFAULT_XLSX = SCRIPT_DIR / "sources" / "Copy__Books.xlsx"
+DEFAULT_XLSX = SCRIPT_DIR / "sources" / "CopyBooks.xlsx"
 
 STATUS_MAP: dict[str, str] = {
     "to read":    "unread",
@@ -175,28 +175,31 @@ def parse_spreadsheet(path: Path) -> list[dict]:
         elif cl == "comments":
             col_map["reading_notes"] = col
 
-    # Title column resolution: use exact "Title" only if ≥50% fill; otherwise
-    # pick the densest non-standard, non-unnamed column.
+    # Always find the densest non-standard column as a fallback title source.
+    # This handles spreadsheets where some sections (e.g. READ) populate a
+    # different column than the explicit "Title" column.
     n_rows = len(df)
+    best_col, best_count = None, 0
+    for col in stripped:
+        if col.lower() in KNOWN_FIELDS:
+            continue
+        if col.lower().startswith("unnamed"):
+            continue
+        count = df[col].notna().sum()
+        if count > best_count:
+            best_count = count
+            best_col = col
+    if best_col:
+        col_map["title_dense"] = best_col
+
+    # Primary title column: use exact "Title" if ≥50% fill; else the dense col.
     exact_title = col_map.get("title_exact")
     if exact_title and df[exact_title].notna().sum() >= n_rows * 0.5:
         col_map["title"] = exact_title
-    else:
-        # Find densest column that isn't a known/named field
-        best_col, best_count = None, 0
-        for col in stripped:
-            if col.lower() in KNOWN_FIELDS:
-                continue
-            if col.lower().startswith("unnamed"):
-                continue
-            count = df[col].notna().sum()
-            if count > best_count:
-                best_count = count
-                best_col = col
-        if best_col:
-            col_map["title"] = best_col
-        elif exact_title:
-            col_map["title"] = exact_title
+    elif best_col:
+        col_map["title"] = best_col
+    elif exact_title:
+        col_map["title"] = exact_title
 
     if "title" not in col_map:
         raise ValueError(
@@ -219,6 +222,10 @@ def parse_spreadsheet(path: Path) -> list[dict]:
                     continue
 
         title_raw = row.get(col_map["title"])
+
+        # If primary title column is empty, fall back to the dense column
+        if (pd.isna(title_raw) or str(title_raw).strip() == "") and col_map.get("title_dense"):
+            title_raw = row.get(col_map["title_dense"])
 
         # Skip blank rows
         if pd.isna(title_raw) or str(title_raw).strip() == "":
