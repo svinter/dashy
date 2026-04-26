@@ -99,6 +99,22 @@ logs:
 	@echo ""
 	@echo "=== WhatsApp ===" && tail -20 /tmp/dashboard-whatsapp.log 2>/dev/null || echo "No WhatsApp logs"
 
+check:
+	@echo "=== Backend health ==="
+	@curl -s http://localhost:8000/health | grep -o "<title>.*</title>" || echo "Backend not responding"
+	@echo ""
+	@echo "=== Tailscale status ==="
+	@tailscale status
+	@echo ""
+	@echo "=== Backend via Tailscale ==="
+	@curl -s http://bostondesktop.taild60ba0.ts.net:8000/health | grep -o "<title>.*</title>" || echo "Not reachable via Tailscale"
+	@echo ""
+	@echo "=== Recent backend errors ==="
+	@grep -i "error\|exception\|critical" /tmp/dashboard-backend.log 2>/dev/null | tail -10 || echo "No errors found"
+	@echo ""
+	@echo "=== Device status ==="
+	@tailscale status | grep -iE "android|iphone|ipad|macbook" || echo "No mobile devices found"
+
 # --- Checkpoint ---
 
 checkpoint:
