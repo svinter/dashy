@@ -51,8 +51,6 @@ export function HiddenLaneRow({ week, dayData, visibleLanes, visibleMembers: _vi
 
   return (
     <tr style={{ height: '6px' }}>
-      {/* month col */}
-      <td style={{ background: monthBg, padding: 0 }} />
       {/* lane-label col */}
       <td style={{ background: monthBg, padding: 0 }} />
       {/* day cols */}

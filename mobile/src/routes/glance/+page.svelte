@@ -2,8 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { authed } from '$lib/auth';
 
-  const WEEKS = 8;
-  const NAV_WEEKS = 4;
+  const NAV_WEEKS = 8;
 
   // Start date as ISO string (YYYY-MM-DD), always a Monday
   let startIso = '';
@@ -34,7 +33,7 @@
   function rangeLabel(iso: string): string {
     const start = new Date(iso + 'T12:00:00');
     const end = new Date(iso + 'T12:00:00');
-    end.setDate(end.getDate() + WEEKS * 7 - 1);
+    end.setDate(end.getDate() + 12 * 7 - 1);
     const fmtMonth = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
     const sm = fmtMonth(start);
     const em = fmtMonth(end);
@@ -46,7 +45,7 @@
     loading = true;
     error = null;
     try {
-      const res = await fetch(`/api/mobile/glance/render?start=${startIso}&weeks=${WEEKS}`, {
+      const res = await fetch(`/api/mobile/glance/render?start=${startIso}`, {
         credentials: 'include',
       });
       if (res.status === 401) {
@@ -97,7 +96,7 @@
       on:click={goBack}
       disabled={loading}
       class="p-2 text-muted hover:text-text disabled:opacity-40 active:scale-90 transition-transform"
-      aria-label="Back 4 weeks"
+      aria-label="Back 8 weeks"
     >
       <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
@@ -132,7 +131,7 @@
       on:click={goForward}
       disabled={loading}
       class="p-2 text-muted hover:text-text disabled:opacity-40 active:scale-90 transition-transform"
-      aria-label="Forward 4 weeks"
+      aria-label="Forward 8 weeks"
     >
       <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />

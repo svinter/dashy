@@ -102,9 +102,6 @@ export function LaneRow({
 
   return (
     <tr>
-      {/* Month column — sticky left */}
-      <td style={{ position: 'sticky', left: 0, zIndex: 5 }} />
-
       {/* Lane label — sticky left */}
       <td
         style={{
@@ -118,7 +115,7 @@ export function LaneRow({
           borderBottom: cellBorderBottom,
           borderTop: cellBorderTop,
           position: 'sticky',
-          left: 46,
+          left: 0,
           zIndex: 4,
         }}
       >

@@ -38,8 +38,8 @@
  * The above values will be the same _even if_ different values for `ENVIRONMENT` or `PUBLIC_BASE_URL` are set at runtime, as they are statically replaced in your code with their build time values.
  */
 declare module '$env/static/private' {
-	export const NVM_INC: string;
 	export const PERLBREW_SHELLRC_VERSION: string;
+	export const NVM_INC: string;
 	export const MANPATH: string;
 	export const PERLBREW_VERSION: string;
 	export const TERM_PROGRAM: string;
@@ -47,16 +47,15 @@ declare module '$env/static/private' {
 	export const INIT_CWD: string;
 	export const PERLBREW_PERL: string;
 	export const NVM_CD_FLAGS: string;
-	export const SHELL: string;
 	export const TERM: string;
-	export const MAKEFLAGS: string;
+	export const SHELL: string;
 	export const TMPDIR: string;
 	export const npm_config_global_prefix: string;
 	export const PERL5LIB: string;
 	export const TERM_PROGRAM_VERSION: string;
 	export const COLOR: string;
-	export const PERL_MB_OPT: string;
 	export const TERM_SESSION_ID: string;
+	export const PERL_MB_OPT: string;
 	export const npm_config_noproxy: string;
 	export const npm_config_local_prefix: string;
 	export const USER: string;
@@ -65,9 +64,7 @@ declare module '$env/static/private' {
 	export const SSH_AUTH_SOCK: string;
 	export const __CF_USER_TEXT_ENCODING: string;
 	export const npm_execpath: string;
-	export const MAKELEVEL: string;
 	export const PERLBREW_ROOT: string;
-	export const MFLAGS: string;
 	export const PATH: string;
 	export const npm_package_json: string;
 	export const _: string;
@@ -188,8 +185,8 @@ declare module '$env/static/public' {
  */
 declare module '$env/dynamic/private' {
 	export const env: {
-		NVM_INC: string;
 		PERLBREW_SHELLRC_VERSION: string;
+		NVM_INC: string;
 		MANPATH: string;
 		PERLBREW_VERSION: string;
 		TERM_PROGRAM: string;
@@ -197,16 +194,15 @@ declare module '$env/dynamic/private' {
 		INIT_CWD: string;
 		PERLBREW_PERL: string;
 		NVM_CD_FLAGS: string;
-		SHELL: string;
 		TERM: string;
-		MAKEFLAGS: string;
+		SHELL: string;
 		TMPDIR: string;
 		npm_config_global_prefix: string;
 		PERL5LIB: string;
 		TERM_PROGRAM_VERSION: string;
 		COLOR: string;
-		PERL_MB_OPT: string;
 		TERM_SESSION_ID: string;
+		PERL_MB_OPT: string;
 		npm_config_noproxy: string;
 		npm_config_local_prefix: string;
 		USER: string;
@@ -215,9 +211,7 @@ declare module '$env/dynamic/private' {
 		SSH_AUTH_SOCK: string;
 		__CF_USER_TEXT_ENCODING: string;
 		npm_execpath: string;
-		MAKELEVEL: string;
 		PERLBREW_ROOT: string;
-		MFLAGS: string;
 		PATH: string;
 		npm_package_json: string;
 		_: string;

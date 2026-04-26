@@ -31,9 +31,16 @@ const LANE_DOT_COLOR: Record<string, string> = {
   steve_travel: '#B5D4F4',
 };
 
+const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+function isLastDayOfMonth(d: Date): boolean {
+  const next = new Date(d);
+  next.setDate(next.getDate() + 1);
+  return next.getDate() === 1;
+}
+
 interface DateStripProps {
   week: Date[];
-  monthLabel: string | null;
   dayData?: Record<string, GlanceDayData>;
   visibleLanes?: Set<LaneId>;
 }
@@ -57,43 +64,12 @@ const cellBorder: React.CSSProperties = {
   borderBottom: 'var(--glance-line-hairline)',
 };
 
-export function DateStrip({ week, monthLabel, dayData, visibleLanes }: DateStripProps) {
+export function DateStrip({ week, dayData, visibleLanes }: DateStripProps) {
   const weekNum = week[0] ? isoWeekNumber(week[0]) : 0;
 
   return (
     <tr>
-      {/* Month column — sticky left; height fixed to DATE_STRIP_HEIGHT so text cannot expand the row */}
-      <td
-        style={{
-          ...cellBorder,
-          backgroundColor: DATE_STRIP_WEEKDAY_BG,
-          padding: 0,
-          height: DATE_STRIP_HEIGHT,
-          overflow: 'hidden',
-          position: 'sticky',
-          left: 0,
-          zIndex: 5,
-          verticalAlign: 'middle',
-        }}
-      >
-        <span style={{
-          display: 'block',
-          height: DATE_STRIP_HEIGHT,
-          lineHeight: `${DATE_STRIP_HEIGHT}px`,
-          padding: '0 4px',
-          fontSize: '9px',
-          fontWeight: 500,
-          color: 'var(--color-text, #111)',
-          whiteSpace: 'nowrap',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          boxSizing: 'border-box',
-        }}>
-          {monthLabel}
-        </span>
-      </td>
-
-      {/* Week-number cell — sticky left */}
+      {/* Lane-label column — sticky left; shows ISO week number */}
       <td
         style={{
           ...DATE_STRIP_FONT,
@@ -104,7 +80,7 @@ export function DateStrip({ week, monthLabel, dayData, visibleLanes }: DateStrip
           paddingRight: '4px',
           textAlign: 'right',
           position: 'sticky',
-          left: 46,
+          left: 0,
           zIndex: 4,
           verticalAlign: 'middle',
         }}
@@ -121,6 +97,31 @@ export function DateStrip({ week, monthLabel, dayData, visibleLanes }: DateStrip
                         d.getMonth()    === today.getMonth()    &&
                         d.getDate()     === today.getDate();
         const dayNum = d.getDate();
+        const isMonday = d.getDay() === 1;
+        const isFirstOfMonth = dayNum === 1;
+        const isLastOfMonth = isLastDayOfMonth(d);
+
+        // Priority: today (unchanged) > first of month > last of month > Monday > plain number
+        let dateLabel: string;
+        let dateColor: string | undefined;
+        if (isToday) {
+          dateLabel = (isFirstOfMonth || isLastOfMonth || isMonday)
+            ? `${MONTH_ABBR[d.getMonth()]} ${dayNum}`
+            : `${dayNum}`;
+          dateColor = '#D85A30';
+        } else if (isFirstOfMonth) {
+          dateLabel = `${MONTH_ABBR[d.getMonth()]} ${dayNum}`;
+          dateColor = '#D85A30';
+        } else if (isLastOfMonth) {
+          dateLabel = `${MONTH_ABBR[d.getMonth()]} ${dayNum}`;
+          dateColor = '#D85A30';
+        } else if (isMonday) {
+          dateLabel = `${MONTH_ABBR[d.getMonth()]} ${dayNum}`;
+          dateColor = undefined;
+        } else {
+          dateLabel = `${dayNum}`;
+          dateColor = undefined;
+        }
 
         // Collect hidden-lane dots for this day
         const dots: string[] = [];
@@ -156,9 +157,10 @@ export function DateStrip({ week, monthLabel, dayData, visibleLanes }: DateStrip
             <span style={{
               display: 'block',
               textAlign: 'center',
-              color: isToday ? '#D85A30' : undefined,
+              fontSize: (isMonday || isFirstOfMonth || isLastOfMonth) ? '10px' : undefined,
+              color: dateColor,
             }}>
-              {dayNum}
+              {dateLabel}
             </span>
             {dots.length > 0 && (
               <div style={{

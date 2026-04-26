@@ -12537,3 +12537,223 @@ span.news-item-title {
   font-size: var(--text-xs);
   white-space: nowrap;
 }
+
+/* ── Libby Reading page ── */
+
+.libby-reading-page {
+  padding: var(--space-md) var(--space-lg);
+  max-width: 960px;
+}
+
+.libby-reading-view-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+.libby-reading-view-btn {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  padding: 3px 12px;
+  font-size: var(--text-sm);
+  cursor: pointer;
+  color: var(--color-text-light);
+}
+
+.libby-reading-view-btn:hover {
+  color: var(--color-text);
+}
+
+.libby-reading-view-btn--active {
+  color: var(--color-text);
+  border-color: var(--color-border);
+  font-weight: 500;
+}
+
+.libby-reading-search-wrap {
+  margin-left: auto;
+}
+
+.libby-reading-search {
+  font-size: var(--text-sm);
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  padding: 3px 8px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  width: 160px;
+}
+
+.libby-reading-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+  flex-wrap: wrap;
+}
+
+.libby-reading-filter-select {
+  font-size: var(--text-sm);
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  padding: 2px 6px;
+  background: var(--color-bg);
+  color: var(--color-text-light);
+  cursor: pointer;
+}
+
+.libby-reading-count {
+  font-size: var(--text-xs);
+  color: var(--color-text-light);
+  margin-left: auto;
+}
+
+.libby-reading-loading,
+.libby-reading-empty {
+  font-size: var(--text-sm);
+  color: var(--color-text-light);
+  padding: var(--space-md) 0;
+}
+
+.libby-reading-year-group {
+  margin-bottom: var(--space-lg);
+}
+
+.libby-reading-year-label {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-text-light);
+  margin-bottom: var(--space-xs);
+  padding-bottom: 2px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.libby-reading-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+  margin-bottom: var(--space-sm);
+}
+
+.libby-reading-table th {
+  text-align: left;
+  font-size: var(--text-xs);
+  color: var(--color-text-light);
+  font-weight: 500;
+  padding: 4px 6px 4px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.libby-reading-row {
+  cursor: pointer;
+  border-bottom: 1px solid var(--color-border-faint, var(--color-border));
+}
+
+.libby-reading-row:hover {
+  background: var(--color-hover, rgba(0,0,0,0.03));
+}
+
+.libby-reading-row--open {
+  background: var(--color-hover, rgba(0,0,0,0.03));
+}
+
+.libby-reading-row td {
+  padding: 6px 6px 6px 0;
+  vertical-align: top;
+}
+
+.libby-reading-title {
+  max-width: 420px;
+}
+
+.libby-reading-title-text {
+  font-weight: 500;
+}
+
+.libby-reading-author {
+  color: var(--color-text-light);
+}
+
+.libby-reading-genre-badge {
+  display: inline-block;
+  font-size: var(--text-xs);
+  color: var(--color-text-light);
+  background: var(--color-bg-alt, rgba(0,0,0,0.05));
+  border-radius: 3px;
+  padding: 1px 5px;
+  white-space: nowrap;
+}
+
+.libby-reading-format {
+  white-space: nowrap;
+  font-size: 1rem;
+}
+
+.libby-reading-finished {
+  white-space: nowrap;
+  font-size: var(--text-xs);
+  color: var(--color-text-light);
+}
+
+.libby-reading-note-text {
+  font-style: italic;
+  color: var(--color-text-light);
+  font-size: var(--text-xs);
+}
+
+.libby-reading-links {
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+
+.libby-reading-row:hover .libby-reading-links,
+.libby-reading-row--open .libby-reading-links {
+  opacity: 1;
+}
+
+.libby-reading-detail-row td {
+  padding: 0 0 var(--space-sm) 0;
+}
+
+.libby-reading-detail {
+  background: var(--color-bg-alt, rgba(0,0,0,0.03));
+  border-radius: 4px;
+  padding: var(--space-sm) var(--space-md);
+  font-size: var(--text-sm);
+}
+
+.libby-reading-detail-notes {
+  color: var(--color-text);
+  margin-bottom: var(--space-sm);
+  white-space: pre-wrap;
+}
+
+.libby-reading-detail-actions {
+  display: flex;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+.libby-reading-status-btn {
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  padding: 2px 10px;
+  font-size: var(--text-xs);
+  cursor: pointer;
+  color: var(--color-text-light);
+}
+
+.libby-reading-status-btn:hover {
+  color: var(--color-text);
+  border-color: var(--color-text);
+}
+
+.libby-reading-status-btn--abandon:hover {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}

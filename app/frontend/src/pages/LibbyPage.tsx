@@ -8,6 +8,7 @@ import type { HelpShortcut } from '../components/shared/ClientFilterBar';
 import { LibbyTopicsPage } from './LibbyTopicsPage';
 import { LibbyTypesPage } from './LibbyTypesPage';
 import { LibbyNewPage } from './LibbyNewPage';
+import { LibbyReadingPage } from './LibbyReadingPage';
 import { openExternal } from '../api/client';
 
 // ---------------------------------------------------------------------------
@@ -530,6 +531,9 @@ function LibbyLayout({ children }: { children: React.ReactNode }) {
         </NavLink>
         <NavLink to="/libby/new" className={({ isActive }) => `tab${isActive ? ' active' : ''}${queueCount > 0 ? ' libby-sub-nav-link--badge' : ''}`}>
           {queueCount > 0 ? `New (${queueCount})` : 'New'}
+        </NavLink>
+        <NavLink to="/libby/reading" className={({ isActive }) => `tab${isActive ? ' active' : ''}`}>
+          Reading
         </NavLink>
       </div>
       {children}
@@ -2424,6 +2428,7 @@ export function LibbyPage() {
           <Route path="topics" element={<LibbyTopicsPage />} />
           <Route path="types" element={<LibbyTypesPage />} />
           <Route path="new" element={<LibbyNewPage />} />
+          <Route path="reading" element={<LibbyReadingPage />} />
         </Routes>
       </LibbyLayout>
     </div>

@@ -30,6 +30,7 @@ const MODULES: Record<string, ModuleEntry> = {
     t: { label: 'Tags',    path: '/libby/topics' },
     y: { label: 'Types',   path: '/libby/types' },
     n: { label: 'New',     path: '/libby/new' },
+    r: { label: 'Reading', path: '/libby/reading' },
   }},
   m: { label: 'Meetings', defaultPath: '/meetings', pages: {} },
   s: { label: 'Scripty',  defaultPath: '/scripty',  pages: {} },

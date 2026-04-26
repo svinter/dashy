@@ -14,7 +14,7 @@ export const SHORTCUT_DEFINITIONS: ShortcutDef[] = [
   { keys: 'g d', description: 'Go to Today', category: 'navigation' },
   { keys: 'g n', description: 'Go to Thoughts', category: 'navigation' },
   { keys: 'g i', description: 'Go to Issues', category: 'navigation' },
-  { keys: 'g l [c/t/y/n]', description: 'Go to Library (Catalog/Topics/Types/New)', category: 'navigation' },
+  { keys: 'g l [c/t/y/n/r]', description: 'Go to Library (Catalog/Topics/Types/New/Reading)', category: 'navigation' },
   { keys: 'g m', description: 'Go to Meetings', category: 'navigation' },
   { keys: 'g w', description: 'Go to Writing', category: 'navigation' },
   { keys: 'g p', description: 'Go to People', category: 'navigation' },
@@ -97,6 +97,7 @@ const G_NAV: Record<string, GNavEntry> = {
       t: '/libby/topics',
       y: '/libby/types',
       n: '/libby/new',
+      r: '/libby/reading',
     },
   },
   m: { path: '/meetings' },
@@ -138,7 +139,7 @@ const G_NAV: Record<string, GNavEntry> = {
 // ---------------------------------------------------------------------------
 
 const MODULE_PAGE_ORDER: Record<string, string[]> = {
-  '/libby':    ['/libby/catalog', '/libby/topics', '/libby/types', '/libby/new'],
+  '/libby':    ['/libby/catalog', '/libby/topics', '/libby/types', '/libby/new', '/libby/reading'],
   '/billing':  ['/billing/queue', '/billing/sessions', '/billing/invoices',
                 '/billing/payments', '/billing/overview', '/billing/draft'],
   '/coaching': ['/coaching/clients', '/coaching/wordcloud', '/coaching/setup',

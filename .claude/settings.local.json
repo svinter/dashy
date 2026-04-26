@@ -102,7 +102,12 @@
       "Bash(app/backend/venv/bin/python3 -c ':*)",
       "Bash(node:*)",
       "Bash(node_modules/.bin/tsc --noEmit --project app/frontend/tsconfig.json)",
-      "Bash(app/frontend/node_modules/.bin/tsc --noEmit --project app/frontend/tsconfig.json)"
+      "Bash(app/frontend/node_modules/.bin/tsc --noEmit --project app/frontend/tsconfig.json)",
+      "Bash(PYTHONPATH=app/backend python3:*)",
+      "Bash(.venv/bin/python -c \"from app.backend.routers.operations import router; print\\('OK'\\)\")",
+      "Bash(PYTHONPATH=app/backend .venv/bin/python -c \"from routers.operations import router; print\\('OK'\\)\")",
+      "Bash(PYTHONPATH=app/backend app/backend/venv/bin/python:*)",
+      "Bash(app/backend/venv/bin/python:*)"
     ]
   }
 }

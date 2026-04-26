@@ -2934,4 +2934,117 @@ def _create_vault_home_page(
     except Exception as exc:
         logger.error("Failed to persist obsidian_link for entry %d: %s", entry_id, exc)
 
+
+# ---------------------------------------------------------------------------
+# GET /api/libby/reading
+# ---------------------------------------------------------------------------
+
+_READING_VIEWS = frozenset({"now", "queue", "read", "abandoned"})
+
+_VIEW_STATUS: dict[str, list[str]] = {
+    "now":       ["reading"],
+    "queue":     ["unread"],
+    "read":      ["read"],
+    "abandoned": ["abandoned"],
+}
+
+
+@router.get("/reading")
+def get_reading_list(view: str = "queue"):
+    """Return books filtered by reading status for the Reading page.
+
+    ?view=now       → status='reading', sorted by date_added desc
+    ?view=queue     → status='unread',  sorted by reading_priority asc (nulls last), date_added asc
+    ?view=read      → status='read',    sorted by date_finished desc
+    ?view=abandoned → status='abandoned', sorted by date_added desc
+    """
+    if view not in _READING_VIEWS:
+        view = "queue"
+
+    statuses = _VIEW_STATUS[view]
+    placeholders = ",".join("?" * len(statuses))
+
+    if view == "queue":
+        order = "ORDER BY CASE WHEN b.reading_priority IS NULL THEN 9999 ELSE b.reading_priority END ASC, b.date_added ASC"
+    elif view == "read":
+        order = "ORDER BY b.date_finished DESC NULLS LAST, b.date_added DESC"
+    else:
+        order = "ORDER BY b.date_added DESC NULLS LAST"
+
+    db = get_db()
+    rows = db.execute(f"""
+        SELECT
+            e.id          AS entry_id,
+            e.name        AS title,
+            e.amazon_url,
+            e.amazon_short_url,
+            e.obsidian_link,
+            b.id          AS book_id,
+            b.author,
+            b.status,
+            b.genre,
+            b.owned_format,
+            b.reading_priority,
+            b.reading_notes,
+            b.date_finished,
+            b.date_added
+        FROM library_entries e
+        JOIN library_books b ON b.id = e.entity_id
+        WHERE e.type_code = 'b'
+          AND b.status IN ({placeholders})
+        {order}
+    """, statuses).fetchall()
+
+    books = []
+    for r in rows:
+        books.append({
+            "entry_id":        r[0],
+            "title":           r[1],
+            "amazon_url":      r[2],
+            "amazon_short_url": r[3],
+            "obsidian_link":   r[4],
+            "book_id":         r[5],
+            "author":          r[6],
+            "status":          r[7],
+            "genre":           r[8],
+            "owned_format":    r[9],
+            "reading_priority": r[10],
+            "reading_notes":   r[11],
+            "date_finished":   r[12],
+            "date_added":      r[13],
+        })
+
+    return {"books": books, "view": view, "count": len(books)}
+
+
+class ReadingStatusUpdate(BaseModel):
+    status: str
+
+
+@router.patch("/reading/{entry_id}/status")
+def update_reading_status(entry_id: int, body: ReadingStatusUpdate):
+    """Update the reading status of a book from the Reading page."""
+    valid = {"unread", "reading", "read", "abandoned"}
+    if body.status not in valid:
+        raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {sorted(valid)}")
+
+    db = get_db()
+    row = db.execute(
+        "SELECT b.id FROM library_entries e JOIN library_books b ON b.id = e.entity_id "
+        "WHERE e.id = ? AND e.type_code = 'b'",
+        (entry_id,),
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Book entry not found")
+
+    book_id = row[0]
+    with get_write_db() as dbw:
+        dbw.execute(
+            "UPDATE library_books SET status = ? WHERE id = ?",
+            (body.status, book_id),
+        )
+        dbw.commit()
+
+    return {"ok": True, "entry_id": entry_id, "status": body.status}
+
     return link

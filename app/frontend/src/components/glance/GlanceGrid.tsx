@@ -6,13 +6,11 @@ import type { LaneId } from './LaneRow';
 import type { DragState, CursorCell } from '../../pages/GlancePage';
 
 const DAY_HEADERS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-const MONTH_FULL = ['January','February','March','April','May','June',
-                    'July','August','September','October','November','December'];
 
-// 10 columns: month(46) + lane(66) + 7 day cols + 1 comment col (2× day width)
-// 9 units share (100% - 112px): each day col = 1 unit, comment col = 2 units → total 9 units = 100%
-const DAY_COL_W = 'calc((100% - 112px) / 9)';
-const COMMENT_COL_W = 'calc((100% - 112px) / 9 * 2)';
+// 9 columns: lane(66) + 7 day cols + 1 comment col (2× day width)
+// 9 units share (100% - 66px): each day col = 1 unit, comment col = 2 units → total 9 units = 100%
+const DAY_COL_W = 'calc((100% - 66px) / 9)';
+const COMMENT_COL_W = 'calc((100% - 66px) / 9 * 2)';
 
 const TH_BG = 'var(--color-bg, #fffff8)';
 const TH_BORDER_BOTTOM = '2px solid rgba(0,0,0,0.35)';
@@ -22,7 +20,6 @@ const TH_BORDER_BOTTOM = '2px solid rgba(0,0,0,0.35)';
 function Colgroup() {
   return (
     <colgroup>
-      <col style={{ width: '46px' }} />
       <col style={{ width: '66px' }} />
       {DAY_HEADERS.map((d) => (
         <col key={d} style={{ width: DAY_COL_W }} />
@@ -118,10 +115,6 @@ export function GlanceGrid({
     return () => el.removeEventListener('scroll', handleScroll);
   }, [weeks, scrollRef]);
 
-  // monthWeekCounts tracks how many weeks of each month have been rendered,
-  // so we can generate "July", "July - 2", "July - 3"… labels.
-  const monthWeekCounts = new Map<string, number>();
-
   return (
     // Flex column: fixed header + scrollable body below it.
     // overflowY: 'scroll' (not 'auto') ensures the scrollbar is always reserved,
@@ -148,20 +141,6 @@ export function GlanceGrid({
                 borderBottom: TH_BORDER_BOTTOM,
               }}>
                 {headerYear}
-              </th>
-              <th style={{
-                fontWeight: 400,
-                fontSize: '10px',
-                color: 'var(--color-text-tertiary, #999)',
-                textAlign: 'right',
-                paddingRight: '6px',
-                borderBottom: TH_BORDER_BOTTOM,
-                position: 'sticky',
-                left: 46,
-                zIndex: 5,
-                background: TH_BG,
-              }}>
-                lane
               </th>
               {DAY_HEADERS.map((d) => (
                 <th
@@ -201,13 +180,6 @@ export function GlanceGrid({
           <Colgroup />
           <tbody>
             {weeks.map((week, wi) => {
-              const firstDay = week[0];
-              const monthKey = `${firstDay.getFullYear()}-${firstDay.getMonth()}`;
-              const weekInMonth = (monthWeekCounts.get(monthKey) ?? 0) + 1;
-              monthWeekCounts.set(monthKey, weekInMonth);
-              const fullName = MONTH_FULL[firstDay.getMonth()];
-              const monthLabel = weekInMonth === 1 ? fullName : `${fullName} - ${weekInMonth}`;
-
               return (
                 <GlanceWeek
                   key={wi}
@@ -215,7 +187,6 @@ export function GlanceGrid({
                   dayData={weeksData}
                   visibleLanes={visibleLanes}
                   visibleMembers={visibleMembers}
-                  monthLabel={monthLabel}
                   monthOpacity={monthOpacity}
                   onNoteHover={onNoteHover}
                   onNoteLeave={onNoteLeave}

@@ -35,7 +35,6 @@ interface GlanceWeekProps {
   dayData: Record<string, GlanceDayData>;
   visibleLanes: Set<LaneId>;
   visibleMembers: Set<string>;
-  monthLabel: string | null;
   monthOpacity: number;
   onNoteHover: (e: React.MouseEvent, laneLabel: string, date: string, notes: string[]) => void;
   onNoteLeave: () => void;
@@ -53,7 +52,6 @@ export function GlanceWeek({
   dayData,
   visibleLanes,
   visibleMembers,
-  monthLabel,
   monthOpacity,
   onNoteHover,
   onNoteLeave,
@@ -67,8 +65,7 @@ export function GlanceWeek({
 }: GlanceWeekProps) {
   return (
     <>
-      {/* DateStrip no longer takes monthBg — always renders gray */}
-      <DateStrip week={week} monthLabel={monthLabel} dayData={dayData} visibleLanes={visibleLanes} />
+      <DateStrip week={week} dayData={dayData} visibleLanes={visibleLanes} />
       {ALL_LANES.filter((l) => visibleLanes.has(l.id)).map((lane) => (
         <LaneRow
           key={lane.id}

@@ -644,194 +644,274 @@ def _render_glance_png(
 ) -> bytes:
     from PIL import Image, ImageDraw
 
-    # ── palette ──────────────────────────────────────────────────────────────
-    C_BG = (15, 23, 42)
-    C_HEADER = (22, 33, 55)
-    C_LABEL = (71, 85, 105)
-    C_GRID = (37, 51, 71)
-    C_MONTH_LINE = (239, 68, 68)       # red-ish boundary
-    C_TODAY_HL = (20, 40, 80)          # subtle blue column highlight
-    C_TODAY_RING = (59, 130, 246)      # blue ring for today number
-    C_DATE_FG = (241, 245, 249)
-    C_DATE_MUT = (100, 116, 139)
-    C_ACCENT = (59, 130, 246)
-    C_DEFAULT_PILL = (51, 65, 85)
+    # ── light palette ─────────────────────────────────────────────────────────
+    C_BG           = (255, 255, 255)
+    C_HEADER_WD    = (239, 238, 234)   # weekday date cell background
+    C_HEADER_WE    = (232, 230, 224)   # weekend date cell background
+    C_GRID         = (220, 218, 212)
+    C_LABEL        = (60, 60, 55)
+    C_DATE_FG      = (40, 40, 35)
+    C_TODAY        = (216, 90, 48)     # today number + cell outline
+    C_DEFAULT_PILL = (200, 200, 195)
+    C_MONTH_LINE   = (216, 90, 48)
 
-    W = 1200
-    LABEL_W = 82
-    GRID_W = W - LABEL_W
-    ROW_H_DATE = 38
-    ROW_H_LANE = 28
-    ROW_H_TRIP = 28
-    PILL_H = 17
-    PILL_PAD_Y = 6
-    PILL_RADIUS = 4
-    PILL_GAP = 2
-    FONT_SM = _load_font(10)
-    FONT_MD = _load_font(12)
+    GRID_W   = 1200                      # label + 7 day columns
+    LABEL_W  = 82
+    COL_W    = (GRID_W - LABEL_W) / 7  # 7 day columns per week
+    comment_col_w = int(COL_W * 1.5)
+    W_TOTAL  = GRID_W + comment_col_w
 
-    col_w = GRID_W / total_days
-    today = date.today()
+    C_COMMENT_BG = (245, 244, 241)     # #F5F4F1
+
+    DOW_HEADER_H = 26   # "M T W T F S S" row at image top
+    ROW_H_DATE   = 40   # date-number row inside each week block
+    ROW_H_LANE   = 32   # one row per lane per week
+    ROW_H_TRIP   = 30   # one row per trip-member per week
+    WEEK_SEP     = 2    # heavier line between week blocks
+
+    PILL_H        = 22
+    PILL_RADIUS   = 5
+    PILL_GAP      = 2
+    LANE_PILL_PAD = (ROW_H_LANE - PILL_H) // 2   # top padding within lane row
+    TRIP_PILL_PAD = (ROW_H_TRIP - PILL_H) // 2
+
+    FONT_SM = _load_font(14)
+    FONT_MD = _load_font(18)
+
+    num_weeks = max(1, total_days // 7)
+    today     = date.today()
 
     # ── lane definitions ─────────────────────────────────────────────────────
-    LANE_ORDER = ["york", "fam_events", "steve_events"]
+    LANE_ORDER  = ["york", "fam_events", "steve_events"]
     LANE_LABELS = {"york": "York", "fam_events": "Family", "steve_events": "Steve"}
 
-    # ── organize entries by lane → date → list ───────────────────────────────
+    # ── organize entries by lane → date → list ────────────────────────────────
     lane_data: dict[str, dict[str, list]] = {}
     for e in entry_rows:
         lane = e["lane"]
         lane_data.setdefault(lane, {}).setdefault(e["date"], []).append(e)
 
     lanes_present = [l for l in LANE_ORDER if l in lane_data]
-    # include any extra lanes not in LANE_ORDER
     for l in lane_data:
         if l not in lanes_present:
             lanes_present.append(l)
 
-    # ── organize trips by member ─────────────────────────────────────────────
-    member_by_id = {m["id"]: m for m in members}
+    # ── organize trips by member ──────────────────────────────────────────────
+    member_by_id: dict = {m["id"]: m for m in members}
     member_trips: dict[str, list] = {}
     for t in trip_rows:
         mid = t["member_id"]
         loc = locations.get(t["location_id"] or "", {}) if t["location_id"] else {}
         label = loc.get("display") or loc.get("name") or t["location_id"] or "trip"
         member_trips.setdefault(mid, []).append({
-            "start": date.fromisoformat(t["start_date"]),
-            "end": date.fromisoformat(t["end_date"]),
-            "label": label,
-            "color": _parse_hex(t["color_data"]),
+            "start":      date.fromisoformat(t["start_date"]),
+            "end":        date.fromisoformat(t["end_date"]),
+            "label":      label,
+            "color":      _parse_hex(t["color_data"]),
             "text_color": _parse_hex(t["text_color"]),
         })
 
-    # Only members that have trips in range
+    # Global member ordering (preserves sort_order from DB)
     trip_member_ids = [m["id"] for m in members if m["id"] in member_trips]
 
-    # ── compute image height ──────────────────────────────────────────────────
-    H = ROW_H_DATE + len(lanes_present) * ROW_H_LANE + len(trip_member_ids) * ROW_H_TRIP + 4
+    # ── per-week trip members (those with at least one trip in that week) ─────
+    week_trip_members: list[list] = []
+    for w in range(num_weeks):
+        ws = start_date + timedelta(days=w * 7)
+        we = ws + timedelta(days=6)
+        active = [
+            mid for mid in trip_member_ids
+            if any(not (tr["end"] < ws or tr["start"] > we)
+                   for tr in member_trips.get(mid, []))
+        ]
+        week_trip_members.append(active)
 
-    img = Image.new("RGB", (W, H), C_BG)
+    # ── compute y offsets + total image height ────────────────────────────────
+    week_y: list[int] = []
+    y_cur = DOW_HEADER_H
+    for w in range(num_weeks):
+        week_y.append(y_cur)
+        block_h = (ROW_H_DATE
+                   + len(lanes_present) * ROW_H_LANE
+                   + len(week_trip_members[w]) * ROW_H_TRIP)
+        y_cur += block_h
+        if w < num_weeks - 1:
+            y_cur += WEEK_SEP
+
+    H = y_cur
+
+    img  = Image.new("RGB", (W_TOTAL, H), C_BG)
     draw = ImageDraw.Draw(img)
 
-    # ── today column highlight ────────────────────────────────────────────────
-    if start_date <= today <= start_date + timedelta(days=total_days - 1):
-        col_i = (today - start_date).days
-        x0 = int(LABEL_W + col_i * col_w)
-        x1 = int(LABEL_W + (col_i + 1) * col_w)
-        draw.rectangle([x0, 0, x1, H], fill=C_TODAY_HL)
+    # ── M T W T F S S header row (once at top) ───────────────────────────────
+    DOW_LETTERS = "MTWTFSS"
+    draw.rectangle([0, 0, LABEL_W - 1, DOW_HEADER_H - 1], fill=C_HEADER_WD)
+    for col in range(7):
+        x0 = int(LABEL_W + col * COL_W)
+        x1 = int(LABEL_W + (col + 1) * COL_W)
+        bg = C_HEADER_WE if col >= 5 else C_HEADER_WD
+        draw.rectangle([x0, 0, x1 - 1, DOW_HEADER_H - 1], fill=bg)
+        draw.text(((x0 + x1) // 2, DOW_HEADER_H // 2),
+                  DOW_LETTERS[col], fill=C_LABEL, font=FONT_SM, anchor="mm")
+    # Bottom border of DOW header
+    draw.line([(0, DOW_HEADER_H - 1), (GRID_W, DOW_HEADER_H - 1)], fill=C_GRID, width=1)
 
-    # ── vertical grid lines ───────────────────────────────────────────────────
-    for i in range(total_days + 1):
-        x = int(LABEL_W + i * col_w)
-        draw.line([(x, 0), (x, H)], fill=C_GRID, width=1)
+    # ── week blocks ───────────────────────────────────────────────────────────
+    for w in range(num_weeks):
+        ws   = start_date + timedelta(days=w * 7)
+        we   = ws + timedelta(days=6)
+        wy   = week_y[w]
+        atms = week_trip_members[w]
+        block_h = (ROW_H_DATE
+                   + len(lanes_present) * ROW_H_LANE
+                   + len(atms) * ROW_H_TRIP)
 
-    # ── month boundary lines ──────────────────────────────────────────────────
-    for i in range(1, total_days):
-        d = start_date + timedelta(days=i)
-        if d.day == 1:
-            x = int(LABEL_W + i * col_w)
-            draw.line([(x, 0), (x, H)], fill=C_MONTH_LINE, width=2)
+        # ── date row ──────────────────────────────────────────────────────────
+        # label column (blank)
+        draw.rectangle([0, wy, LABEL_W - 1, wy + ROW_H_DATE - 1], fill=C_HEADER_WD)
 
-    # ── date header row ───────────────────────────────────────────────────────
-    draw.rectangle([0, 0, W, ROW_H_DATE], fill=C_HEADER)
-    for i in range(total_days):
-        d = start_date + timedelta(days=i)
-        x0 = int(LABEL_W + i * col_w)
-        x1 = int(LABEL_W + (i + 1) * col_w)
-        cx = (x0 + x1) // 2
-        is_today = d == today
+        for col in range(7):
+            d   = ws + timedelta(days=col)
+            x0  = int(LABEL_W + col * COL_W)
+            x1  = int(LABEL_W + (col + 1) * COL_W)
+            cx  = (x0 + x1) // 2
+            mid_y = wy + ROW_H_DATE // 2
 
-        dow = "MTWTFSS"[d.weekday()]
-        day_n = str(d.day)
-        top_label = d.strftime("%b") if d.day == 1 else dow
-        top_color = C_ACCENT if (d.day == 1 and is_today) else (C_ACCENT if d.day == 1 else (C_DATE_FG if is_today else C_DATE_MUT))
+            bg = C_HEADER_WE if col >= 5 else C_HEADER_WD
+            draw.rectangle([x0, wy, x1 - 1, wy + ROW_H_DATE - 1], fill=bg)
 
-        draw.text((cx, 5), top_label, fill=top_color, font=FONT_SM, anchor="mt")
+            is_today = d == today
+            is_monday = (col == 0)
 
-        if is_today:
-            r = 9
-            draw.ellipse([cx - r, 18, cx + r, 18 + r * 2], fill=C_TODAY_RING)
-            draw.text((cx, 19), day_n, fill=(255, 255, 255), font=FONT_MD, anchor="mt")
-        else:
-            draw.text((cx, 19), day_n, fill=C_DATE_FG if d.day == 1 else C_DATE_MUT, font=FONT_MD, anchor="mt")
+            # Mondays and month-boundary days show "Mon DD"; others show "DD"
+            if is_monday or d.day == 1:
+                date_label = f"{d.strftime('%b')} {d.day}"
+            else:
+                date_label = str(d.day)
 
-    # ── lane rows ─────────────────────────────────────────────────────────────
-    y = ROW_H_DATE
-    for lane in lanes_present:
-        draw.line([(0, y), (W, y)], fill=C_GRID, width=1)
-        label = LANE_LABELS.get(lane, lane)
-        draw.text((LABEL_W // 2, y + ROW_H_LANE // 2), label, fill=C_LABEL, font=FONT_SM, anchor="mm")
+            # Today and month-boundary (day==1) use C_TODAY; others C_DATE_FG
+            date_color = C_TODAY if (is_today or d.day == 1) else C_DATE_FG
 
-        for i in range(total_days):
-            d = start_date + timedelta(days=i)
-            cells = lane_data.get(lane, {}).get(d.isoformat(), [])
-            if not cells:
-                continue
+            draw.text((cx, mid_y), date_label, fill=date_color, font=FONT_MD, anchor="mm")
 
-            x0 = int(LABEL_W + i * col_w) + 2
-            x1 = int(LABEL_W + (i + 1) * col_w) - 2
+            if is_today:
+                # 2px outline around today's date cell
+                draw.rectangle([x0 + 1, wy + 1, x1 - 2, wy + ROW_H_DATE - 2],
+                               outline=C_TODAY, width=2)
 
-            for j, cell in enumerate(cells[:2]):
-                py0 = y + PILL_PAD_Y + j * (PILL_H + PILL_GAP)
+        # ── vertical grid lines spanning full week block ──────────────────────
+        draw.line([(0, wy), (0, wy + block_h - 1)], fill=C_GRID, width=1)
+        draw.line([(LABEL_W, wy), (LABEL_W, wy + block_h - 1)], fill=C_GRID, width=1)
+        for col in range(1, 7):
+            x = int(LABEL_W + col * COL_W)
+            draw.line([(x, wy), (x, wy + block_h - 1)], fill=C_GRID, width=1)
+
+        # ── month boundary lines (red, 2px, only for col > 0) ─────────────────
+        for col in range(1, 7):
+            d = ws + timedelta(days=col)
+            if d.day == 1:
+                x = int(LABEL_W + col * COL_W)
+                draw.line([(x, wy), (x, wy + block_h - 1)],
+                          fill=C_MONTH_LINE, width=2)
+
+        # ── comment column background (lane + trip rows only, not date row) ───
+        lane_trip_h = len(lanes_present) * ROW_H_LANE + len(atms) * ROW_H_TRIP
+        draw.rectangle(
+            [GRID_W, wy + ROW_H_DATE, W_TOTAL - 1, wy + ROW_H_DATE + lane_trip_h - 1],
+            fill=C_COMMENT_BG,
+        )
+        # TODO: render glance_week_comments[lane_id] text here per week.
+        # See Glance spec §3.2 (comment column).
+
+        # ── lane rows ─────────────────────────────────────────────────────────
+        y = wy + ROW_H_DATE
+        for lane in lanes_present:
+            draw.line([(0, y), (GRID_W - 1, y)], fill=C_GRID, width=1)
+
+            lbl = LANE_LABELS.get(lane, lane)
+            draw.text((LABEL_W // 2, y + ROW_H_LANE // 2),
+                      lbl, fill=C_LABEL, font=FONT_SM, anchor="mm")
+
+            for col in range(7):
+                d     = ws + timedelta(days=col)
+                cells = lane_data.get(lane, {}).get(d.isoformat(), [])
+                if not cells:
+                    continue
+
+                cx0 = int(LABEL_W + col * COL_W) + 2
+                cx1 = int(LABEL_W + (col + 1) * COL_W) - 2
+
+                for j, cell in enumerate(cells[:2]):
+                    py0 = y + LANE_PILL_PAD + j * (PILL_H + PILL_GAP)
+                    py1 = py0 + PILL_H
+                    if py1 > y + ROW_H_LANE - 2:
+                        break
+
+                    pill_c = _parse_hex(cell["color_data"])
+                    if pill_c is None and cell["member_id"]:
+                        mb = member_by_id.get(cell["member_id"])
+                        if mb:
+                            pill_c = _parse_hex(mb["color_bg"])
+                    pill_c = pill_c or C_DEFAULT_PILL
+
+                    draw.rounded_rectangle([cx0, py0, cx1, py1],
+                                           radius=PILL_RADIUS, fill=pill_c)
+
+                    text_c = _parse_hex(cell["text_color"]) or _auto_text(pill_c)
+                    entry_label = (cell["label"] or "").strip()
+                    max_chars = max(1, int((cx1 - cx0 - 4) / 8))
+                    if len(entry_label) > max_chars:
+                        entry_label = entry_label[:max_chars - 1] + "…"
+                    draw.text(((cx0 + cx1) // 2, (py0 + py1) // 2),
+                              entry_label, fill=text_c, font=FONT_SM, anchor="mm")
+
+            y += ROW_H_LANE
+
+        # ── trip rows ─────────────────────────────────────────────────────────
+        for mid in atms:
+            draw.line([(0, y), (GRID_W - 1, y)], fill=C_GRID, width=1)
+
+            mb  = member_by_id.get(mid, {})
+            mlbl = mb.get("display") or mid
+            draw.text((LABEL_W // 2, y + ROW_H_TRIP // 2),
+                      mlbl, fill=C_LABEL, font=FONT_SM, anchor="mm")
+
+            for trip in member_trips.get(mid, []):
+                ts = max(trip["start"], ws)
+                te = min(trip["end"], we)
+                if ts > te:
+                    continue
+
+                col_s = (ts - ws).days
+                col_e = (te - ws).days
+                px0 = int(LABEL_W + col_s * COL_W) + 2
+                px1 = int(LABEL_W + (col_e + 1) * COL_W) - 2
+                py0 = y + TRIP_PILL_PAD
                 py1 = py0 + PILL_H
-                if py1 > y + ROW_H_LANE - 2:
-                    break
 
-                pill_c = _parse_hex(cell["color_data"])
-                if pill_c is None and cell["member_id"]:
-                    m = member_by_id.get(cell["member_id"])
-                    if m:
-                        pill_c = _parse_hex(m["color_bg"])
-                pill_c = pill_c or C_DEFAULT_PILL
+                tc = trip["color"]
+                if tc is None:
+                    tc = (_parse_hex(mb.get("travel_color_bg"))
+                          or _parse_hex(mb.get("color_bg"))
+                          or C_DEFAULT_PILL)
 
-                draw.rounded_rectangle([x0, py0, x1, py1], radius=PILL_RADIUS, fill=pill_c)
+                draw.rounded_rectangle([px0, py0, px1, py1],
+                                       radius=PILL_RADIUS, fill=tc)
 
-                text_c = _parse_hex(cell["text_color"]) or _auto_text(pill_c)
-                entry_label = (cell["label"] or "").strip()
-                max_chars = max(1, int((x1 - x0 - 4) / 6))
-                if len(entry_label) > max_chars:
-                    entry_label = entry_label[:max_chars - 1] + "…"
-                draw.text(((x0 + x1) // 2, (py0 + py1) // 2), entry_label,
-                          fill=text_c, font=FONT_SM, anchor="mm")
+                text_c = trip["text_color"] or _auto_text(tc)
+                trip_label = trip["label"]
+                max_chars = max(1, int((px1 - px0 - 4) / 8))
+                if len(trip_label) > max_chars:
+                    trip_label = trip_label[:max_chars - 1] + "…"
+                draw.text(((px0 + px1) // 2, (py0 + py1) // 2),
+                          trip_label, fill=text_c, font=FONT_SM, anchor="mm")
 
-        y += ROW_H_LANE
+            y += ROW_H_TRIP
 
-    # ── trip rows ─────────────────────────────────────────────────────────────
-    end_date = start_date + timedelta(days=total_days - 1)
-    for mid in trip_member_ids:
-        draw.line([(0, y), (W, y)], fill=C_GRID, width=1)
-        m = member_by_id.get(mid, {})
-        label = m.get("display") or mid
-        draw.text((LABEL_W // 2, y + ROW_H_TRIP // 2), label, fill=C_LABEL, font=FONT_SM, anchor="mm")
-
-        for trip in member_trips.get(mid, []):
-            ts = max(trip["start"], start_date)
-            te = min(trip["end"], end_date)
-            if ts > te:
-                continue
-
-            col_s = (ts - start_date).days
-            col_e = (te - start_date).days
-            px0 = int(LABEL_W + col_s * col_w) + 2
-            px1 = int(LABEL_W + (col_e + 1) * col_w) - 2
-            py0 = y + PILL_PAD_Y
-            py1 = py0 + PILL_H
-
-            tc = trip["color"]
-            if tc is None:
-                tc = _parse_hex(m.get("travel_color_bg")) or _parse_hex(m.get("color_bg")) or C_DEFAULT_PILL
-
-            draw.rounded_rectangle([px0, py0, px1, py1], radius=PILL_RADIUS, fill=tc)
-
-            text_c = trip["text_color"] or _auto_text(tc)
-            trip_label = trip["label"]
-            max_chars = max(1, int((px1 - px0 - 4) / 6))
-            if len(trip_label) > max_chars:
-                trip_label = trip_label[:max_chars - 1] + "…"
-            draw.text(((px0 + px1) // 2, (py0 + py1) // 2), trip_label,
-                      fill=text_c, font=FONT_SM, anchor="mm")
-
-        y += ROW_H_TRIP
+        # ── week separator (2px between blocks, not after last) ───────────────
+        if w < num_weeks - 1:
+            sep_y = wy + block_h
+            draw.rectangle([0, sep_y, GRID_W - 1, sep_y + WEEK_SEP - 1], fill=C_GRID)
 
     buf = io.BytesIO()
     img.save(buf, format="PNG", optimize=True)
@@ -841,7 +921,7 @@ def _render_glance_png(
 @router.get("/glance/render")
 def mobile_glance_render(
     start: Optional[str] = None,
-    weeks: int = 8,
+    weeks: int = 12,
     mobly_session: Optional[str] = Cookie(default=None),
 ):
     if not _check_token(mobly_session):
