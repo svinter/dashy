@@ -14,11 +14,13 @@
   --line-height: 1.6;
 
   --color-bg: #fffff8;
+  --color-bg-alt: #f5f3ee;
   --color-text: #111111;
   --color-text-muted: #555555;
   --color-text-light: #888888;
   --color-text-tertiary: #aaa9a4;
   --color-border: #e0ddd1;
+  --color-border-faint: rgba(0, 0, 0, 0.06);
   --color-accent: #a00000;
   --color-highlight: #fefaec;
   --color-sidebar-bg: #f8f5eb;

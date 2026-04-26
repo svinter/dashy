@@ -80,6 +80,8 @@ function ReadingRow({
     ? FORMAT_ICON[book.owned_format.toLowerCase()] ?? null
     : null;
 
+  const amazonUrl = book.amazon_short_url ?? book.amazon_url;
+
   const shortNote = book.reading_notes
     ? book.reading_notes.length > 60
       ? book.reading_notes.slice(0, 60) + '…'
@@ -109,11 +111,11 @@ function ReadingRow({
           {shortNote && <span className="libby-reading-note-text">{shortNote}</span>}
         </td>
         <td className="libby-reading-links" onClick={e => e.stopPropagation()}>
-          {book.amazon_short_url && (
+          {amazonUrl && (
             <button
               className="libby-result-quick-link"
               title="Amazon"
-              onClick={() => openExternal(book.amazon_short_url!)}
+              onClick={() => openExternal(amazonUrl)}
             >🔗</button>
           )}
           {book.obsidian_link && (
