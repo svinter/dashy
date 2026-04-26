@@ -9925,6 +9925,54 @@ span.news-item-title {
   cursor: default;
 }
 
+.libby-action-btn--danger {
+  color: var(--color-danger, #c0392b);
+  border-color: var(--color-danger, #c0392b);
+}
+
+.libby-action-delete-confirm {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0 10px;
+  border-bottom: 1px solid var(--color-border-faint, #e8e4df);
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+
+.libby-action-delete-prompt {
+  font-size: var(--text-sm);
+  color: var(--color-danger, #c0392b);
+  flex: 1;
+}
+
+.libby-action-delete-yes-btn {
+  font-size: var(--text-sm);
+  padding: 3px 12px;
+  background: var(--color-danger, #c0392b);
+  color: #fff;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.libby-action-delete-yes-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.libby-action-delete-cancel-btn {
+  font-size: var(--text-sm);
+  padding: 3px 10px;
+  background: none;
+  border: 1px solid var(--color-border, #ccc);
+  border-radius: 3px;
+  cursor: pointer;
+  color: var(--color-text-muted, #888);
+  white-space: nowrap;
+}
+
 /* Expanded entry detail (description + categories) */
 .libby-selected-expanded {
   display: flex;

@@ -179,7 +179,8 @@ function LibbyHelpPopup({ onClose }: { onClose: () => void }) {
                 <tr><td className="libby-help-key">a</td><td>apply last label</td></tr>
                 <tr><td className="libby-help-key">B</td><td>back to pick</td></tr>
                 <tr><td className="libby-help-key">c</td><td>copy URL</td></tr>
-                <tr><td className="libby-help-key">d</td><td>doc copy to client folder</td></tr>
+                <tr><td className="libby-help-key">d</td><td>delete entry (with confirm)</td></tr>
+                <tr><td className="libby-help-key">D</td><td>doc copy to client folder</td></tr>
                 <tr><td className="libby-help-key">e</td><td>edit entry fields inline</td></tr>
                 <tr><td className="libby-help-key">l</td><td>label (add/remove topic)</td></tr>
                 <tr><td className="libby-help-key">m</td><td>modify the type of this entry</td></tr>
@@ -1562,6 +1563,36 @@ function CatalogPage() {
   // Inline edit form
   const [editOpen, setEditOpen] = useState(false);
 
+  // ACTION-state delete confirm
+  const [actionDeleteConfirm, setActionDeleteConfirm] = useState(false);
+  const [actionDeleting, setActionDeleting] = useState(false);
+
+  const handleActionDelete = async () => {
+    if (!selected) return;
+    setActionDeleting(true);
+    try {
+      const resp = await fetch(`/api/libby/entries/${selected.id}`, { method: 'DELETE' });
+      if (resp.ok) {
+        const data = await resp.json() as { name: string };
+        setActionDeleteConfirm(false);
+        setSelected(null);
+        setSelectedWebpageUrl(null);
+        setResults(prev => prev.filter(r => r.id !== selected.id));
+        setUiState('SEARCH');
+        showToast(`Deleted: ${data.name}`);
+      } else {
+        const err = await resp.json().catch(() => ({}));
+        showToast((err as { detail?: string }).detail ?? 'Delete failed', 'warning');
+        setActionDeleteConfirm(false);
+      }
+    } catch {
+      showToast('Network error', 'warning');
+      setActionDeleteConfirm(false);
+    } finally {
+      setActionDeleting(false);
+    }
+  };
+
   // URL ?q= pre-fill on mount
   const [searchParams] = useSearchParams();
   useEffect(() => {
@@ -1947,6 +1978,7 @@ function CatalogPage() {
       }
       if (e.key === 'Escape') {
         e.preventDefault();
+        if (actionDeleteConfirm) { setActionDeleteConfirm(false); return; }
         repeatRef.current = null;
         setRepeatDisplay(null);
         setQuery('');
@@ -1962,7 +1994,8 @@ function CatalogPage() {
       if (e.key === 'B') { e.preventDefault(); transitionToPick(); return; }
       if (e.key === 'c') { e.preventDefault(); handleCopy(); return; }
       if (e.key === 'p') { e.preventDefault(); handlePrint(); return; }
-      if (e.key === 'd') { e.preventDefault(); handleCopyDoc(); return; }
+      if (e.key === 'd') { e.preventDefault(); setActionDeleteConfirm(true); return; }
+      if (e.key === 'D') { e.preventDefault(); handleCopyDoc(); return; }
       if (e.key === 'r') { e.preventDefault(); if (selected?.private) { showToast('Cannot record a private entry', 'warning'); return; } if (!sessionCopied || sessionRecorded) return; handleRecord(); return; }
       if (e.key === 'a') { e.preventDefault(); handleApply(); return; }
       if (e.key === 'l') { e.preventDefault(); setLabelQuery(''); setLabelHighlight(0); setLabelMsg(null); setUiState('LABEL'); return; }
@@ -2305,8 +2338,20 @@ function CatalogPage() {
             onToggle={() => setDetailExpanded(prev => !prev)}
           />
 
+          {actionDeleteConfirm && (
+            <div className="libby-action-delete-confirm">
+              <span className="libby-action-delete-prompt">Delete &ldquo;{selected.name}&rdquo;? This cannot be undone.</span>
+              <button className="libby-action-delete-yes-btn" onClick={handleActionDelete} disabled={actionDeleting}>
+                {actionDeleting ? 'deleting…' : 'Yes, delete'}
+              </button>
+              <button className="libby-action-delete-cancel-btn" onClick={() => setActionDeleteConfirm(false)}>
+                Cancel
+              </button>
+            </div>
+          )}
+
           <div className="libby-action-bar">
-            {/* Alphabetical: a b c d e l m o p r v y */}
+            {/* Alphabetical: a b c d D e l m o p r v */}
             <button
               className={`libby-action-btn${!repeatDisplay ? ' libby-action-btn--disabled' : ''}`}
               onClick={handleApply} disabled={!repeatDisplay}
@@ -2317,11 +2362,14 @@ function CatalogPage() {
               <span className="libby-action-key">B</span> back</button>
             <button className="libby-action-btn" onClick={handleCopy} title="c — copy URL">
               <span className="libby-action-key">c</span> copy</button>
+            <button className="libby-action-btn libby-action-btn--danger"
+              onClick={() => setActionDeleteConfirm(true)} title="d — delete this entry">
+              <span className="libby-action-key">d</span> delete</button>
             <button
               className={`libby-action-btn${(!selected.gdoc_id || !activeClientId) ? ' libby-action-btn--disabled' : ''}`}
               onClick={handleCopyDoc} disabled={!selected.gdoc_id || !activeClientId}
-              title={!selected.gdoc_id ? 'd — no doc attached' : !activeClientId ? 'd — select a client first' : 'd — copy doc to client folder'}
-            ><span className="libby-action-key">d</span> doc copy</button>
+              title={!selected.gdoc_id ? 'D — no doc attached' : !activeClientId ? 'D — select a client first' : 'D — copy doc to client folder'}
+            ><span className="libby-action-key">D</span> doc copy</button>
             <button className="libby-action-btn" onClick={() => setEditOpen(true)} title="e — edit entry fields">
               <span className="libby-action-key">e</span> edit</button>
             <button className="libby-action-btn"
@@ -2357,7 +2405,8 @@ function CatalogPage() {
                 <tr><td className="libby-legend-key">a</td><td className="libby-legend-name">apply</td><td className="libby-legend-desc">repeat last label{repeatDisplay && <span className="libby-repeat-inline"> — {repeatDisplay}</span>}</td></tr>
                 <tr><td className="libby-legend-key">B</td><td className="libby-legend-name">back</td><td className="libby-legend-desc">previous state</td></tr>
                 <tr><td className="libby-legend-key">c</td><td className="libby-legend-name">copy</td><td className="libby-legend-desc">copy URL to clipboard</td></tr>
-                <tr><td className="libby-legend-key">d</td><td className="libby-legend-name">doc copy</td><td className="libby-legend-desc">copy doc to client folder + link</td></tr>
+                <tr><td className="libby-legend-key">d</td><td className="libby-legend-name">delete</td><td className="libby-legend-desc">delete this entry (with confirm)</td></tr>
+                <tr><td className="libby-legend-key">D</td><td className="libby-legend-name">doc copy</td><td className="libby-legend-desc">copy doc to client folder + link</td></tr>
                 <tr><td className="libby-legend-key">e</td><td className="libby-legend-name">edit</td><td className="libby-legend-desc">edit entry fields inline</td></tr>
                 <tr><td className="libby-legend-key">l</td><td className="libby-legend-name">label</td><td className="libby-legend-desc">add or remove a topic</td></tr>
                 <tr><td className="libby-legend-key">m</td><td className="libby-legend-name">modify</td><td className="libby-legend-desc">change the type of this entry</td></tr>
