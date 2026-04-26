@@ -2171,6 +2171,10 @@ def _fetch_amazon_metadata(amazon_url: str) -> dict | None:
 def _google_books_search(params: dict) -> list[dict]:
     """Query Google Books API and return up to 5 structured candidates."""
     import httpx
+    from app_config import get_secret as _get_secret
+    api_key = _get_secret("GOOGLE_BOOKS_API_KEY")
+    if api_key:
+        params = {**params, "key": api_key}
     try:
         resp = httpx.get(
             "https://www.googleapis.com/books/v1/volumes",

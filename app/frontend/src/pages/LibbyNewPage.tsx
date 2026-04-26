@@ -198,6 +198,7 @@ function BookCreationForm({
   const handleUnifiedSearch = async (urlOverride?: string) => {
     const hasUrl = (urlOverride ?? lookupUrl).trim();
     const hasTitle = searchTitle.trim();
+    console.log('[BookSearch] handleUnifiedSearch called', { hasUrl: !!hasUrl, hasTitle: !!hasTitle });
     if (!hasUrl && !hasTitle) return;
     setSearching(true);
     setSearchError(null);
@@ -207,32 +208,47 @@ function BookCreationForm({
       const params = new URLSearchParams();
       if (hasUrl) {
         params.set('url', hasUrl);
+        console.log('[BookSearch] URL path:', hasUrl);
       } else {
         params.set('title', hasTitle);
         if (searchAuthor.trim()) params.set('author', searchAuthor.trim());
+        console.log('[BookSearch] Title path:', hasTitle);
       }
       const resp = await fetch(`/api/libby/books/lookup?${params}`);
       const data = await resp.json();
       const cands: BookCandidate[] = data.candidates ?? [];
+      console.log('[BookSearch] candidates:', cands.length, cands.map(c => c.title));
+
       if (hasUrl && cands.length > 0) {
-        // Auto-fill from first candidate (may be a stub for Kindle ASINs)
         const first = cands[0];
-        setName(first.title || '');
-        setAuthor(first.author || '');
-        setIsbn(first.isbn || '');
-        setPublisher(first.publisher || '');
-        setYear(first.year || '');
-        setAmazonUrl(first.amazon_url || '');
-        if (first.amazon_url) setUrl(first.amazon_url);
-        setGoogleBooksId(first.google_books_id || '');
-        if (first.description) setComments(first.description.slice(0, 300));
-        // Show additional candidates (beyond first) in grid
-        setCandidates(cands.length > 1 ? cands.slice(1) : []);
+        const isStub = !first.title;
+        if (isStub) {
+          // Amazon page was blocked — set URL fields only, show message
+          if (first.amazon_url) {
+            setAmazonUrl(first.amazon_url);
+            setUrl(first.amazon_url);
+          }
+          setSearchError("Couldn't extract metadata from Amazon — enter title above and search again, or fill fields manually");
+        } else {
+          // Full candidate: auto-fill form
+          setName(first.title || '');
+          setAuthor(first.author || '');
+          setIsbn(first.isbn || '');
+          setPublisher(first.publisher || '');
+          setYear(first.year || '');
+          setAmazonUrl(first.amazon_url || '');
+          if (first.amazon_url) setUrl(first.amazon_url);
+          setGoogleBooksId(first.google_books_id || '');
+          if (first.description) setComments(first.description.slice(0, 300));
+          // Show additional candidates (different editions) in grid
+          setCandidates(cands.length > 1 ? cands.slice(1) : []);
+        }
       } else {
         setCandidates(cands);
       }
       setSearched(true);
-    } catch {
+    } catch (err) {
+      console.error('[BookSearch] error:', err);
       setSearchError('Lookup failed');
     } finally {
       setSearching(false);
@@ -317,7 +333,7 @@ function BookCreationForm({
             value={searchAuthor}
             onChange={e => setSearchAuthor(e.target.value)}
             onKeyDown={triggerSearch}
-            placeholder="Author (optional)"
+            placeholder="Author"
           />
           <input
             className="libby-form-input"
