@@ -88,6 +88,27 @@ function finishYear(dateStr: string | null): string | null {
   return dateStr.slice(0, 4);
 }
 
+function todayIso(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function isoToDisplay(iso: string): string {
+  // "2025-01-15" → "01/15/25"
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return iso;
+  return `${m[2]}/${m[3]}/${m[1].slice(2)}`;
+}
+
+function displayToIso(display: string): string | null {
+  // "01/15/25" → "2025-01-15"
+  const m = display.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if (!m) return null;
+  const year = m[3].length === 2 ? `20${m[3]}` : m[3];
+  const month = m[1].padStart(2, '0');
+  const day = m[2].padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 // ---------------------------------------------------------------------------
 // Row
 // ---------------------------------------------------------------------------
@@ -104,9 +125,27 @@ function ReadingRow({
   view: ReadingView;
   expanded: boolean;
   onToggle: () => void;
-  onStatusChange: (entryId: number, status: string) => void;
+  onStatusChange: (entryId: number, status: string, dateFinished?: string) => void;
   onCatalogNav: () => void;
 }) {
+  const [showReadPrompt, setShowReadPrompt] = useState(false);
+  const [readDate, setReadDate] = useState('');
+
+  const handleReadClick = () => {
+    setReadDate(isoToDisplay(todayIso()));
+    setShowReadPrompt(true);
+  };
+
+  const handleReadConfirm = () => {
+    const iso = displayToIso(readDate);
+    onStatusChange(book.entry_id, 'read', iso ?? undefined);
+    setShowReadPrompt(false);
+  };
+
+  const handleReadCancel = () => {
+    setShowReadPrompt(false);
+  };
+
   const formatIcon = book.owned_format
     ? FORMAT_ICON[book.owned_format.toLowerCase()] ?? null
     : null;
@@ -226,17 +265,40 @@ function ReadingRow({
 
               {/* Status actions */}
               <div className="libby-reading-detail-actions" onClick={e => e.stopPropagation()}>
-                {book.status !== 'reading' && (
-                  <button className="libby-reading-status-btn" onClick={() => onStatusChange(book.entry_id, 'reading')}>▶ Reading</button>
-                )}
-                {book.status !== 'read' && (
-                  <button className="libby-reading-status-btn" onClick={() => onStatusChange(book.entry_id, 'read')}>✓ Read</button>
-                )}
-                {book.status !== 'discarded' && (
-                  <button className="libby-reading-status-btn libby-reading-status-btn--abandon" onClick={() => onStatusChange(book.entry_id, 'discarded')}>✗ Discard</button>
-                )}
-                {book.status !== 'unread' && (
-                  <button className="libby-reading-status-btn" onClick={() => onStatusChange(book.entry_id, 'unread')}>↩ Unread</button>
+                {showReadPrompt ? (
+                  <div className="libby-reading-date-prompt"
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') { e.preventDefault(); handleReadConfirm(); }
+                      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); handleReadCancel(); }
+                    }}
+                  >
+                    <span className="libby-reading-date-prompt-label">Mark as read — Date finished:</span>
+                    <input
+                      className="libby-reading-date-input"
+                      type="text"
+                      placeholder="MM/DD/YY"
+                      value={readDate}
+                      onChange={e => setReadDate(e.target.value)}
+                      autoFocus
+                    />
+                    <button className="libby-reading-date-confirm-btn" onClick={handleReadConfirm}>Confirm</button>
+                    <button className="libby-reading-date-cancel-btn" onClick={handleReadCancel}>Cancel</button>
+                  </div>
+                ) : (
+                  <>
+                    {book.status !== 'reading' && (
+                      <button className="libby-reading-status-btn" onClick={() => onStatusChange(book.entry_id, 'reading')}>▶ Reading</button>
+                    )}
+                    {book.status !== 'read' && (
+                      <button className="libby-reading-status-btn" onClick={handleReadClick}>✓ Read</button>
+                    )}
+                    {book.status !== 'discarded' && (
+                      <button className="libby-reading-status-btn libby-reading-status-btn--abandon" onClick={() => onStatusChange(book.entry_id, 'discarded')}>✗ Discard</button>
+                    )}
+                    {book.status !== 'unread' && (
+                      <button className="libby-reading-status-btn" onClick={() => onStatusChange(book.entry_id, 'unread')}>↩ Unread</button>
+                    )}
+                  </>
                 )}
               </div>
             </div>
@@ -320,8 +382,10 @@ export function LibbyReadingPage() {
     return groups;
   }, [view, filtered]);
 
-  const handleStatusChange = async (entryId: number, status: string) => {
-    await api.patch(`/libby/reading/${entryId}/status`, { status });
+  const handleStatusChange = async (entryId: number, status: string, dateFinished?: string) => {
+    const body: { status: string; date_finished?: string } = { status };
+    if (dateFinished) body.date_finished = dateFinished;
+    await api.patch(`/libby/reading/${entryId}/status`, body);
     queryClient.invalidateQueries({ queryKey: ['libby-reading'] });
     setExpandedEntryId(null);
   };

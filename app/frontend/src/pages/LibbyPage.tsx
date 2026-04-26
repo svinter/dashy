@@ -216,6 +216,21 @@ function PriorityDots({ priority }: { priority: string }) {
 // Detail panel helpers
 // ---------------------------------------------------------------------------
 
+function isoToDisplay(iso: string): string {
+  // "2025-01-15" → "01/15/25"
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return iso;
+  return `${m[2]}/${m[3]}/${m[1].slice(2)}`;
+}
+
+function displayToIso(display: string): string | null {
+  // "01/15/25" or "1/15/25" → "2025-01-15"
+  const m = display.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if (!m) return null;
+  const year = m[3].length === 2 ? `20${m[3]}` : m[3];
+  return `${year}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}`;
+}
+
 function openDetailUrl(url: string, isObsidian = false) {
   if (isObsidian) {
     openExternal(url);
@@ -620,7 +635,7 @@ function EditForm({
   const [readingStatus, setReadingStatus] = useState(entry.reading_status ?? 'unread');
   const [genre, setGenre] = useState(entry.genre ?? '');
   const [readingPriority, setReadingPriority] = useState(entry.reading_priority != null ? String(entry.reading_priority) : '');
-  const [dateFinished, setDateFinished] = useState(entry.date_finished ?? '');
+  const [dateFinished, setDateFinished] = useState(entry.date_finished ? isoToDisplay(entry.date_finished) : '');
   const [ownedFormat, setOwnedFormat] = useState(entry.owned_format ?? '');
   const [readingNotes, setReadingNotes] = useState(entry.reading_notes ?? '');
   const [saving, setSaving] = useState(false);
@@ -670,7 +685,7 @@ function EditForm({
         body.isbn = isbn.trim() || null;
         body.genre = genre.trim() || null;
         body.reading_status = readingStatus || null;
-        body.date_finished = dateFinished.trim() || null;
+        body.date_finished = dateFinished.trim() ? (displayToIso(dateFinished.trim()) ?? dateFinished.trim()) : null;
         body.owned_format = ownedFormat.trim() || null;
         body.reading_priority = readingPriority ? parseInt(readingPriority, 10) : null;
         body.reading_notes = readingNotes.trim() || null;
@@ -793,7 +808,7 @@ function EditForm({
           </div>
           <div className="libby-edit-field">
             <label className="libby-edit-label">date finished <span className="libby-edit-optional">(optional)</span></label>
-            <input className="libby-edit-input libby-edit-input--short" type="text" placeholder="YYYY-MM-DD"
+            <input className="libby-edit-input libby-edit-input--short" type="text" placeholder="MM/DD/YY"
               value={dateFinished} onChange={e => setDateFinished(e.target.value)} />
           </div>
           <div className="libby-edit-field">

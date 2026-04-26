@@ -3113,6 +3113,7 @@ def get_reading_list(view: str = "queue"):
 
 class ReadingStatusUpdate(BaseModel):
     status: str
+    date_finished: str | None = None
 
 
 @router.patch("/reading/{entry_id}/status")
@@ -3133,10 +3134,16 @@ def update_reading_status(entry_id: int, body: ReadingStatusUpdate):
 
     book_id = row[0]
     with get_write_db() as dbw:
-        dbw.execute(
-            "UPDATE library_books SET status = ? WHERE id = ?",
-            (body.status, book_id),
-        )
+        if body.date_finished is not None:
+            dbw.execute(
+                "UPDATE library_books SET status = ?, date_finished = ? WHERE id = ?",
+                (body.status, body.date_finished.strip() or None, book_id),
+            )
+        else:
+            dbw.execute(
+                "UPDATE library_books SET status = ? WHERE id = ?",
+                (body.status, book_id),
+            )
         dbw.commit()
 
     return {"ok": True, "entry_id": entry_id, "status": body.status}
