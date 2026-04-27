@@ -203,7 +203,8 @@ def search_library(q: str = "", client_id: int | None = None):
             lb.date_finished,
             lb.owned_format,
             lb.reading_priority,
-            lb.reading_notes
+            lb.reading_notes,
+            lb.publisher
         FROM library_entries e
         LEFT JOIN library_books lb ON e.type_code = 'b' AND e.entity_id = lb.id
         LEFT JOIN library_items li ON e.type_code != 'b' AND e.entity_id = li.id
@@ -343,6 +344,7 @@ def search_library(q: str = "", client_id: int | None = None):
             "owned_format": row["owned_format"],
             "reading_priority": row["reading_priority"],
             "reading_notes": row["reading_notes"],
+            "publisher": row["publisher"],
             "_rank": (
                 _PRIORITY_RANK.get(row["priority"], 0),
                 name_score,
@@ -1427,7 +1429,7 @@ def _fetch_entry_dict(db, entry_id: int) -> dict:
             e.gdoc_id, e.comments, e.obsidian_link, e.private,
             lb.categories,
             COALESCE(lb.author, li.author) AS author,
-            lb.year, lb.isbn, lb.subtitle, lb.preview_link,
+            lb.year, lb.isbn, lb.publisher, lb.subtitle, lb.preview_link,
             lb.genre, lb.status AS reading_status, lb.date_finished,
             lb.owned_format, lb.reading_priority, lb.reading_notes,
             li.publication, li.published_date,
@@ -1511,6 +1513,7 @@ def _fetch_entry_dict(db, entry_id: int) -> dict:
         "owned_format": row["owned_format"],
         "reading_priority": row["reading_priority"],
         "reading_notes": row["reading_notes"],
+        "publisher": row["publisher"],
         "last_shared_at": None,
     }
 
@@ -1521,10 +1524,12 @@ class EntryUpdateRequest(BaseModel):
     priority: str | None = None
     url: str | None = None
     topic_ids: list[int] | None = None
+    obsidian_link: str | None = None
     # Book fields
     author: str | None = None
     year: int | None = None
     isbn: str | None = None
+    publisher: str | None = None
     genre: str | None = None
     reading_status: str | None = None
     date_finished: str | None = None
@@ -1584,6 +1589,8 @@ def update_entry(entry_id: int, body: EntryUpdateRequest):
             entry_fields.append(("url", body.url.strip() or None))
         if body.gdoc_id is not None:
             entry_fields.append(("gdoc_id", body.gdoc_id.strip() or None))
+        if body.obsidian_link is not None:
+            entry_fields.append(("obsidian_link", body.obsidian_link.strip() or None))
         if body.private is not None:
             entry_fields.append(("private", int(body.private)))
 
@@ -1604,6 +1611,8 @@ def update_entry(entry_id: int, body: EntryUpdateRequest):
                 book_fields.append(("year", body.year))
             if body.isbn is not None:
                 book_fields.append(("isbn", body.isbn.strip() or None))
+            if body.publisher is not None:
+                book_fields.append(("publisher", body.publisher.strip() or None))
             if body.genre is not None:
                 book_fields.append(("genre", body.genre.strip() or None))
             if body.reading_status is not None:

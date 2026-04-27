@@ -43,6 +43,7 @@ interface LibraryEntry {
   // Rich metadata
   year?: number | null;
   isbn?: string | null;
+  publisher?: string | null;
   subtitle?: string | null;
   preview_link?: string | null;
   publication?: string | null;
@@ -618,12 +619,17 @@ function EditForm({
 }) {
   const tc = entry.type_code;
 
+  const [expanded, setExpanded] = useState(false);
   const [name, setName] = useState(entry.name);
+  const [comments, setComments] = useState(entry.description ?? '');
   const [priority, setPriority] = useState<'high' | 'medium' | 'low'>(entry.priority);
   const [url, setUrl] = useState(entry.url ?? '');
+  const [obsidianLink, setObsidianLink] = useState(entry.obsidian_link ?? '');
+  const [gdocInput, setGdocInput] = useState(entry.gdoc_id ? `https://docs.google.com/document/d/${entry.gdoc_id}/edit` : '');
   const [author, setAuthor] = useState(entry.author ?? '');
   const [year, setYear] = useState(entry.year != null ? String(entry.year) : '');
   const [isbn, setIsbn] = useState(entry.isbn ?? '');
+  const [publisher, setPublisher] = useState(entry.publisher ?? '');
   const [publication, setPublication] = useState(entry.publication ?? '');
   const [publishedDate, setPublishedDate] = useState(entry.published_date ?? '');
   const [synopsis, setSynopsis] = useState(entry.synopsis ?? '');
@@ -674,8 +680,11 @@ function EditForm({
     try {
       const body: Record<string, unknown> = {
         name: name.trim(),
+        comments: comments.trim() || null,
         priority,
         url: url.trim() || null,
+        obsidian_link: obsidianLink.trim() || null,
+        gdoc_id: gdocInput.trim() ? extractGdocId(gdocInput.trim()) : null,
         topic_ids: topicIds,
         private: isPrivate,
       };
@@ -683,6 +692,7 @@ function EditForm({
         body.author = author.trim() || null;
         body.year = year ? parseInt(year, 10) : null;
         body.isbn = isbn.trim() || null;
+        body.publisher = publisher.trim() || null;
         body.genre = genre.trim() || null;
         body.reading_status = readingStatus || null;
         body.date_finished = dateFinished.trim() ? (displayToIso(dateFinished.trim()) ?? dateFinished.trim()) : null;
@@ -735,10 +745,25 @@ function EditForm({
         }
       }}
     >
+      {/* ── Collapsed fields (always visible) ── */}
       <div className="libby-edit-field">
         <label className="libby-edit-label">name</label>
         <input className="libby-edit-input" type="text" value={name}
           onChange={e => setName(e.target.value)} autoFocus />
+      </div>
+
+      {isBook && (
+        <div className="libby-edit-field">
+          <label className="libby-edit-label">author <span className="libby-edit-optional">(optional)</span></label>
+          <input className="libby-edit-input" type="text" value={author}
+            onChange={e => setAuthor(e.target.value)} />
+        </div>
+      )}
+
+      <div className="libby-edit-field">
+        <label className="libby-edit-label">comments <span className="libby-edit-optional">(optional)</span></label>
+        <input className="libby-edit-input" type="text" value={comments}
+          onChange={e => setComments(e.target.value)} />
       </div>
 
       <div className="libby-edit-field">
@@ -758,114 +783,11 @@ function EditForm({
           onChange={e => setUrl(e.target.value)} />
       </div>
 
-      {tc !== 'q' && (
-        <div className="libby-edit-field">
-          <label className="libby-edit-label">
-            {tc === 'p' ? 'host' : 'author'}{' '}
-            <span className="libby-edit-optional">(optional)</span>
-          </label>
-          <input className="libby-edit-input" type="text" value={author}
-            onChange={e => setAuthor(e.target.value)} />
-        </div>
-      )}
-
-      {isBook && (
-        <>
-          <div className="libby-edit-field">
-            <label className="libby-edit-label">year <span className="libby-edit-optional">(optional)</span></label>
-            <input className="libby-edit-input libby-edit-input--short" type="number" value={year}
-              onChange={e => setYear(e.target.value)} />
-          </div>
-          <div className="libby-edit-field">
-            <label className="libby-edit-label">isbn <span className="libby-edit-optional">(optional)</span></label>
-            <input className="libby-edit-input" type="text" value={isbn}
-              onChange={e => setIsbn(e.target.value)} />
-          </div>
-          <div className="libby-edit-field">
-            <label className="libby-edit-label">reading status</label>
-            <div className="libby-edit-priority-row">
-              {(['unread', 'reading', 'read', 'discarded'] as const).map(s => (
-                <button key={s} type="button"
-                  className={`libby-edit-pri-btn${readingStatus === s ? ' libby-edit-pri-btn--active' : ''}`}
-                  onClick={() => setReadingStatus(s)}>{s}</button>
-              ))}
-            </div>
-          </div>
-          <div className="libby-edit-field">
-            <label className="libby-edit-label">genre <span className="libby-edit-optional">(optional)</span></label>
-            <select className="libby-edit-input libby-edit-input--short" value={genre}
-              onChange={e => setGenre(e.target.value)}>
-              <option value="">—</option>
-              <option value="fiction">fiction</option>
-              <option value="nonfiction">nonfiction</option>
-              <option value="coaching">coaching</option>
-            </select>
-          </div>
-          <div className="libby-edit-field">
-            <label className="libby-edit-label">reading priority <span className="libby-edit-optional">(optional)</span></label>
-            <input className="libby-edit-input libby-edit-input--short" type="number" min={1} value={readingPriority}
-              onChange={e => setReadingPriority(e.target.value)} />
-          </div>
-          <div className="libby-edit-field">
-            <label className="libby-edit-label">date finished <span className="libby-edit-optional">(optional)</span></label>
-            <input className="libby-edit-input libby-edit-input--short" type="text" placeholder="MM/DD/YY"
-              value={dateFinished} onChange={e => setDateFinished(e.target.value)} />
-          </div>
-          <div className="libby-edit-field">
-            <label className="libby-edit-label">owned format <span className="libby-edit-optional">(optional)</span></label>
-            <input className="libby-edit-input" type="text" placeholder="e.g. kindle, paperback"
-              value={ownedFormat} onChange={e => setOwnedFormat(e.target.value)} />
-          </div>
-          <div className="libby-edit-field">
-            <label className="libby-edit-label">reading notes <span className="libby-edit-optional">(optional)</span></label>
-            <textarea className="libby-edit-textarea" rows={3} value={readingNotes}
-              onChange={e => setReadingNotes(e.target.value)} />
-          </div>
-        </>
-      )}
-
-      {hasPublication && (
-        <>
-          <div className="libby-edit-field">
-            <label className="libby-edit-label">publication <span className="libby-edit-optional">(optional)</span></label>
-            <input className="libby-edit-input" type="text" value={publication}
-              onChange={e => setPublication(e.target.value)} />
-          </div>
-          <div className="libby-edit-field">
-            <label className="libby-edit-label">date <span className="libby-edit-optional">(optional)</span></label>
-            <input className="libby-edit-input" type="text" placeholder="e.g. 2024-01"
-              value={publishedDate} onChange={e => setPublishedDate(e.target.value)} />
-          </div>
-        </>
-      )}
-
-      {isQuote && (
-        <>
-          <div className="libby-edit-field">
-            <label className="libby-edit-label">quote</label>
-            <textarea className="libby-edit-textarea" rows={3} value={quoteText}
-              onChange={e => setQuoteText(e.target.value)} />
-          </div>
-          <div className="libby-edit-field">
-            <label className="libby-edit-label">attribution <span className="libby-edit-optional">(optional)</span></label>
-            <input className="libby-edit-input" type="text" value={attribution}
-              onChange={e => setAttribution(e.target.value)} />
-          </div>
-          <div className="libby-edit-field">
-            <label className="libby-edit-label">context <span className="libby-edit-optional">(optional)</span></label>
-            <input className="libby-edit-input" type="text" value={context}
-              onChange={e => setContext(e.target.value)} />
-          </div>
-        </>
-      )}
-
-      {hasSynopsis && (
-        <div className="libby-edit-field">
-          <label className="libby-edit-label">synopsis <span className="libby-edit-optional">(optional)</span></label>
-          <textarea className="libby-edit-textarea" rows={3} value={synopsis}
-            onChange={e => setSynopsis(e.target.value)} />
-        </div>
-      )}
+      <div className="libby-edit-field">
+        <label className="libby-edit-label">obsidian <span className="libby-edit-optional">(optional)</span></label>
+        <input className="libby-edit-input" type="text" value={obsidianLink}
+          onChange={e => setObsidianLink(e.target.value)} placeholder="obsidian:// link" />
+      </div>
 
       <div className="libby-edit-field">
         <label className="libby-edit-label">topics</label>
@@ -879,17 +801,153 @@ function EditForm({
         </div>
       </div>
 
-      <div className="libby-edit-field">
-        <label className="libby-edit-label">private</label>
-        <label className="libby-edit-checkbox-label">
-          <input
-            type="checkbox"
-            checked={isPrivate}
-            onChange={e => setIsPrivate(e.target.checked)}
-          />
-          {' '}Private (hide from sharing / record)
-        </label>
+      {/* Toggle */}
+      <div className="libby-creation-expand-row">
+        <button type="button" className="libby-creation-expand-btn" onClick={() => setExpanded(v => !v)}>
+          {expanded ? '▲ less' : '▼ more'}
+        </button>
       </div>
+
+      {/* ── Expanded fields ── */}
+      {expanded && (
+        <>
+          {isBook && (
+            <>
+              <div className="libby-edit-field">
+                <label className="libby-edit-label">isbn <span className="libby-edit-optional">(optional)</span></label>
+                <input className="libby-edit-input" type="text" value={isbn}
+                  onChange={e => setIsbn(e.target.value)} />
+              </div>
+              <div className="libby-edit-field">
+                <label className="libby-edit-label">year <span className="libby-edit-optional">(optional)</span></label>
+                <input className="libby-edit-input libby-edit-input--short" type="number" value={year}
+                  onChange={e => setYear(e.target.value)} />
+              </div>
+              <div className="libby-edit-field">
+                <label className="libby-edit-label">publisher <span className="libby-edit-optional">(optional)</span></label>
+                <input className="libby-edit-input" type="text" value={publisher}
+                  onChange={e => setPublisher(e.target.value)} />
+              </div>
+            </>
+          )}
+
+          <div className="libby-edit-field">
+            <label className="libby-edit-label">gdoc <span className="libby-edit-optional">(optional)</span></label>
+            <input className="libby-edit-input" type="text" value={gdocInput}
+              onChange={e => setGdocInput(e.target.value)} placeholder="Google Doc URL or ID" />
+          </div>
+
+          <div className="libby-edit-field">
+            <label className="libby-edit-label">private</label>
+            <label className="libby-edit-checkbox-label">
+              <input
+                type="checkbox"
+                checked={isPrivate}
+                onChange={e => setIsPrivate(e.target.checked)}
+              />
+              {' '}Private (hide from sharing / record)
+            </label>
+          </div>
+
+          {isBook && (
+            <>
+              <div className="libby-edit-field">
+                <label className="libby-edit-label">genre <span className="libby-edit-optional">(optional)</span></label>
+                <select className="libby-edit-input libby-edit-input--short" value={genre}
+                  onChange={e => setGenre(e.target.value)}>
+                  <option value="">—</option>
+                  <option value="fiction">fiction</option>
+                  <option value="nonfiction">nonfiction</option>
+                  <option value="coaching">coaching</option>
+                </select>
+              </div>
+              <div className="libby-edit-field">
+                <label className="libby-edit-label">reading status</label>
+                <div className="libby-edit-priority-row">
+                  {(['unread', 'reading', 'read', 'discarded'] as const).map(s => (
+                    <button key={s} type="button"
+                      className={`libby-edit-pri-btn${readingStatus === s ? ' libby-edit-pri-btn--active' : ''}`}
+                      onClick={() => setReadingStatus(s)}>{s}</button>
+                  ))}
+                </div>
+              </div>
+              {readingStatus === 'read' && (
+                <div className="libby-edit-field">
+                  <label className="libby-edit-label">date finished <span className="libby-edit-optional">(optional)</span></label>
+                  <input className="libby-edit-input libby-edit-input--short" type="text" placeholder="MM/DD/YY"
+                    value={dateFinished} onChange={e => setDateFinished(e.target.value)} />
+                </div>
+              )}
+              <div className="libby-edit-field">
+                <label className="libby-edit-label">owned format <span className="libby-edit-optional">(optional)</span></label>
+                <input className="libby-edit-input" type="text" placeholder="e.g. kindle, paperback"
+                  value={ownedFormat} onChange={e => setOwnedFormat(e.target.value)} />
+              </div>
+              <div className="libby-edit-field">
+                <label className="libby-edit-label">reading priority <span className="libby-edit-optional">(optional)</span></label>
+                <input className="libby-edit-input libby-edit-input--short" type="number" min={1} value={readingPriority}
+                  onChange={e => setReadingPriority(e.target.value)} />
+              </div>
+              <div className="libby-edit-field">
+                <label className="libby-edit-label">reading notes <span className="libby-edit-optional">(optional)</span></label>
+                <textarea className="libby-edit-textarea" rows={3} value={readingNotes}
+                  onChange={e => setReadingNotes(e.target.value)} />
+              </div>
+            </>
+          )}
+
+          {hasPublication && (
+            <>
+              <div className="libby-edit-field">
+                <label className="libby-edit-label">
+                  {tc !== 'q' ? (tc === 'p' ? 'host' : 'author') : 'attribution'}{' '}
+                  <span className="libby-edit-optional">(optional)</span>
+                </label>
+                <input className="libby-edit-input" type="text" value={author}
+                  onChange={e => setAuthor(e.target.value)} />
+              </div>
+              <div className="libby-edit-field">
+                <label className="libby-edit-label">publication <span className="libby-edit-optional">(optional)</span></label>
+                <input className="libby-edit-input" type="text" value={publication}
+                  onChange={e => setPublication(e.target.value)} />
+              </div>
+              <div className="libby-edit-field">
+                <label className="libby-edit-label">date <span className="libby-edit-optional">(optional)</span></label>
+                <input className="libby-edit-input" type="text" placeholder="e.g. 2024-01"
+                  value={publishedDate} onChange={e => setPublishedDate(e.target.value)} />
+              </div>
+            </>
+          )}
+
+          {isQuote && (
+            <>
+              <div className="libby-edit-field">
+                <label className="libby-edit-label">quote</label>
+                <textarea className="libby-edit-textarea" rows={3} value={quoteText}
+                  onChange={e => setQuoteText(e.target.value)} />
+              </div>
+              <div className="libby-edit-field">
+                <label className="libby-edit-label">attribution <span className="libby-edit-optional">(optional)</span></label>
+                <input className="libby-edit-input" type="text" value={attribution}
+                  onChange={e => setAttribution(e.target.value)} />
+              </div>
+              <div className="libby-edit-field">
+                <label className="libby-edit-label">context <span className="libby-edit-optional">(optional)</span></label>
+                <input className="libby-edit-input" type="text" value={context}
+                  onChange={e => setContext(e.target.value)} />
+              </div>
+            </>
+          )}
+
+          {hasSynopsis && (
+            <div className="libby-edit-field">
+              <label className="libby-edit-label">synopsis <span className="libby-edit-optional">(optional)</span></label>
+              <textarea className="libby-edit-textarea" rows={3} value={synopsis}
+                onChange={e => setSynopsis(e.target.value)} />
+            </div>
+          )}
+        </>
+      )}
 
       {saveError && <div className="libby-edit-error">{saveError}</div>}
 
