@@ -1953,10 +1953,27 @@ class EntryCreateRequest(BaseModel):
     url: str | None = None
     comments: str | None = None
     priority: str = "medium"
-    # Extra fields written to library_items (non-book types only)
+    # library_entries extra fields
+    obsidian_link: str | None = None
+    gdoc_id: str | None = None
+    private: bool = False
+    # library_items fields (non-book types only)
     author: str | None = None
     item_text: str | None = None      # stored in library_items.text
     attribution: str | None = None    # stored in library_items.attribution
+    synopsis: str | None = None       # stored in library_items.notes
+    notes: str | None = None          # stored in library_entries.comments (alias)
+    # Type-specific library_items fields
+    publication: str | None = None
+    published_date: str | None = None
+    show_name: str | None = None
+    episode: str | None = None
+    host: str | None = None
+    context: str | None = None
+    site_name: str | None = None
+    platform: str | None = None
+    pricing: str | None = None
+    vendor: str | None = None
 
 
 @router.post("/entries")
@@ -1990,20 +2007,40 @@ def create_entry(body: EntryCreateRequest, background_tasks: BackgroundTasks):
         entity_cursor = dbw.execute(f"INSERT INTO {table_name} (id) VALUES (NULL)")
         entity_id = entity_cursor.lastrowid
 
-        # For library_items, populate optional metadata fields if provided
-        if table_name == "library_items" and (body.author or body.item_text or body.attribution):
-            dbw.execute(
-                "UPDATE library_items SET author = ?, text = ?, attribution = ? WHERE id = ?",
-                (body.author or None, body.item_text or None, body.attribution or None, entity_id),
-            )
+        # For library_items, populate all provided metadata fields
+        if table_name == "library_items":
+            item_vals: dict[str, object] = {}
+            if body.author is not None: item_vals["author"] = body.author.strip() or None
+            if body.item_text is not None: item_vals["text"] = body.item_text.strip() or None
+            if body.attribution is not None: item_vals["attribution"] = body.attribution.strip() or None
+            if body.synopsis is not None: item_vals["notes"] = body.synopsis.strip() or None
+            if body.publication is not None: item_vals["publication"] = body.publication.strip() or None
+            if body.published_date is not None: item_vals["published_date"] = body.published_date.strip() or None
+            if body.show_name is not None: item_vals["show_name"] = body.show_name.strip() or None
+            if body.episode is not None: item_vals["episode"] = body.episode.strip() or None
+            if body.host is not None: item_vals["host"] = body.host.strip() or None
+            if body.context is not None: item_vals["context"] = body.context.strip() or None
+            if body.site_name is not None: item_vals["site_name"] = body.site_name.strip() or None
+            if body.platform is not None: item_vals["platform"] = body.platform.strip() or None
+            if body.pricing is not None: item_vals["pricing"] = body.pricing.strip() or None
+            if body.vendor is not None: item_vals["vendor"] = body.vendor.strip() or None
+            if item_vals:
+                set_clause = ", ".join(f"{k} = ?" for k in item_vals)
+                dbw.execute(
+                    f"UPDATE library_items SET {set_clause} WHERE id = ?",  # noqa: S608
+                    list(item_vals.values()) + [entity_id],
+                )
 
         # Main entry row
+        comments_val = body.comments or body.notes or None
         entry_cursor = dbw.execute(
             """INSERT INTO library_entries
                (name, type_code, url, comments, priority, entity_id,
+                obsidian_link, gdoc_id, private,
                 needs_enrichment, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, 1, datetime('now'), datetime('now'))""",
-            (name, type_code, body.url or None, body.comments or None, body.priority, entity_id),
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, datetime('now'), datetime('now'))""",
+            (name, type_code, body.url or None, comments_val, body.priority, entity_id,
+             body.obsidian_link or None, body.gdoc_id or None, body.private),
         )
         entry_id = entry_cursor.lastrowid
         dbw.commit()
@@ -2334,6 +2371,16 @@ class BookCreateRequest(BaseModel):
     priority: str = "medium"
     topic_ids: list[int] = []
     status: str = "unread"
+    # Expanded book fields
+    obsidian_link: str | None = None
+    gdoc_id: str | None = None
+    private: bool = False
+    genre: str | None = None
+    reading_status: str | None = None   # overrides status if provided
+    date_finished: str | None = None
+    owned_format: str | None = None
+    reading_priority: int | None = None
+    reading_notes: str | None = None
 
 
 @router.post("/books")
@@ -2364,15 +2411,21 @@ def create_book(body: BookCreateRequest, background_tasks: BackgroundTasks):
         book_cursor = dbw.execute(
             """INSERT INTO library_books
                (author, isbn, publisher, year, cover_url, google_books_id,
-                subtitle, categories, preview_link, authors, status)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                subtitle, categories, preview_link, authors, status,
+                genre, date_finished, owned_format, reading_priority, reading_notes)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (body.author, body.isbn, body.publisher, year_int,
              body.cover_url, body.google_books_id,
              body.subtitle or None,
              _json.dumps(body.categories) if body.categories else None,
              body.preview_link or None,
              _json.dumps(body.authors) if body.authors else None,
-             body.status or "unread"),
+             body.reading_status or body.status or "unread",
+             body.genre or None,
+             body.date_finished or None,
+             body.owned_format or None,
+             body.reading_priority or None,
+             body.reading_notes or None),
         )
         book_id = book_cursor.lastrowid
 
@@ -2380,10 +2433,12 @@ def create_book(body: BookCreateRequest, background_tasks: BackgroundTasks):
         entry_cursor = dbw.execute(
             """INSERT INTO library_entries
                (name, type_code, url, amazon_url, comments, priority, entity_id,
+                obsidian_link, gdoc_id, private,
                 needs_enrichment, created_at, updated_at)
-               VALUES (?, 'b', ?, ?, ?, ?, ?, 1, datetime('now'), datetime('now'))""",
+               VALUES (?, 'b', ?, ?, ?, ?, ?, ?, ?, ?, 1, datetime('now'), datetime('now'))""",
             (name, body.url or None, body.amazon_url or None,
-             body.comments or None, body.priority, book_id),
+             body.comments or None, body.priority, book_id,
+             body.obsidian_link or None, body.gdoc_id or None, body.private),
         )
         entry_id = entry_cursor.lastrowid
 

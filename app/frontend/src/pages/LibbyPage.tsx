@@ -1097,6 +1097,11 @@ function ManifestOverlay({
 // QuickAddModal — create non-book entries without leaving Catalog
 // ---------------------------------------------------------------------------
 
+function extractGdocId(input: string): string {
+  const match = input.match(/\/document\/d\/([a-zA-Z0-9_-]+)/);
+  return match ? match[1] : input;
+}
+
 // Non-book types sorted alphabetically by name
 const NONBOOK_TYPES_ALPHA = [
   { code: 'a', name: 'article' },
@@ -1146,6 +1151,24 @@ function QuickAddModal({
   const [author, setAuthor] = useState('');
   const [text, setText] = useState('');
   const [priority, setPriority] = useState<'high' | 'medium' | 'low'>('medium');
+  const [obsidianLink, setObsidianLink] = useState('');
+
+  // Expand/collapse
+  const [expanded, setExpanded] = useState(false);
+  const [synopsis, setSynopsis] = useState('');
+  const [itemNotes, setItemNotes] = useState('');
+  const [isPrivate, setIsPrivate] = useState(false);
+  const [gdocInput, setGdocInput] = useState('');
+  // Type-specific expanded
+  const [publication, setPublication] = useState('');
+  const [publishedDate, setPublishedDate] = useState('');
+  const [showName, setShowName] = useState('');
+  const [episode, setEpisode] = useState('');
+  const [host, setHost] = useState('');
+  const [platform, setPlatform] = useState('');
+  const [pricing, setPricing] = useState('');
+  const [vendor, setVendor] = useState('');
+  const [siteName, setSiteName] = useState('');
 
   const [fetchLoading, setFetchLoading] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -1185,10 +1208,14 @@ function QuickAddModal({
   const selectType = (code: string) => {
     setTypeCode(code);
     setStep('FILL');
-    setName(''); setUrl(''); setAuthor(''); setText('');
+    setName(''); setUrl(''); setAuthor(''); setText(''); setObsidianLink('');
     setFetchError(null); setFetchedDescription(null);
     setMovieQuery(''); setMovieCandidates([]); setMovieSelectedIdx(null);
     setSaveError(null);
+    setExpanded(false); setSynopsis(''); setItemNotes(''); setIsPrivate(false);
+    setGdocInput(''); setPublication(''); setPublishedDate('');
+    setShowName(''); setEpisode(''); setHost('');
+    setPlatform(''); setPricing(''); setVendor(''); setSiteName('');
   };
 
   const handleFetchMetadata = async () => {
@@ -1253,6 +1280,11 @@ function QuickAddModal({
 
     if (!finalName) { setSaveError('Name is required'); return; }
 
+    const isArticleType = ['a', 'e', 'r'].includes(typeCode);
+    const isPodcastType = typeCode === 'p';
+    const isToolType    = typeCode === 't';
+    const isWebpageType = typeCode === 'w';
+
     const body: Record<string, unknown> = {
       name: finalName,
       type_code: typeCode,
@@ -1262,6 +1294,20 @@ function QuickAddModal({
       author: author.trim() || null,
       item_text: TEXT_TYPES.has(typeCode) ? (text.trim() || null) : null,
       attribution: finalAttribution ?? null,
+      obsidian_link: obsidianLink.trim() || null,
+      gdoc_id: gdocInput.trim() ? extractGdocId(gdocInput.trim()) : null,
+      private: isPrivate,
+      synopsis: synopsis.trim() || null,
+      notes: itemNotes.trim() || null,
+      publication: isArticleType ? (publication.trim() || null) : null,
+      published_date: (isArticleType || isPodcastType) ? (publishedDate.trim() || null) : null,
+      show_name: isPodcastType ? (showName.trim() || null) : null,
+      episode: isPodcastType ? (episode.trim() || null) : null,
+      host: isPodcastType ? (host.trim() || null) : null,
+      platform: isToolType ? (platform.trim() || null) : null,
+      pricing: isToolType ? (pricing.trim() || null) : null,
+      vendor: isToolType ? (vendor.trim() || null) : null,
+      site_name: isWebpageType ? (siteName.trim() || null) : null,
     };
 
     setSaving(true);
@@ -1460,8 +1506,8 @@ function QuickAddModal({
               </div>
             )}
 
-            {/* Author — for URL and quote types */}
-            {(isUrlType || typeCode === 'q') && (
+            {/* Author — for URL, quote, and all non-text non-movie types */}
+            {(isUrlType || typeCode === 'q' || (!isTextType && !isMovie)) && (
               <div className="libby-quickadd-field">
                 <label className="libby-quickadd-label">
                   {typeCode === 'q' ? 'attribution' : 'author'}
@@ -1476,6 +1522,18 @@ function QuickAddModal({
                 />
               </div>
             )}
+
+            {/* Obsidian link */}
+            <div className="libby-quickadd-field">
+              <label className="libby-quickadd-label">obsidian <span className="libby-quickadd-optional">(optional)</span></label>
+              <input
+                className="libby-quickadd-input"
+                type="text"
+                placeholder="[[Note title]]"
+                value={obsidianLink}
+                onChange={e => setObsidianLink(e.target.value)}
+              />
+            </div>
 
             {/* Priority */}
             <div className="libby-quickadd-field">
@@ -1492,6 +1550,97 @@ function QuickAddModal({
                 ))}
               </div>
             </div>
+
+            {/* Expand toggle */}
+            <div className="libby-quickadd-field" style={{ paddingTop: '2px' }}>
+              <button
+                type="button"
+                className="libby-expand-toggle"
+                onClick={() => setExpanded(x => !x)}
+              >
+                {expanded ? '− fewer fields ▲' : '+ more fields ▼'}
+              </button>
+            </div>
+
+            {/* Expanded fields */}
+            {expanded && (
+              <>
+                <div className="libby-quickadd-field">
+                  <label className="libby-quickadd-label">synopsis</label>
+                  <textarea className="libby-quickadd-textarea" value={synopsis} onChange={e => setSynopsis(e.target.value)} placeholder="Brief summary…" rows={3} />
+                </div>
+                <div className="libby-quickadd-field">
+                  <label className="libby-quickadd-label">notes</label>
+                  <textarea className="libby-quickadd-textarea" value={itemNotes} onChange={e => setItemNotes(e.target.value)} placeholder="Private notes…" rows={2} />
+                </div>
+                <div className="libby-quickadd-field">
+                  <label className="libby-quickadd-label">gdoc</label>
+                  <input className="libby-quickadd-input" type="text" placeholder="GDoc URL or ID…" value={gdocInput} onChange={e => setGdocInput(e.target.value)} />
+                </div>
+                <div className="libby-quickadd-field" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <label className="libby-quickadd-label" style={{ marginBottom: 0 }}>private</label>
+                  <input type="checkbox" checked={isPrivate} onChange={e => setIsPrivate(e.target.checked)} />
+                </div>
+                {/* Article / essay / research */}
+                {['a', 'e', 'r'].includes(typeCode) && (
+                  <>
+                    <div className="libby-quickadd-field">
+                      <label className="libby-quickadd-label">publication</label>
+                      <input className="libby-quickadd-input" type="text" placeholder="Publication name…" value={publication} onChange={e => setPublication(e.target.value)} />
+                    </div>
+                    <div className="libby-quickadd-field">
+                      <label className="libby-quickadd-label">published</label>
+                      <input className="libby-quickadd-input" type="text" placeholder="YYYY-MM-DD" value={publishedDate} onChange={e => setPublishedDate(e.target.value)} />
+                    </div>
+                  </>
+                )}
+                {/* Podcast */}
+                {typeCode === 'p' && (
+                  <>
+                    <div className="libby-quickadd-field">
+                      <label className="libby-quickadd-label">show</label>
+                      <input className="libby-quickadd-input" type="text" placeholder="Show name…" value={showName} onChange={e => setShowName(e.target.value)} />
+                    </div>
+                    <div className="libby-quickadd-field">
+                      <label className="libby-quickadd-label">episode</label>
+                      <input className="libby-quickadd-input" type="text" placeholder="Episode title or number…" value={episode} onChange={e => setEpisode(e.target.value)} />
+                    </div>
+                    <div className="libby-quickadd-field">
+                      <label className="libby-quickadd-label">host</label>
+                      <input className="libby-quickadd-input" type="text" placeholder="Host name…" value={host} onChange={e => setHost(e.target.value)} />
+                    </div>
+                    <div className="libby-quickadd-field">
+                      <label className="libby-quickadd-label">published</label>
+                      <input className="libby-quickadd-input" type="text" placeholder="YYYY-MM-DD" value={publishedDate} onChange={e => setPublishedDate(e.target.value)} />
+                    </div>
+                  </>
+                )}
+                {/* Tool */}
+                {typeCode === 't' && (
+                  <>
+                    <div className="libby-quickadd-field">
+                      <label className="libby-quickadd-label">platform</label>
+                      <input className="libby-quickadd-input" type="text" placeholder="macOS, web, iOS…" value={platform} onChange={e => setPlatform(e.target.value)} />
+                    </div>
+                    <div className="libby-quickadd-field">
+                      <label className="libby-quickadd-label">pricing</label>
+                      <input className="libby-quickadd-input" type="text" placeholder="free, $9/mo…" value={pricing} onChange={e => setPricing(e.target.value)} />
+                    </div>
+                    <div className="libby-quickadd-field">
+                      <label className="libby-quickadd-label">vendor</label>
+                      <input className="libby-quickadd-input" type="text" placeholder="Company or maker…" value={vendor} onChange={e => setVendor(e.target.value)} />
+                    </div>
+                  </>
+                )}
+                {/* Webpage */}
+                {typeCode === 'w' && (
+                  <div className="libby-quickadd-field">
+                    <label className="libby-quickadd-label">site</label>
+                    <input className="libby-quickadd-input" type="text" placeholder="Site name…" value={siteName} onChange={e => setSiteName(e.target.value)} />
+                  </div>
+                )}
+              </>
+            )}
 
             {saveError && <div className="libby-quickadd-error">{saveError}</div>}
 

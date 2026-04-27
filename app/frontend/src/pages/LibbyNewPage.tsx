@@ -2,6 +2,17 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useLibbyContext } from '../contexts/LibbyContext';
 
+// URL-based types where the URL field appears in collapsed form
+const URL_TYPES = new Set(['a', 'e', 'p', 'v', 't', 'w', 'd', 'f', 'c', 'r']);
+
+// Types that show article-level expanded fields (publication, published_date)
+const ARTICLE_TYPES = new Set(['a', 'e', 'r']);
+
+function extractGdocId(input: string): string {
+  const match = input.match(/\/document\/d\/([a-zA-Z0-9_-]+)/);
+  return match ? match[1] : input;
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -174,6 +185,18 @@ function BookCreationForm({
   const [priority, setPriority] = useState<'high' | 'medium' | 'low'>('medium');
   const [selectedTopicIds, setSelectedTopicIds] = useState<Set<number>>(new Set());
 
+  // Expand/collapse + expanded book fields
+  const [expanded, setExpanded] = useState(false);
+  const [obsidianLink, setObsidianLink] = useState('');
+  const [gdocInput, setGdocInput] = useState('');
+  const [genre, setGenre] = useState('');
+  const [readingStatus, setReadingStatus] = useState('unread');
+  const [dateFinished, setDateFinished] = useState('');
+  const [ownedFormat, setOwnedFormat] = useState('');
+  const [readingPriority, setReadingPriority] = useState('');
+  const [readingNotes, setReadingNotes] = useState('');
+  const [isPrivate, setIsPrivate] = useState(false);
+
   // Save state
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -269,6 +292,9 @@ function BookCreationForm({
     setComments(''); setPriority('medium'); setSelectedTopicIds(new Set());
     setCandidates([]); setSearched(false); setSearchError(null); setSaveError(null);
     setSearchTitle(''); setSearchAuthor(''); setLookupUrl('');
+    setExpanded(false); setObsidianLink(''); setGdocInput(''); setGenre('');
+    setReadingStatus('unread'); setDateFinished(''); setOwnedFormat('');
+    setReadingPriority(''); setReadingNotes(''); setIsPrivate(false);
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -293,6 +319,15 @@ function BookCreationForm({
           comments: comments.trim() || null,
           priority,
           topic_ids: Array.from(selectedTopicIds),
+          obsidian_link: obsidianLink.trim() || null,
+          gdoc_id: gdocInput.trim() ? extractGdocId(gdocInput.trim()) : null,
+          private: isPrivate,
+          genre: genre.trim() || null,
+          reading_status: readingStatus || null,
+          date_finished: dateFinished.trim() || null,
+          owned_format: ownedFormat.trim() || null,
+          reading_priority: readingPriority ? parseInt(readingPriority, 10) : null,
+          reading_notes: readingNotes.trim() || null,
         }),
       });
       const data = await resp.json();
@@ -447,6 +482,76 @@ function BookCreationForm({
           </div>
         )}
 
+        {/* Expand toggle */}
+        <div className="libby-form-row">
+          <button type="button" className="libby-expand-toggle" onClick={() => setExpanded(x => !x)}>
+            {expanded ? '− fewer fields ▲' : '+ more fields ▼'}
+          </button>
+        </div>
+
+        {/* Expanded book fields */}
+        {expanded && (
+          <>
+            <div className="libby-form-row">
+              <label className="libby-form-label">obsidian</label>
+              <input className="libby-form-input" value={obsidianLink} onChange={e => setObsidianLink(e.target.value)} placeholder="[[Note title]]" spellCheck={false} />
+            </div>
+            <div className="libby-form-row">
+              <label className="libby-form-label">gdoc</label>
+              <input className="libby-form-input" value={gdocInput} onChange={e => setGdocInput(e.target.value)} placeholder="GDoc URL or ID…" spellCheck={false} />
+            </div>
+            <div className="libby-form-row">
+              <label className="libby-form-label">genre</label>
+              <select className="libby-form-input libby-form-select" value={genre} onChange={e => setGenre(e.target.value)}>
+                <option value="">—</option>
+                <option value="fiction">fiction</option>
+                <option value="nonfiction">nonfiction</option>
+                <option value="coaching">coaching</option>
+              </select>
+            </div>
+            <div className="libby-form-row">
+              <label className="libby-form-label">status</label>
+              <select className="libby-form-input libby-form-select" value={readingStatus} onChange={e => setReadingStatus(e.target.value)}>
+                <option value="unread">unread</option>
+                <option value="reading">reading</option>
+                <option value="read">read</option>
+                <option value="discarded">discarded</option>
+              </select>
+            </div>
+            {readingStatus === 'read' && (
+              <div className="libby-form-row">
+                <label className="libby-form-label">finished</label>
+                <input className="libby-form-input libby-form-input--short" value={dateFinished} onChange={e => setDateFinished(e.target.value)} placeholder="YYYY-MM-DD" />
+              </div>
+            )}
+            <div className="libby-form-row">
+              <label className="libby-form-label">format</label>
+              <select className="libby-form-input libby-form-select" value={ownedFormat} onChange={e => setOwnedFormat(e.target.value)}>
+                <option value="">—</option>
+                <option value="kindle">kindle</option>
+                <option value="audible">audible</option>
+                <option value="libro">libro</option>
+              </select>
+            </div>
+            <div className="libby-form-row">
+              <label className="libby-form-label">read priority</label>
+              <select className="libby-form-input libby-form-select" value={readingPriority} onChange={e => setReadingPriority(e.target.value)}>
+                <option value="">—</option>
+                <option value="1">1 — high</option>
+                <option value="2">2 — medium</option>
+              </select>
+            </div>
+            <div className="libby-form-row">
+              <label className="libby-form-label">reading notes</label>
+              <textarea className="libby-form-input libby-form-textarea" value={readingNotes} onChange={e => setReadingNotes(e.target.value)} placeholder="Notes on this book…" rows={3} />
+            </div>
+            <div className="libby-form-row" style={{ alignItems: 'center', gap: '8px' }}>
+              <label className="libby-form-label">private</label>
+              <input type="checkbox" checked={isPrivate} onChange={e => setIsPrivate(e.target.checked)} style={{ width: 'auto', marginTop: '1px' }} />
+            </div>
+          </>
+        )}
+
         {saveError && <div className="libby-admin-error">{saveError}</div>}
         <div className="libby-form-actions">
           <button
@@ -478,20 +583,65 @@ function GenericCreationForm({
   typeName: string;
   onSaved: (name: string) => void;
 }) {
-  const [name, setName] = useState('');
-  const [url, setUrl] = useState('');
-  const [comments, setComments] = useState('');
-  const [priority, setPriority] = useState<'high' | 'medium' | 'low'>('medium');
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const isQuote   = typeCode === 'q';
+  const hasUrl    = URL_TYPES.has(typeCode);
+  const isArticle = ARTICLE_TYPES.has(typeCode);
+  const isPodcast = typeCode === 'p';
+  const isTool    = typeCode === 't';
+  const isWebpage = typeCode === 'w';
+
+  // Collapsed fields
+  const [name, setName]               = useState('');
+  const [author, setAuthor]           = useState('');
+  const [url, setUrl]                 = useState('');
+  const [obsidianLink, setObsidianLink] = useState('');
+  const [priority, setPriority]       = useState<'high' | 'medium' | 'low'>('medium');
+  // Quote-specific collapsed fields
+  const [itemText, setItemText]       = useState('');
+  const [attribution, setAttribution] = useState('');
+  const [context, setContext]         = useState('');
+
+  // Expand/collapse
+  const [expanded, setExpanded]       = useState(false);
+
+  // Expanded fields
+  const [synopsis, setSynopsis]       = useState('');
+  const [itemNotes, setItemNotes]     = useState('');
+  const [isPrivate, setIsPrivate]     = useState(false);
+  const [gdocInput, setGdocInput]     = useState('');
+  // Article / essay / research + podcast
+  const [publication, setPublication] = useState('');
+  const [publishedDate, setPublishedDate] = useState('');
+  // Podcast
+  const [showName, setShowName]       = useState('');
+  const [episode, setEpisode]         = useState('');
+  const [host, setHost]               = useState('');
+  // Tool
+  const [platform, setPlatform]       = useState('');
+  const [pricing, setPricing]         = useState('');
+  const [vendor, setVendor]           = useState('');
+  // Webpage
+  const [siteName, setSiteName]       = useState('');
+
+  const [saving, setSaving]           = useState(false);
+  const [saveError, setSaveError]     = useState<string | null>(null);
 
   const resetForm = () => {
-    setName(''); setUrl(''); setComments(''); setPriority('medium'); setSaveError(null);
+    setName(''); setAuthor(''); setUrl(''); setObsidianLink('');
+    setPriority('medium'); setItemText(''); setAttribution(''); setContext('');
+    setExpanded(false); setSynopsis(''); setItemNotes(''); setIsPrivate(false);
+    setGdocInput(''); setPublication(''); setPublishedDate('');
+    setShowName(''); setEpisode(''); setHost('');
+    setPlatform(''); setPricing(''); setVendor('');
+    setSiteName(''); setSaveError(null);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
+    const finalName = isQuote && !name.trim()
+      ? itemText.trim().slice(0, 80)
+      : name.trim();
+    if (!finalName) return;
     setSaving(true);
     setSaveError(null);
     try {
@@ -499,11 +649,28 @@ function GenericCreationForm({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: name.trim(),
+          name: finalName,
           type_code: typeCode,
           url: url.trim() || null,
-          comments: comments.trim() || null,
           priority,
+          obsidian_link: obsidianLink.trim() || null,
+          gdoc_id: gdocInput.trim() ? extractGdocId(gdocInput.trim()) : null,
+          private: isPrivate,
+          author: !isQuote ? (author.trim() || null) : null,
+          item_text: isQuote ? (itemText.trim() || null) : null,
+          attribution: isQuote ? (attribution.trim() || null) : null,
+          context: isQuote ? (context.trim() || null) : null,
+          synopsis: synopsis.trim() || null,
+          notes: itemNotes.trim() || null,
+          publication: publication.trim() || null,
+          published_date: publishedDate.trim() || null,
+          show_name: showName.trim() || null,
+          episode: episode.trim() || null,
+          host: host.trim() || null,
+          site_name: siteName.trim() || null,
+          platform: platform.trim() || null,
+          pricing: pricing.trim() || null,
+          vendor: vendor.trim() || null,
         }),
       });
       const data = await resp.json();
@@ -520,21 +687,67 @@ function GenericCreationForm({
     }
   };
 
+  const canSave = isQuote ? (itemText.trim().length > 0 || name.trim().length > 0) : name.trim().length > 0;
+
   return (
     <form className="libby-new-form" onSubmit={handleSubmit}>
       <div className="libby-new-form-heading">New {typeName}</div>
+
+      {/* Quote text + attribution + context in collapsed (quotes only) */}
+      {isQuote && (
+        <>
+          <div className="libby-form-row">
+            <label className="libby-form-label">quote *</label>
+            <textarea className="libby-form-input libby-form-textarea" value={itemText} onChange={e => setItemText(e.target.value)} placeholder="Enter the quote…" rows={3} autoFocus />
+          </div>
+          <div className="libby-form-row">
+            <label className="libby-form-label">attribution</label>
+            <input className="libby-form-input" value={attribution} onChange={e => setAttribution(e.target.value)} placeholder="Source or author…" />
+          </div>
+          <div className="libby-form-row">
+            <label className="libby-form-label">context</label>
+            <input className="libby-form-input" value={context} onChange={e => setContext(e.target.value)} placeholder="Where or when encountered…" />
+          </div>
+        </>
+      )}
+
+      {/* Name */}
       <div className="libby-form-row">
-        <label className="libby-form-label">name *</label>
-        <input className="libby-form-input" value={name} onChange={e => setName(e.target.value)} placeholder="Title or name" required autoFocus spellCheck={false} />
+        <label className="libby-form-label">{isQuote ? 'name' : 'name *'}</label>
+        <input
+          className="libby-form-input"
+          value={name}
+          onChange={e => setName(e.target.value)}
+          placeholder={isQuote ? 'Optional — defaults to first 80 chars of quote' : 'Title or name'}
+          required={!isQuote}
+          autoFocus={!isQuote}
+          spellCheck={false}
+        />
       </div>
+
+      {/* Author (all types except Quote) */}
+      {!isQuote && (
+        <div className="libby-form-row">
+          <label className="libby-form-label">author</label>
+          <input className="libby-form-input" value={author} onChange={e => setAuthor(e.target.value)} placeholder="Author name…" spellCheck={false} />
+        </div>
+      )}
+
+      {/* URL (URL-based types only) */}
+      {hasUrl && (
+        <div className="libby-form-row">
+          <label className="libby-form-label">url</label>
+          <input className="libby-form-input" value={url} onChange={e => setUrl(e.target.value)} placeholder="https://…" spellCheck={false} />
+        </div>
+      )}
+
+      {/* Obsidian link */}
       <div className="libby-form-row">
-        <label className="libby-form-label">url</label>
-        <input className="libby-form-input" value={url} onChange={e => setUrl(e.target.value)} placeholder="https://…" spellCheck={false} />
+        <label className="libby-form-label">obsidian</label>
+        <input className="libby-form-input" value={obsidianLink} onChange={e => setObsidianLink(e.target.value)} placeholder="[[Note title]]" spellCheck={false} />
       </div>
-      <div className="libby-form-row">
-        <label className="libby-form-label">comments</label>
-        <textarea className="libby-form-input libby-form-textarea" value={comments} onChange={e => setComments(e.target.value)} placeholder="Brief annotation (optional)" rows={3} />
-      </div>
+
+      {/* Priority */}
       <div className="libby-form-row">
         <label className="libby-form-label">priority</label>
         <select className="libby-form-input libby-form-select" value={priority} onChange={e => setPriority(e.target.value as 'high' | 'medium' | 'low')}>
@@ -543,9 +756,101 @@ function GenericCreationForm({
           <option value="low">low</option>
         </select>
       </div>
+
+      {/* Expand toggle */}
+      <div className="libby-form-row">
+        <button type="button" className="libby-expand-toggle" onClick={() => setExpanded(x => !x)}>
+          {expanded ? '− fewer fields ▲' : '+ more fields ▼'}
+        </button>
+      </div>
+
+      {/* Expanded fields */}
+      {expanded && (
+        <>
+          <div className="libby-form-row">
+            <label className="libby-form-label">synopsis</label>
+            <textarea className="libby-form-input libby-form-textarea" value={synopsis} onChange={e => setSynopsis(e.target.value)} placeholder="Brief summary…" rows={3} />
+          </div>
+          <div className="libby-form-row">
+            <label className="libby-form-label">notes</label>
+            <textarea className="libby-form-input libby-form-textarea" value={itemNotes} onChange={e => setItemNotes(e.target.value)} placeholder="Private notes…" rows={2} />
+          </div>
+          <div className="libby-form-row">
+            <label className="libby-form-label">gdoc</label>
+            <input className="libby-form-input" value={gdocInput} onChange={e => setGdocInput(e.target.value)} placeholder="GDoc URL or ID…" spellCheck={false} />
+          </div>
+          <div className="libby-form-row" style={{ alignItems: 'center', gap: '8px' }}>
+            <label className="libby-form-label">private</label>
+            <input type="checkbox" checked={isPrivate} onChange={e => setIsPrivate(e.target.checked)} style={{ width: 'auto', marginTop: '1px' }} />
+          </div>
+
+          {/* Article / Essay / Research */}
+          {isArticle && (
+            <>
+              <div className="libby-form-row">
+                <label className="libby-form-label">publication</label>
+                <input className="libby-form-input" value={publication} onChange={e => setPublication(e.target.value)} placeholder="Publication name…" />
+              </div>
+              <div className="libby-form-row">
+                <label className="libby-form-label">published</label>
+                <input className="libby-form-input libby-form-input--short" value={publishedDate} onChange={e => setPublishedDate(e.target.value)} placeholder="YYYY-MM-DD" />
+              </div>
+            </>
+          )}
+
+          {/* Podcast */}
+          {isPodcast && (
+            <>
+              <div className="libby-form-row">
+                <label className="libby-form-label">show</label>
+                <input className="libby-form-input" value={showName} onChange={e => setShowName(e.target.value)} placeholder="Show name…" />
+              </div>
+              <div className="libby-form-row">
+                <label className="libby-form-label">episode</label>
+                <input className="libby-form-input" value={episode} onChange={e => setEpisode(e.target.value)} placeholder="Episode title or number…" />
+              </div>
+              <div className="libby-form-row">
+                <label className="libby-form-label">host</label>
+                <input className="libby-form-input" value={host} onChange={e => setHost(e.target.value)} placeholder="Host name…" />
+              </div>
+              <div className="libby-form-row">
+                <label className="libby-form-label">published</label>
+                <input className="libby-form-input libby-form-input--short" value={publishedDate} onChange={e => setPublishedDate(e.target.value)} placeholder="YYYY-MM-DD" />
+              </div>
+            </>
+          )}
+
+          {/* Tool */}
+          {isTool && (
+            <>
+              <div className="libby-form-row">
+                <label className="libby-form-label">platform</label>
+                <input className="libby-form-input" value={platform} onChange={e => setPlatform(e.target.value)} placeholder="macOS, web, iOS…" />
+              </div>
+              <div className="libby-form-row">
+                <label className="libby-form-label">pricing</label>
+                <input className="libby-form-input" value={pricing} onChange={e => setPricing(e.target.value)} placeholder="free, $9/mo…" />
+              </div>
+              <div className="libby-form-row">
+                <label className="libby-form-label">vendor</label>
+                <input className="libby-form-input" value={vendor} onChange={e => setVendor(e.target.value)} placeholder="Company or maker…" />
+              </div>
+            </>
+          )}
+
+          {/* Webpage */}
+          {isWebpage && (
+            <div className="libby-form-row">
+              <label className="libby-form-label">site</label>
+              <input className="libby-form-input" value={siteName} onChange={e => setSiteName(e.target.value)} placeholder="Site name…" />
+            </div>
+          )}
+        </>
+      )}
+
       {saveError && <div className="libby-admin-error">{saveError}</div>}
       <div className="libby-form-actions">
-        <button type="submit" className="libby-admin-btn libby-admin-btn--primary" disabled={saving || !name.trim()}>
+        <button type="submit" className="libby-admin-btn libby-admin-btn--primary" disabled={saving || !canSave}>
           {saving ? 'Saving…' : 'Add to library'}
         </button>
         <button type="button" className="libby-admin-btn" onClick={resetForm}>clear</button>
