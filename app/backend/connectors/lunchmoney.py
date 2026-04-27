@@ -93,6 +93,55 @@ def infer_company_ids_for_existing(db) -> int:
     return updated
 
 
+def dedup_payments(db) -> int:
+    """Remove duplicate billing_payments rows caused by string/int type mismatches.
+
+    Finds groups of rows sharing the same CAST(lunchmoney_transaction_id AS INTEGER).
+    Within each group, keeps the row with the most billing_invoice_payments links
+    (tie-break: lowest id). Deletes the rest along with their invoice_payment rows.
+    Returns the count of rows deleted.
+    """
+    rows = db.execute("""
+        SELECT id, CAST(lunchmoney_transaction_id AS INTEGER) AS norm_id,
+               COUNT(bip.invoice_id) AS link_count
+        FROM billing_payments p
+        LEFT JOIN billing_invoice_payments bip ON bip.payment_id = p.id
+        GROUP BY p.id
+    """).fetchall()
+
+    # Group by normalised transaction id
+    from collections import defaultdict
+    groups: dict[int, list] = defaultdict(list)
+    for r in rows:
+        if r["norm_id"] is not None:
+            groups[r["norm_id"]].append(r)
+
+    deleted = 0
+    for norm_id, members in groups.items():
+        if len(members) < 2:
+            continue
+        # Keep the member with the most invoice links; tie-break on lowest id
+        keeper = max(members, key=lambda r: (r["link_count"], -r["id"]))
+        victims = [r["id"] for r in members if r["id"] != keeper["id"]]
+        logger.info(
+            "dedup_payments: norm_id=%s keeping id=%s, deleting %s",
+            norm_id, keeper["id"], victims,
+        )
+        db.execute(
+            f"DELETE FROM billing_invoice_payments WHERE payment_id IN ({','.join('?'*len(victims))})",
+            victims,
+        )
+        db.execute(
+            f"DELETE FROM billing_payments WHERE id IN ({','.join('?'*len(victims))})",
+            victims,
+        )
+        deleted += len(victims)
+
+    if deleted:
+        db.commit()
+    return deleted
+
+
 def sync_lunchmoney_transactions(days_back: int = 180) -> dict:
     """Fetch recent LunchMoney transactions and upsert into billing_payments.
 
@@ -118,6 +167,8 @@ def sync_lunchmoney_transactions(days_back: int = 180) -> dict:
     auto_matched = 0
 
     with get_write_db() as db:
+        dedup_payments(db)
+
         companies = db.execute("SELECT id, name, abbrev FROM billing_companies").fetchall()
 
         open_invoices = db.execute(
@@ -135,29 +186,24 @@ def sync_lunchmoney_transactions(days_back: int = 180) -> dict:
                 skipped += 1
                 continue
 
-            txn_id = str(txn.id)
+            txn_id = int(txn.id)   # store as int to match INTEGER UNIQUE column affinity
             amount = float(txn.amount)
             txn_date = str(txn.date)
             payee = txn.payee or ""
             notes = getattr(txn, "notes", None) or ""
 
-            existing = db.execute(
-                "SELECT id FROM billing_payments WHERE lunchmoney_transaction_id = ?",
-                (txn_id,),
-            ).fetchone()
-
-            if existing:
-                skipped += 1
-                continue
-
             haystack = (payee + " " + notes).strip()
             company_id = _infer_company_id(haystack, companies)
 
             cur = db.execute(
-                "INSERT INTO billing_payments (lunchmoney_transaction_id, date, amount, payee, notes, company_id) "
+                "INSERT OR IGNORE INTO billing_payments "
+                "(lunchmoney_transaction_id, date, amount, payee, notes, company_id) "
                 "VALUES (?, ?, ?, ?, ?, ?)",
                 (txn_id, txn_date, amount, payee, notes, company_id),
             )
+            if cur.rowcount == 0:
+                skipped += 1
+                continue
             payment_id = cur.lastrowid
             inserted += 1
 
