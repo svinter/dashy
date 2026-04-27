@@ -2054,14 +2054,15 @@ def create_entry(body: EntryCreateRequest, background_tasks: BackgroundTasks):
         entry_id = entry_cursor.lastrowid
         dbw.commit()
 
-    _create_vault_home_page(
-        entry_id=entry_id,
-        type_code=type_code,
-        name=name,
-        url=body.url,
-        comments=body.comments,
-        priority=body.priority,
-    )
+    if not body.obsidian_link:
+        _create_vault_home_page(
+            entry_id=entry_id,
+            type_code=type_code,
+            name=name,
+            url=body.url,
+            comments=body.comments,
+            priority=body.priority,
+        )
     _invalidate_type_counts_cache()
     background_tasks.add_task(_run_tagging_task, entry_id)
     logger.info("Created library entry %d: %r (%s)", entry_id, name, type_code)
@@ -2465,23 +2466,24 @@ def create_book(body: BookCreateRequest, background_tasks: BackgroundTasks):
 
         dbw.commit()
 
-    _create_vault_home_page(
-        entry_id=entry_id,
-        type_code="b",
-        name=name,
-        author=body.author,
-        url=body.url,
-        amazon_url=body.amazon_url,
-        comments=body.comments,
-        priority=body.priority,
-        isbn=body.isbn or None,
-        publisher=body.publisher or None,
-        year=body.year or None,
-        status=body.status or "unread",
-        subtitle=body.subtitle or None,
-        categories=body.categories or None,
-        authors=body.authors or None,
-    )
+    if not body.obsidian_link:
+        _create_vault_home_page(
+            entry_id=entry_id,
+            type_code="b",
+            name=name,
+            author=body.author,
+            url=body.url,
+            amazon_url=body.amazon_url,
+            comments=body.comments,
+            priority=body.priority,
+            isbn=body.isbn or None,
+            publisher=body.publisher or None,
+            year=body.year or None,
+            status=body.status or "unread",
+            subtitle=body.subtitle or None,
+            categories=body.categories or None,
+            authors=body.authors or None,
+        )
     _invalidate_type_counts_cache()
     background_tasks.add_task(_run_tagging_task, entry_id)
     logger.info("Created book entry %d: %r", entry_id, name)
@@ -2772,6 +2774,23 @@ _VAULT_FOLDER_BY_TYPE: dict[str, str | None] = {
     "n": "4 Library/Notes",    "q": None,
 }
 
+# Folders to search per type when looking for an existing vault note.
+# These reflect the actual folder structure in the vault (may differ from
+# the creation target in _VAULT_FOLDER_BY_TYPE).
+_VAULT_SEARCH_FOLDERS: dict[str, list[str]] = {
+    "b": ["4 Library/Books"],
+    "a": ["4 Library/Articles", "4 Library/HBR"],
+    "e": ["4 Library/Essays", "4 Library/Exploring"],
+    "r": ["4 Library/Papers", "4 Library/Coaching Papers",
+          "4 Library/Mgmt Papers", "4 Library/Google overflow"],
+    "t": ["4 Library/Tools", "4 Library/Coaching/Tools"],
+    "s": ["4 Library/Tools"],
+    "n": ["4 Library/Notes", "4 Library/Walkabout"],
+    "p": ["4 Library/Podcasts"],
+    "c": ["4 Library/Courses"],
+    "z": ["4 Library/Coaching/Assessments"],
+}
+
 
 def _vault_entry_path(vault: Path, type_code: str, name: str) -> Path | None:
     """Return the expected Obsidian vault path for an entry, or None if no page."""
@@ -2780,6 +2799,55 @@ def _vault_entry_path(vault: Path, type_code: str, name: str) -> Path | None:
         return None
     slug = _slugify(name)
     return vault / folder / f"{slug}.md"
+
+
+@router.get("/vault/find")
+def vault_find(name: str, type_code: str):
+    """Fuzzy-search vault folders for an existing note matching the entry name.
+
+    Returns {"found": true, "path": ..., "obsidian_link": ..., "score": N}
+    or {"found": false} when no match scores ≥ 85.
+    """
+    import difflib
+    from connectors.obsidian import get_vault_path, get_vault_name
+    from urllib.parse import quote
+
+    folders = _VAULT_SEARCH_FOLDERS.get(type_code, [])
+    if not folders:
+        return {"found": False}
+
+    vault = get_vault_path()
+    if not vault:
+        return {"found": False}
+
+    vault_name = get_vault_name()
+    name_norm = name.lower().strip()
+
+    best_score = 0.0
+    best_path: Path | None = None
+
+    for folder in folders:
+        folder_path = vault / folder
+        if not folder_path.is_dir():
+            continue
+        for md_file in folder_path.rglob("*.md"):
+            stem = md_file.stem.replace("-", " ").replace("_", " ")
+            score = difflib.SequenceMatcher(None, name_norm, stem.lower()).ratio() * 100
+            if score > best_score:
+                best_score = score
+                best_path = md_file
+
+    if best_score >= 85 and best_path is not None:
+        rel = str(best_path.relative_to(vault))
+        link = f"obsidian://open?vault={quote(vault_name or '')}&file={quote(rel)}"
+        return {
+            "found": True,
+            "path": rel,
+            "obsidian_link": link,
+            "score": round(best_score),
+        }
+
+    return {"found": False}
 
 
 # ---------------------------------------------------------------------------

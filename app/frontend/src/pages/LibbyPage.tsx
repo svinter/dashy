@@ -601,6 +601,58 @@ function parseTopicPrefix(query: string): string | null {
 }
 
 // ---------------------------------------------------------------------------
+// VaultFindButton — fuzzy-search vault for an existing note
+// ---------------------------------------------------------------------------
+
+function VaultFindButton({
+  name,
+  typeCode,
+  onFound,
+}: {
+  name: string;
+  typeCode: string;
+  onFound: (link: string) => void;
+}) {
+  const [status, setStatus] = useState<null | 'loading' | 'found' | 'notfound'>(null);
+
+  const handleFind = async () => {
+    if (!name.trim()) return;
+    setStatus('loading');
+    try {
+      const params = new URLSearchParams({ name: name.trim(), type_code: typeCode });
+      const resp = await fetch(`/api/libby/vault/find?${params}`);
+      const data = await resp.json() as { found: boolean; obsidian_link?: string };
+      if (data.found && data.obsidian_link) {
+        onFound(data.obsidian_link);
+        setStatus('found');
+        setTimeout(() => setStatus(null), 3000);
+      } else {
+        setStatus('notfound');
+        setTimeout(() => setStatus(null), 3000);
+      }
+    } catch {
+      setStatus('notfound');
+      setTimeout(() => setStatus(null), 3000);
+    }
+  };
+
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', marginLeft: '6px', flexShrink: 0 }}>
+      <button
+        type="button"
+        onClick={handleFind}
+        disabled={status === 'loading' || !name.trim()}
+        style={{ fontSize: '11px', color: '#999', background: 'none', border: 'none', cursor: 'pointer', padding: '0 2px', textDecoration: 'underline' }}
+      >
+        {status === 'loading' ? 'Searching…' : 'Find'}
+      </button>
+      {status === 'found' && <span style={{ fontSize: '11px', color: '#4a8' }}>Found</span>}
+      {status === 'notfound' && <span style={{ fontSize: '11px', color: '#a44' }}>Not found</span>}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Edit form
 // ---------------------------------------------------------------------------
 
@@ -785,8 +837,12 @@ function EditForm({
 
       <div className="libby-edit-field">
         <label className="libby-edit-label">obsidian <span className="libby-edit-optional">(optional)</span></label>
-        <input className="libby-edit-input" type="text" value={obsidianLink}
-          onChange={e => setObsidianLink(e.target.value)} placeholder="obsidian:// link" />
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          <input className="libby-edit-input" type="text" value={obsidianLink}
+            onChange={e => setObsidianLink(e.target.value)} placeholder="obsidian:// link"
+            style={{ flex: 1 }} />
+          <VaultFindButton name={name} typeCode={tc} onFound={setObsidianLink} />
+        </div>
       </div>
 
       <div className="libby-edit-field">
@@ -1584,13 +1640,17 @@ function QuickAddModal({
             {/* Obsidian link */}
             <div className="libby-quickadd-field">
               <label className="libby-quickadd-label">obsidian <span className="libby-quickadd-optional">(optional)</span></label>
-              <input
-                className="libby-quickadd-input"
-                type="text"
-                placeholder="[[Note title]]"
-                value={obsidianLink}
-                onChange={e => setObsidianLink(e.target.value)}
-              />
+              <div style={{ display: 'flex', alignItems: 'center' }}>
+                <input
+                  className="libby-quickadd-input"
+                  type="text"
+                  placeholder="[[Note title]]"
+                  value={obsidianLink}
+                  onChange={e => setObsidianLink(e.target.value)}
+                  style={{ flex: 1 }}
+                />
+                <VaultFindButton name={name} typeCode={typeCode ?? ''} onFound={setObsidianLink} />
+              </div>
             </div>
 
             {/* Priority */}
