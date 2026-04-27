@@ -81,6 +81,8 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true", default=True)
     parser.add_argument("--apply-confident", action="store_true")
     parser.add_argument("--apply-all", action="store_true")
+    parser.add_argument("--min-score", type=float, default=None,
+                        help="Override minimum score threshold for apply (e.g. 99)")
     args = parser.parse_args()
 
     if args.apply_all or args.apply_confident:
@@ -207,6 +209,11 @@ def main() -> None:
         to_apply = high
     else:
         to_apply = []
+
+    if args.min_score is not None and to_apply:
+        before = len(to_apply)
+        to_apply = [e for e in to_apply if e["score"] >= args.min_score]
+        print(f"--min-score {args.min_score}: filtered {before} → {len(to_apply)} entries")
 
     if to_apply:
         print(f"Applying {len(to_apply)} moves...")
