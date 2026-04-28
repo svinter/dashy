@@ -105,7 +105,7 @@ const BillingScopeContext = createContext<BillingScopeCtx>({
   setMonth: () => {},
   setBillingFilter: () => {},
 });
-function useBillingScope() { return useContext(BillingScopeContext); }
+export function useBillingScope() { return useContext(BillingScopeContext); }
 
 // ---------------------------------------------------------------------------
 // Billing client filter — search index, matching, effectiveCompanyIds
@@ -4725,10 +4725,29 @@ function BillingScopeBar() {
           </button>
         ))}
       </>}
+      <a
+        href="https://mail.google.com/mail/u/0/#drafts"
+        target="_blank"
+        rel="noopener noreferrer"
+        style={{
+          marginLeft: 'auto',
+          fontSize: 'var(--text-xs)',
+          padding: '2px 8px',
+          border: '1px solid var(--color-border)',
+          borderRadius: 3,
+          background: 'transparent',
+          color: 'var(--color-text-light)',
+          cursor: 'pointer',
+          textDecoration: 'none',
+          display: 'inline-flex',
+          alignItems: 'center',
+        }}
+      >
+        Drafts
+      </a>
       <button
         onClick={toggle}
         style={{
-          marginLeft: 'auto',
           fontSize: 'var(--text-xs)',
           padding: '2px 8px',
           border: '1px solid var(--color-border)',
@@ -4738,7 +4757,7 @@ function BillingScopeBar() {
           cursor: 'pointer',
         }}
       >
-        {demo ? 'Demo On' : 'Demo'}
+        {demo ? 'Priceless On' : 'Priceless'}
       </button>
     </div>
   );

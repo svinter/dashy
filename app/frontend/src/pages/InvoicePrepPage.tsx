@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useBillingPrepData, useGenerateInvoices } from '../api/hooks';
 import type { BillingPrepCompany, BillingSession, BillingGenerateResult } from '../api/types';
-import { BillingDateFilter, useDemoMode } from './BillingPage';
+import { BillingDateFilter, useDemoMode, useBillingScope } from './BillingPage';
 import type { BillingDateState } from './BillingPage';
 
 // ---------------------------------------------------------------------------
@@ -772,7 +772,10 @@ export function InvoicePrepPage() {
     </div>
   );
 
-  const companies = prepData.companies;
+  const { effectiveCompanyIds } = useBillingScope();
+  const companies = effectiveCompanyIds
+    ? prepData.companies.filter(co => effectiveCompanyIds.has(co.id))
+    : prepData.companies;
 
   return (
     <div>
