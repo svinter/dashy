@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useBillingPrepData, useGenerateInvoices } from '../api/hooks';
+import { api } from '../api/client';
 import type { BillingPrepCompany, BillingSession, BillingGenerateResult } from '../api/types';
 import { BillingDateFilter, useDemoMode, useBillingScope } from './BillingPage';
 import type { BillingDateState } from './BillingPage';
@@ -122,6 +124,24 @@ function buildDraftLines(
 }
 
 // ---------------------------------------------------------------------------
+// Shared hook: advance on Enter unless focus is in a text field
+// ---------------------------------------------------------------------------
+
+function useEnterToAdvance(onNext: () => void, disabled = false) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== 'Enter' || e.metaKey || e.ctrlKey || e.altKey || disabled) return;
+      const el = document.activeElement;
+      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) return;
+      e.preventDefault();
+      onNext();
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [onNext, disabled]);
+}
+
+// ---------------------------------------------------------------------------
 // Stage 1: Session Review
 // ---------------------------------------------------------------------------
 
@@ -137,6 +157,7 @@ function Stage1({
   onNext: () => void;
 }) {
   const { demo } = useDemoMode();
+  useEnterToAdvance(onNext);
   return (
     <div>
       <p style={{ color: 'var(--color-text-light)', fontSize: 'var(--text-sm)', marginBottom: 'var(--space-lg)' }}>
@@ -261,6 +282,7 @@ function Stage2({
     co.confirmed_sessions.length > 0 ||
     co.projected_sessions.some(s => includedProjectedIds.has(s.id))
   );
+  useEnterToAdvance(onNext);
 
   return (
     <div>
@@ -400,6 +422,9 @@ function Stage3({
 }) {
   const { demo } = useDemoMode();
   const activeCompanies = companies.filter(co => draftByCompany.has(co.id) && (draftByCompany.get(co.id)?.length ?? 0) > 0);
+  const newCompanies = activeCompanies.filter(co => !co.existing_invoice);
+  const replacingCompanies = activeCompanies.filter(co => co.existing_invoice);
+  useEnterToAdvance(onNext, activeCompanies.length === 0 || !!isPending);
 
   const grandTotal = activeCompanies.reduce((sum, co) => {
     const lines = draftByCompany.get(co.id) ?? [];
@@ -487,7 +512,11 @@ function Stage3({
         {error && <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-error)', marginRight: 'auto' }}>{error}</span>}
         <button className="btn-link" onClick={onBack} disabled={isPending}>← Back</button>
         <button className="btn-primary" onClick={onNext} disabled={activeCompanies.length === 0 || isPending}>
-          {isPending ? 'Generating…' : `Generate ${activeCompanies.length} invoice${activeCompanies.length !== 1 ? 's' : ''} →`}
+          {isPending ? 'Generating…' : (
+            replacingCompanies.length > 0
+              ? `Generate ${newCompanies.length} + replace ${replacingCompanies.length} →`
+              : `Generate ${activeCompanies.length} invoice${activeCompanies.length !== 1 ? 's' : ''} →`
+          )}
         </button>
       </div>
     </div>
@@ -644,6 +673,61 @@ function StageBreadcrumb({ stage }: { stage: number }) {
 }
 
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Existing Invoices Modal — portal-rendered confirm dialog
+// ---------------------------------------------------------------------------
+
+interface ExistingInvoicesModalProps {
+  count: number;
+  isPending: boolean;
+  onReplace: () => void;
+  onSkip: () => void;
+  onCancel: () => void;
+}
+
+function ExistingInvoicesModal({ count, isPending, onReplace, onSkip, onCancel }: ExistingInvoicesModalProps) {
+  return createPortal(
+    <div
+      style={{
+        position: 'fixed',
+        top: 0, left: 0, right: 0, bottom: 0,
+        background: 'rgba(0,0,0,0.45)',
+        zIndex: 2000,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+      onClick={e => { if (e.target === e.currentTarget) onCancel(); }}
+    >
+      <div style={{
+        background: 'var(--color-bg)',
+        border: '1px solid var(--color-border)',
+        borderRadius: 6,
+        padding: 'var(--space-lg)',
+        width: 420,
+        maxWidth: '95vw',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 'var(--space-md)',
+      }}>
+        <p style={{ margin: 0, fontSize: 'var(--text-sm)' }}>
+          <strong>{count} invoice{count !== 1 ? 's' : ''}</strong> already exist for this period.
+          Replace them, skip them, or cancel?
+        </p>
+        <div style={{ display: 'flex', gap: 'var(--space-sm)', justifyContent: 'flex-end' }}>
+          <button className="btn-link" onClick={onCancel} disabled={isPending}>Cancel</button>
+          <button className="btn-secondary" onClick={onSkip} disabled={isPending}>Skip existing</button>
+          <button className="btn-primary" onClick={onReplace} disabled={isPending}>
+            {isPending ? 'Working…' : 'Replace existing'}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
 
@@ -700,10 +784,9 @@ export function InvoicePrepPage() {
 
   function goToStage3() {
     if (!prepData) return;
-    // Build draft lines for each active company that doesn't already have an invoice
+    // Build draft lines for all active companies, including those with existing invoices
     const newDraft = new Map<number, DraftLine[]>();
     for (const co of prepData.companies) {
-      if (co.existing_invoice) continue; // already invoiced — skip
       const hasIncluded =
         co.confirmed_sessions.length > 0 ||
         co.projected_sessions.some(s => includedProjectedIds.has(s.id));
@@ -716,16 +799,19 @@ export function InvoicePrepPage() {
   }
 
   const [generateError, setGenerateError] = useState<string | null>(null);
+  const [existingPrompt, setExistingPrompt] = useState<{
+    count: number;
+    ids: number[];
+    companiesPayload: object[];
+  } | null>(null);
 
-  async function handleGenerate() {
-    if (!prepData) return;
-    setGenerateError(null);
-    const companiesPayload = [];
-    for (const co of companies) {
+  function buildPayload(companiesList: typeof companies) {
+    const payload = [];
+    for (const co of companiesList) {
       const lines = draftByCompany.get(co.id);
       if (!lines?.length) continue;
       const invoiceNumOverride = invoiceNumberOverrides.get(co.id)?.trim() || undefined;
-      companiesPayload.push({
+      payload.push({
         company_id: co.id,
         invoice_number: invoiceNumOverride,
         lines: lines.map(l => ({
@@ -740,19 +826,72 @@ export function InvoicePrepPage() {
         })),
       });
     }
+    return payload;
+  }
+
+  async function submitGenerate(companiesPayload: object[]) {
     try {
       const result = await generateMutation.mutateAsync({
         year,
         month,
         invoice_date: invoiceDate,
         services_date: servicesDate,
-        companies: companiesPayload,
+        companies: companiesPayload as Parameters<typeof generateMutation.mutateAsync>[0]['companies'],
       });
       setGenerateResult(result);
       setStage(4);
     } catch (err) {
       setGenerateError(err instanceof Error ? err.message : 'Invoice generation failed');
     }
+  }
+
+  async function handleGenerate() {
+    if (!prepData) return;
+    setGenerateError(null);
+
+    const existingCompanies = companies.filter(co => co.existing_invoice);
+
+    if (existingCompanies.length > 0) {
+      setExistingPrompt({
+        count: existingCompanies.length,
+        ids: existingCompanies.map(co => co.existing_invoice!.id),
+        companiesPayload: buildPayload(companies),
+      });
+      return;
+    }
+
+    await submitGenerate(buildPayload(companies));
+  }
+
+  async function handleExistingReplace() {
+    if (!existingPrompt) return;
+    setGenerateError(null);
+    setExistingPrompt(null);
+    // Delete existing invoices before regenerating
+    try {
+      for (const id of existingPrompt.ids) {
+        await api.delete<{ ok: boolean }>(`/billing/invoices/${id}`);
+      }
+    } catch (err) {
+      setGenerateError(err instanceof Error ? err.message : 'Failed to delete existing invoices');
+      return;
+    }
+    await submitGenerate(existingPrompt.companiesPayload);
+  }
+
+  async function handleExistingSkip() {
+    if (!existingPrompt) return;
+    setGenerateError(null);
+    setExistingPrompt(null);
+    // Only include companies without existing invoices
+    const existingCoIds = new Set(
+      companies
+        .filter(co => co.existing_invoice)
+        .map(co => co.id)
+    );
+    const filteredPayload = (existingPrompt.companiesPayload as Array<{ company_id: number }>)
+      .filter(p => !existingCoIds.has(p.company_id));
+    await submitGenerate(filteredPayload);
   }
 
   if (!year || !month) return <p className="empty-state">Invalid period.</p>;
@@ -827,6 +966,16 @@ export function InvoicePrepPage() {
         <Stage4
           result={generateResult}
           onBack={() => { setStage(1); setGenerateResult(null); }}
+        />
+      )}
+
+      {existingPrompt && (
+        <ExistingInvoicesModal
+          count={existingPrompt.count}
+          isPending={generateMutation.isPending}
+          onReplace={handleExistingReplace}
+          onSkip={handleExistingSkip}
+          onCancel={() => setExistingPrompt(null)}
         />
       )}
     </div>

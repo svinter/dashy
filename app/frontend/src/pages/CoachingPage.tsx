@@ -1451,9 +1451,12 @@ function CompanyForm({ onSuccess }: { onSuccess: (c: SetupConfirmation) => void 
   );
 }
 
-function ClientForm({ companies, onSuccess }: { companies: SetupCompany[]; onSuccess: (c: SetupConfirmation) => void }) {
+function ClientForm({ companies, onSuccess, initialCompanyId }: { companies: SetupCompany[]; onSuccess: (c: SetupConfirmation) => void; initialCompanyId?: string }) {
   const readyCompanies = companies.filter(c => c.gdrive_folder_url);
-  const [companyId, setCompanyId] = useState<string>(readyCompanies[0]?.id.toString() ?? '');
+  const [companyId, setCompanyId] = useState<string>(() => {
+    if (initialCompanyId && readyCompanies.some(c => c.id.toString() === initialCompanyId)) return initialCompanyId;
+    return readyCompanies[0]?.id.toString() ?? '';
+  });
   const [name, setName] = useState('');
   const [obsidianName, setObsidianName] = useState('');
   const [email, setEmail] = useState('');
@@ -2945,6 +2948,17 @@ export function CoachingPage() {
     const handler = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
 
+      // '/' on non-clients page → navigate to clients (filter auto-focuses on mount)
+      if (e.key === '/' && !isClientsPageRef.current) {
+        const focused = document.activeElement;
+        const isInput = focused instanceof HTMLInputElement || focused instanceof HTMLTextAreaElement || (focused as HTMLElement)?.isContentEditable;
+        if (!isInput) {
+          e.preventDefault();
+          navigate('/coaching/clients');
+          return;
+        }
+      }
+
       // ';' always intercepts
       if (e.key === ';') {
         e.preventDefault();
@@ -3120,17 +3134,10 @@ export function CoachingPage() {
             Operations
           </NavLink>
           <button
-            onClick={toggleDemo}
-            className="coaching-demo-btn"
-            style={{ color: 'var(--color-text-light)' }}
-          >
-            {demo ? 'Demo On' : 'Demo'}
-          </button>
-          <button
             onClick={() => reimport.mutate()}
             disabled={reimport.isPending}
             className="coaching-demo-btn"
-            style={{ color: 'var(--color-text-light)', marginLeft: 0 }}
+            style={{ color: 'var(--color-text-light)', marginLeft: 'auto' }}
           >
             {reimport.isPending ? '…' : 'Reimport'}
           </button>

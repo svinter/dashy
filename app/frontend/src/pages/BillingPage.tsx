@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo, createContext, useContext } from 'react';
+import { createPortal } from 'react-dom';
 import { NavLink, Link, Routes, Route, Navigate, useMatch, useNavigate, useParams } from 'react-router-dom';
-import { openExternal } from '../api/client';
+import { api, openExternal } from '../api/client';
 import { InvoicePrepPage } from './InvoicePrepPage';
 import {
   useBillingUnprocessed,
@@ -43,7 +44,7 @@ import {
   useObsidianVault,
   useBillingPayables,
 } from '../api/hooks';
-import type { BillingUnprocessedEvent, BillingCompany, BillingProject, BillingSession, BillingPrepaidBlock, BillingInvoice, BillingInvoiceDetail, BillingSummaryData, BillingSummaryCell, BillingPayment, BillingLunchMoneySyncResult, InvoiceLineInput, InvoiceBulkImportRow, InvoiceBulkImportResult } from '../api/types';
+import type { BillingUnprocessedEvent, BillingCompany, BillingProject, BillingSession, BillingPrepaidBlock, BillingInvoice, BillingInvoiceDetail, BillingSummaryData, BillingSummaryCell, BillingPayment, BillingLunchMoneySyncResult, InvoiceLineInput, InvoiceBulkImportRow, InvoiceBulkImportResult, InvoiceCompose } from '../api/types';
 import { ClientFilterBar } from '../components/shared/ClientFilterBar';
 import type { HelpShortcut } from '../components/shared/ClientFilterBar';
 
@@ -2587,9 +2588,9 @@ function SendInvoiceModal({ invoiceId, onClose }: SendInvoiceModalProps) {
 
   const busy = saveDraft.isPending || sendEmail.isPending;
 
-  return (
+  return createPortal(
     <div
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 6, padding: 'var(--space-lg)', width: 620, maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
@@ -2633,7 +2634,8 @@ function SendInvoiceModal({ invoiceId, onClose }: SendInvoiceModalProps) {
           </>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -3182,6 +3184,28 @@ function InvoicesListView() {
     }
   }
 
+  const [batchDrafting, setBatchDrafting] = useState(false);
+  const [batchDraftResult, setBatchDraftResult] = useState<{ ok: number; err: number } | null>(null);
+
+  async function handleBatchSaveDrafts() {
+    if (invoices.length === 0 || batchDrafting) return;
+    setBatchDrafting(true);
+    setBatchDraftResult(null);
+    let ok = 0, err = 0;
+    for (const inv of invoices) {
+      try {
+        const composed = await api.get<InvoiceCompose>(`/billing/invoices/${inv.id}/compose`);
+        await api.post(`/billing/invoices/${inv.id}/send-draft`, {
+          to: composed.to, cc: composed.cc, subject: composed.subject, body: composed.body,
+        });
+        ok++;
+      } catch { err++; }
+    }
+    setBatchDrafting(false);
+    setBatchDraftResult({ ok, err });
+    setTimeout(() => setBatchDraftResult(null), 5000);
+  }
+
   return (
     <div>
       <div style={{ display: 'flex', gap: 'var(--space-md)', alignItems: 'center', marginBottom: 'var(--space-sm)', flexWrap: 'wrap' }}>
@@ -3189,6 +3213,24 @@ function InvoicesListView() {
         <button className="btn-secondary" style={{ fontSize: 'var(--text-sm)' }} onClick={() => setShowNewInvoice(true)}>+ New Invoice</button>
         <button className="btn-link" style={{ fontSize: 'var(--text-sm)' }} onClick={() => setShowImportCsv(true)}>Import CSV</button>
         <button className="btn-link" style={{ marginLeft: 'auto', fontSize: 'var(--text-sm)' }} onClick={() => refetch()}>↻</button>
+        {invoices.length > 0 && (
+          <button
+            className="btn-link"
+            style={{ fontSize: 'var(--text-sm)', color: batchDrafting ? 'var(--color-text-light)' : 'var(--color-accent)' }}
+            disabled={batchDrafting}
+            onClick={handleBatchSaveDrafts}
+            title="Save Gmail drafts for all filtered invoices"
+          >
+            {batchDrafting ? 'Saving drafts…' : 'Send all'}
+          </button>
+        )}
+        {batchDraftResult && (
+          <span style={{ fontSize: 'var(--text-sm)', color: batchDraftResult.err > 0 ? 'var(--color-error)' : 'var(--color-accent)' }}>
+            {batchDraftResult.err > 0
+              ? `${batchDraftResult.ok} saved, ${batchDraftResult.err} failed`
+              : `${batchDraftResult.ok} draft${batchDraftResult.ok !== 1 ? 's' : ''} saved`}
+          </span>
+        )}
       </div>
       <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginBottom: 'var(--space-md)', flexWrap: 'wrap' }}>
         {(['all', 'draft', 'unpaid', 'paid'] as const).map(s => (
