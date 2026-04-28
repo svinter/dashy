@@ -93,6 +93,26 @@ interface QueueEntry {
   retrying?: boolean;
 }
 
+interface InboxEntry {
+  id: number;
+  name: string;
+  type_code: string;
+  ingest_source: string | null;
+  ingest_original: string | null;
+  url: string | null;
+  comments: string | null;
+  obsidian_link: string | null;
+  created_at: string;
+}
+
+function _relTime(isoStr: string): string {
+  const diff = Math.floor((Date.now() - new Date(isoStr + 'Z').getTime()) / 1000);
+  if (diff < 60) return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+
 interface LibraryTopic {
   id: number;
   code: string;
@@ -207,9 +227,15 @@ function CandidateGrid({
 function BookCreationForm({
   topics,
   onSaved,
+  initialName,
+  initialUrl,
+  initialComments,
 }: {
   topics: LibraryTopic[];
   onSaved: (name: string) => void;
+  initialName?: string;
+  initialUrl?: string;
+  initialComments?: string;
 }) {
   // Lookup inputs
   const [searchTitle, setSearchTitle] = useState('');
@@ -221,7 +247,7 @@ function BookCreationForm({
   const [searched, setSearched] = useState(false);
 
   // Pre-filled form fields
-  const [name, setName] = useState('');
+  const [name, setName] = useState(initialName ?? '');
   const [author, setAuthor] = useState('');
   const [isbn, setIsbn] = useState('');
   const [publisher, setPublisher] = useState('');
@@ -229,7 +255,7 @@ function BookCreationForm({
   const [url, setUrl] = useState('');
   const [amazonUrl, setAmazonUrl] = useState('');
   const [googleBooksId, setGoogleBooksId] = useState('');
-  const [comments, setComments] = useState('');
+  const [comments, setComments] = useState(initialComments ?? '');
   const [priority, setPriority] = useState<'high' | 'medium' | 'low'>('medium');
   const [selectedTopicIds, setSelectedTopicIds] = useState<Set<number>>(new Set());
 
@@ -629,10 +655,16 @@ function GenericCreationForm({
   typeCode,
   typeName,
   onSaved,
+  initialName,
+  initialUrl,
+  initialComments,
 }: {
   typeCode: string;
   typeName: string;
   onSaved: (name: string) => void;
+  initialName?: string;
+  initialUrl?: string;
+  initialComments?: string;
 }) {
   const isQuote   = typeCode === 'q';
   const hasUrl    = URL_TYPES.has(typeCode);
@@ -642,9 +674,9 @@ function GenericCreationForm({
   const isWebpage = typeCode === 'w';
 
   // Collapsed fields
-  const [name, setName]               = useState('');
+  const [name, setName]               = useState(initialName ?? '');
   const [author, setAuthor]           = useState('');
-  const [url, setUrl]                 = useState('');
+  const [url, setUrl]                 = useState(initialUrl ?? '');
   const [obsidianLink, setObsidianLink] = useState('');
   const [priority, setPriority]       = useState<'high' | 'medium' | 'low'>('medium');
   // Quote-specific collapsed fields
@@ -656,7 +688,7 @@ function GenericCreationForm({
   const [expanded, setExpanded]       = useState(false);
 
   // Expanded fields
-  const [synopsis, setSynopsis]       = useState('');
+  const [synopsis, setSynopsis]       = useState(initialComments ?? '');
   const [itemNotes, setItemNotes]     = useState('');
   const [isPrivate, setIsPrivate]     = useState(false);
   const [gdocInput, setGdocInput]     = useState('');
@@ -931,6 +963,10 @@ export function LibbyNewPage() {
   const [topics, setTopics] = useState<LibraryTopic[]>([]);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
 
+  // Inbox state
+  const [inbox, setInbox] = useState<InboxEntry[]>([]);
+  const [classifyingEntry, setClassifyingEntry] = useState<InboxEntry | null>(null);
+
   const loadQueue = () => {
     fetch('/api/libby/queue')
       .then(r => r.ok ? r.json() : { entries: [], count: 0 })
@@ -938,7 +974,15 @@ export function LibbyNewPage() {
       .catch(() => setLoadingQueue(false));
   };
 
+  const loadInbox = () => {
+    fetch('/api/libby/inbox')
+      .then(r => r.ok ? r.json() : { entries: [] })
+      .then(d => setInbox(d.entries ?? []))
+      .catch(() => {});
+  };
+
   useEffect(loadQueue, []);
+  useEffect(loadInbox, []);
 
   // Poll every 3s while any entry is still pending/processing
   useEffect(() => {
@@ -962,7 +1006,21 @@ export function LibbyNewPage() {
 
   const handleCancelType = () => {
     setSelectedType(null);
+    setClassifyingEntry(null);
     setSaveSuccess(null);
+  };
+
+  const handleInboxClick = (entry: InboxEntry) => {
+    setClassifyingEntry(entry);
+    setSelectedType(null);  // show type selector first
+    setSaveSuccess(null);
+  };
+
+  const handleDismissInbox = async (entryId: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    await fetch(`/api/libby/inbox/${entryId}`, { method: 'DELETE' });
+    setInbox(prev => prev.filter(x => x.id !== entryId));
+    if (classifyingEntry?.id === entryId) setClassifyingEntry(null);
   };
 
   // Keyboard shortcuts: Escape deselects type; letter keys select type when none is active
@@ -973,7 +1031,7 @@ export function LibbyNewPage() {
       const inInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
 
       if (e.key === 'Escape') {
-        if (!inInput) setSelectedType(null);
+        if (!inInput) { setSelectedType(null); setClassifyingEntry(null); }
         return;
       }
 
@@ -1007,14 +1065,65 @@ export function LibbyNewPage() {
     setTimeout(() => setSaveSuccess(null), 4000);
     loadQueue();
     refreshQueueCount();
+    // Dismiss inbox entry if we were classifying one
+    if (classifyingEntry) {
+      fetch(`/api/libby/inbox/${classifyingEntry.id}`, { method: 'DELETE' }).catch(() => {});
+      setInbox(prev => prev.filter(x => x.id !== classifyingEntry.id));
+      setClassifyingEntry(null);
+      setSelectedType(null);
+    }
   };
 
   const selectedTypeDef = ALL_TYPES.find(t => t.code === selectedType);
 
+  // Key to force form remount when classifying entry changes
+  const formKey = classifyingEntry ? `inbox-${classifyingEntry.id}-${selectedType}` : `new-${selectedType}`;
+
   return (
     <div className="libby-new-page">
 
+      {/* ── Inbox section ── */}
+      {inbox.length > 0 && (
+        <div className="libby-inbox-section">
+          <div className="libby-inbox-header">
+            Inbox
+            <span className="libby-inbox-count">{inbox.length}</span>
+          </div>
+          <div className="libby-inbox-list">
+            {inbox.map(entry => (
+              <div
+                key={entry.id}
+                className={`libby-inbox-item${classifyingEntry?.id === entry.id ? ' libby-inbox-item--active' : ''}`}
+                onClick={() => handleInboxClick(entry)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={e => { if (e.key === 'Enter') handleInboxClick(entry); }}
+              >
+                <span className="libby-inbox-item-name">{entry.name}</span>
+                <span className="libby-inbox-item-meta">
+                  {entry.ingest_source === 'file' ? '📄' : '🔗'}
+                  {' '}
+                  {entry.ingest_original || entry.url || ''}
+                </span>
+                <span className="libby-inbox-item-time">{_relTime(entry.created_at)}</span>
+                <button
+                  className="libby-inbox-item-dismiss"
+                  title="Dismiss"
+                  onClick={e => handleDismissInbox(entry.id, e)}
+                >×</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* ── Type selector ── */}
+      {classifyingEntry && !selectedType && (
+        <div className="libby-inbox-classifying-banner">
+          Classifying: <strong>{classifyingEntry.name}</strong>
+          <button className="libby-cancel-type" onClick={handleCancelType} title="Cancel">✕</button>
+        </div>
+      )}
       <div className="libby-type-selector">
         {ALL_TYPES.map(t => (
           <button
@@ -1035,21 +1144,34 @@ export function LibbyNewPage() {
       {selectedType && selectedTypeDef ? (
         <div>
           <div className="libby-form-header">
-            <span className="libby-form-type-label">{selectedTypeDef.name}</span>
+            <span className="libby-form-type-label">
+              {classifyingEntry ? `Classifying: ${classifyingEntry.name}` : selectedTypeDef.name}
+            </span>
             <button className="libby-cancel-type" onClick={handleCancelType} title="Cancel (Escape)">✕</button>
           </div>
           {selectedType === 'b' ? (
-            <BookCreationForm topics={topics} onSaved={handleSaved} />
+            <BookCreationForm
+              key={formKey}
+              topics={topics}
+              onSaved={handleSaved}
+              initialName={classifyingEntry?.name}
+              initialUrl={classifyingEntry?.url ?? undefined}
+              initialComments={classifyingEntry?.comments ?? undefined}
+            />
           ) : (
             <GenericCreationForm
+              key={formKey}
               typeCode={selectedType}
               typeName={selectedTypeDef.name}
               onSaved={handleSaved}
+              initialName={classifyingEntry?.name}
+              initialUrl={classifyingEntry?.url ?? undefined}
+              initialComments={classifyingEntry?.comments ?? undefined}
             />
           )}
         </div>
       ) : (
-        <div className="libby-new-prompt">Select a type above to add a new entry</div>
+        !classifyingEntry && <div className="libby-new-prompt">Select a type above to add a new entry</div>
       )}
 
       {/* ── Processing queue ── */}

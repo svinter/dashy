@@ -131,6 +131,29 @@ def copy_drive_file(file_id: str, dest_folder_id: str, original_name: str | None
     }
 
 
+def upload_file(local_path: "Path", folder_id: str, mime_type: str = "application/pdf") -> dict:
+    """Upload a local file to the given Drive folder.
+
+    Returns {id, name, web_url}.
+    """
+    from pathlib import Path as _Path
+    from googleapiclient.http import MediaFileUpload
+
+    local_path = _Path(local_path)
+    service = _drive_service()
+    media = MediaFileUpload(str(local_path), mimetype=mime_type, resumable=True)
+    result = service.files().create(
+        body={"name": local_path.name, "parents": [folder_id]},
+        media_body=media,
+        fields="id, name, webViewLink",
+    ).execute()
+    return {
+        "id": result["id"],
+        "name": result["name"],
+        "web_url": result.get("webViewLink", f"https://drive.google.com/file/d/{result['id']}/view"),
+    }
+
+
 def sync_drive_files() -> int:
     """Sync recently modified Drive files to local database."""
     creds = get_google_credentials()

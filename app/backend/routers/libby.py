@@ -3113,6 +3113,51 @@ def _create_vault_home_page(
 
 
 # ---------------------------------------------------------------------------
+# GET /api/libby/inbox — entries awaiting type classification
+# DELETE /api/libby/inbox/{id} — dismiss (delete) an inbox entry
+# ---------------------------------------------------------------------------
+
+@router.get("/inbox")
+def get_inbox():
+    """Return all library_entries where needs_review = 1, newest first."""
+    db = get_db()
+    rows = db.execute(
+        """SELECT id, name, type_code, ingest_source, ingest_original,
+                  url, comments, obsidian_link, created_at
+           FROM library_entries
+           WHERE needs_review = 1
+           ORDER BY created_at DESC"""
+    ).fetchall()
+    entries = [dict(r) for r in rows]
+    return {"entries": entries, "count": len(entries)}
+
+
+@router.delete("/inbox/{entry_id}")
+def dismiss_inbox_entry(entry_id: int):
+    """Delete an inbox entry (and its library_items entity row)."""
+    db = get_db()
+    row = db.execute(
+        "SELECT entity_id, type_code FROM library_entries WHERE id = ? AND needs_review = 1",
+        (entry_id,),
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Inbox entry not found")
+
+    entity_id = row["entity_id"]
+    tc = row["type_code"]
+
+    with get_write_db() as dbw:
+        dbw.execute("DELETE FROM library_entry_topics WHERE entry_id = ?", (entry_id,))
+        dbw.execute("DELETE FROM library_entries WHERE id = ?", (entry_id,))
+        if tc != "b" and entity_id:
+            dbw.execute("DELETE FROM library_items WHERE id = ?", (entity_id,))
+        dbw.commit()
+
+    _invalidate_type_counts_cache()
+    return {"status": "dismissed", "id": entry_id}
+
+
+# ---------------------------------------------------------------------------
 # GET /api/libby/reading
 # ---------------------------------------------------------------------------
 
