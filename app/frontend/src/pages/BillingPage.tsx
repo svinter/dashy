@@ -3205,7 +3205,7 @@ function InvoicesListView() {
         >
           {filterUnlinked ? '● ' : '○ '}Needs reconciliation
         </button>
-        {allInvoices.length > 0 && (
+        {invoices.length > 0 && (
           <button
             className="btn-link"
             style={{ fontSize: 'var(--text-sm)', color: '#c0392b', marginLeft: 'auto' }}
@@ -3214,12 +3214,12 @@ function InvoicesListView() {
               const label = month !== null
                 ? `${MONTH_LABELS[month - 1]} ${year}`
                 : String(year);
-              if (window.confirm(`Delete all ${allInvoices.length} invoice(s) for ${label}? This cannot be undone.`)) {
-                deleteAllMut.mutate(allInvoices.map(inv => inv.id));
+              if (window.confirm(`Delete all ${invoices.length} invoice(s) for ${label}? This cannot be undone.`)) {
+                deleteAllMut.mutate(invoices.map(inv => inv.id));
               }
             }}
           >
-            Delete All ({allInvoices.length})
+            Delete All ({invoices.length})
           </button>
         )}
       </div>
@@ -4725,10 +4725,8 @@ function BillingScopeBar() {
           </button>
         ))}
       </>}
-      <a
-        href="https://mail.google.com/mail/u/0/#drafts"
-        target="_blank"
-        rel="noopener noreferrer"
+      <button
+        onClick={() => window.open('https://mail.google.com/mail/u/0/#drafts', '_blank', 'noopener,noreferrer')}
         style={{
           marginLeft: 'auto',
           fontSize: 'var(--text-xs)',
@@ -4738,13 +4736,10 @@ function BillingScopeBar() {
           background: 'transparent',
           color: 'var(--color-text-light)',
           cursor: 'pointer',
-          textDecoration: 'none',
-          display: 'inline-flex',
-          alignItems: 'center',
         }}
       >
         Drafts
-      </a>
+      </button>
       <button
         onClick={toggle}
         style={{

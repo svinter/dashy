@@ -721,7 +721,7 @@ export function InvoicePrepPage() {
     if (!prepData) return;
     setGenerateError(null);
     const companiesPayload = [];
-    for (const co of prepData.companies) {
+    for (const co of companies) {
       const lines = draftByCompany.get(co.id);
       if (!lines?.length) continue;
       const invoiceNumOverride = invoiceNumberOverrides.get(co.id)?.trim() || undefined;
