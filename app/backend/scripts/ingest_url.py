@@ -108,6 +108,16 @@ def _safe_filename(name: str) -> str:
     return re.sub(r"[^\w\s-]", "", name).strip().replace(" ", "-")[:80]
 
 
+def _url_to_filename(url: str) -> str:
+    """Convert URL to a readable filename when title extraction fails."""
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    host = parsed.netloc.replace("www.", "")
+    path = parsed.path.strip("/").replace("/", " — ")
+    slug = f"{host} — {path}" if path else host
+    return re.sub(r'[<>:"/\\|?*]', "", slug)[:100]
+
+
 def _create_vault_stub(
     vault: Path,
     vault_name: str,
@@ -168,7 +178,12 @@ def main() -> None:
     if meta.get("error"):
         print(f"WARN: could not fetch page ({meta['error']}) — creating stub with URL only")
 
-    title = meta.get("title") or url
+    raw_title = meta.get("title")
+    # Use clean slug when title is missing or equals the raw URL
+    if not raw_title or raw_title == url:
+        title = _url_to_filename(url)
+    else:
+        title = raw_title
     author = meta.get("author")
     description = meta.get("description")
     published_date = meta.get("published_date")
