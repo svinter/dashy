@@ -1086,8 +1086,8 @@ export function LibbyNewPage() {
       {inbox.length > 0 && (
         <div className="libby-inbox-section">
           <div className="libby-inbox-header">
-            Inbox
-            <span className="libby-inbox-count">{inbox.length}</span>
+            <span className="libby-section-label">INBOX</span>
+            <span className="libby-inbox-count">({inbox.length})</span>
           </div>
           <div className="libby-inbox-list">
             {inbox.map(entry => (
@@ -1099,18 +1099,20 @@ export function LibbyNewPage() {
                 tabIndex={0}
                 onKeyDown={e => { if (e.key === 'Enter') handleInboxClick(entry); }}
               >
-                <span className="libby-inbox-item-name">{entry.name}</span>
-                <span className="libby-inbox-item-meta">
-                  {entry.ingest_source === 'file' ? '📄' : '🔗'}
-                  {' '}
-                  {entry.ingest_original || entry.url || ''}
-                </span>
-                <span className="libby-inbox-item-time">{_relTime(entry.created_at)}</span>
-                <button
-                  className="libby-inbox-item-dismiss"
-                  title="Dismiss"
-                  onClick={e => handleDismissInbox(entry.id, e)}
-                >×</button>
+                <div className="libby-inbox-item-line1">
+                  <span className="libby-inbox-item-name">{entry.name}</span>
+                  <span className="libby-inbox-item-icon">{entry.ingest_source === 'file' ? '📄' : '🔗'}</span>
+                </div>
+                <div className="libby-inbox-item-line2">
+                  <span className="libby-inbox-item-source">{entry.ingest_original || entry.url || ''}</span>
+                  <span className="libby-inbox-item-sep"> · </span>
+                  <span className="libby-inbox-item-time">{_relTime(entry.created_at)}</span>
+                  <button
+                    className="libby-inbox-item-dismiss"
+                    title="Dismiss"
+                    onClick={e => handleDismissInbox(entry.id, e)}
+                  >×</button>
+                </div>
               </div>
             ))}
           </div>

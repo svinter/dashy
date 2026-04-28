@@ -360,13 +360,13 @@ def search_library(q: str = "", client_id: int | None = None):
 
     # Persist any cover_urls we just derived so next fetch is free
     if _pending_covers:
-        wdb = get_write_db()
-        for _cov, _eid in _pending_covers:
-            wdb.execute(
-                "UPDATE library_entries SET cover_url = ? WHERE id = ? AND cover_url IS NULL",
-                (_cov, _eid),
-            )
-        wdb.commit()
+        with get_write_db() as wdb:
+            for _cov, _eid in _pending_covers:
+                wdb.execute(
+                    "UPDATE library_entries SET cover_url = ? WHERE id = ? AND cover_url IS NULL",
+                    (_cov, _eid),
+                )
+            wdb.commit()
 
     # Bulk-fetch last_shared_at for active client
     if client_id and results:
@@ -1924,7 +1924,13 @@ def get_queue():
         }
         for r in rows
     ]
-    return {"entries": entries, "count": len(entries)}
+    # Also count inbox items (needs_review=1) for the New tab badge
+    inbox_count_row = db.execute(
+        "SELECT COUNT(*) FROM library_entries WHERE needs_review = 1"
+    ).fetchone()
+    inbox_count = inbox_count_row[0] if inbox_count_row else 0
+    total_count = len(entries) + inbox_count
+    return {"entries": entries, "count": total_count, "processing_count": len(entries), "inbox_count": inbox_count}
 
 
 @router.post("/entries/{entry_id}/enrich", status_code=202)

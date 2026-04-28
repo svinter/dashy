@@ -104,12 +104,15 @@ def _fetch_metadata(url: str) -> dict:
 
 # ── Vault stub ───────────────────────────────────────────────────────────────
 
-def _safe_filename(name: str) -> str:
-    return re.sub(r"[^\w\s-]", "", name).strip().replace(" ", "-")[:80]
+def _safe_vault_filename(title: str) -> str:
+    """Strip special chars, keep only letters, numbers, spaces."""
+    clean = re.sub(r"[^a-zA-Z0-9 ]", "", title)
+    clean = re.sub(r"\s+", " ", clean).strip()
+    return clean[:100]
 
 
-def _url_to_filename(url: str) -> str:
-    """Convert URL to a readable filename when title extraction fails."""
+def _url_to_slug(url: str) -> str:
+    """Convert URL to a readable slug when title extraction fails."""
     from urllib.parse import urlparse
     parsed = urlparse(url)
     host = parsed.netloc.replace("www.", "")
@@ -132,7 +135,7 @@ def _create_vault_stub(
     folder_path = vault / inbox_folder
     folder_path.mkdir(parents=True, exist_ok=True)
 
-    safe_stem = _safe_filename(title or url)
+    safe_stem = _safe_vault_filename(title) if title else _url_to_slug(url)
     note_path = folder_path / f"{safe_stem}.md"
 
     lines = ["---"]
@@ -181,7 +184,7 @@ def main() -> None:
     raw_title = meta.get("title")
     # Use clean slug when title is missing or equals the raw URL
     if not raw_title or raw_title == url:
-        title = _url_to_filename(url)
+        title = _url_to_slug(url)
     else:
         title = raw_title
     author = meta.get("author")

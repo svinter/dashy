@@ -42,8 +42,11 @@ def _title_from_filename(filename: str) -> str:
     return re.sub(r"[-_]+", " ", stem).strip()
 
 
-def _safe_filename(name: str) -> str:
-    return re.sub(r"[^\w\s-]", "", name).strip().replace(" ", "-")[:80]
+def _safe_vault_filename(title: str) -> str:
+    """Strip special chars, keep only letters, numbers, spaces."""
+    clean = re.sub(r"[^a-zA-Z0-9 ]", "", title)
+    clean = re.sub(r"\s+", " ", clean).strip()
+    return clean[:100]
 
 
 def _parse_frontmatter(text: str) -> tuple[dict, str]:
@@ -98,7 +101,7 @@ def _create_vault_stub(
     folder_path = vault / inbox_folder
     folder_path.mkdir(parents=True, exist_ok=True)
 
-    safe_stem = _safe_filename(filename_stem)
+    safe_stem = _safe_vault_filename(filename_stem)
     note_path = folder_path / f"{safe_stem}.md"
 
     # Build YAML frontmatter string

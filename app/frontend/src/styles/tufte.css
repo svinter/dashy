@@ -8215,20 +8215,17 @@ span.news-item-title {
 }
 
 /* Inline variant — used in horizontal scope bars (Billing).
-   Chips float upward out of flow so the input never shifts. */
+   Chips flow inline beside the input so layout is stable when input auto-hides. */
 .coaching-filter--inline {
   position: relative;
   flex-direction: row;
   align-items: center;
   margin-bottom: 0;
-  gap: 0;
+  gap: var(--space-xs);
   max-width: none;
 }
 
 .coaching-filter--inline .coaching-filter-chips {
-  position: absolute;
-  bottom: calc(100% + 4px);
-  left: 0;
   flex-wrap: nowrap;
   gap: var(--space-xs);
 }
@@ -8781,6 +8778,7 @@ span.news-item-title {
   font-size: var(--text-sm);
   color: var(--color-text-light);
   margin: 0;
+  text-align: center;
 }
 
 .setup-confirmation {
@@ -11234,6 +11232,126 @@ span.news-item-title {
 .libby-queue-retry:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+/* ── Inbox section ── */
+
+.libby-inbox-section {
+  border-top: 1px solid var(--color-border);
+  padding-top: 16px;
+}
+
+.libby-inbox-header {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.libby-section-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-light);
+}
+
+.libby-inbox-count {
+  font-size: 0.72rem;
+  color: var(--color-text-light);
+}
+
+.libby-inbox-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.libby-inbox-item {
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  cursor: pointer;
+  background: var(--color-bg-subtle, rgba(0,0,0,0.015));
+  transition: background 0.1s;
+}
+
+.libby-inbox-item:hover {
+  background: var(--color-bg-hover, rgba(0,0,0,0.04));
+}
+
+.libby-inbox-item--active {
+  border-color: var(--color-accent, #2563eb);
+  background: rgba(37,99,235,0.04);
+}
+
+.libby-inbox-item-line1 {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+
+.libby-inbox-item-name {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-text);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.libby-inbox-item-icon {
+  font-size: 0.8rem;
+  flex-shrink: 0;
+}
+
+.libby-inbox-item-line2 {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--text-xs);
+  color: var(--color-text-light);
+}
+
+.libby-inbox-item-source {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 260px;
+  flex-shrink: 1;
+}
+
+.libby-inbox-item-sep {
+  flex-shrink: 0;
+}
+
+.libby-inbox-item-time {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.libby-inbox-item-dismiss {
+  margin-left: auto;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: var(--color-text-light);
+  padding: 0 2px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.libby-inbox-item-dismiss:hover {
+  color: var(--color-text-secondary);
+}
+
+.libby-inbox-classifying-banner {
+  font-size: var(--text-sm);
+  color: var(--color-text-light);
+  padding: 6px 0;
 }
 
 .libby-form-header {
